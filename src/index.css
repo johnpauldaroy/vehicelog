@@ -1,13 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+:root {
+  --font-body: 'Manrope', 'Aptos', 'Segoe UI', sans-serif;
+  --font-display: 'Plus Jakarta Sans', 'Aptos', 'Segoe UI', sans-serif;
+  --font-size-body: 14px;
+  --font-size-small: 0.86rem;
+  --font-size-label: 0.68rem;
+  --font-size-section-title: 1.18rem;
+  --font-size-page-title: clamp(1.28rem, 1.6vw, 1.58rem);
+  --font-size-hero-title: clamp(1.42rem, 1.95vw, 1.82rem);
+  --font-size-stat: clamp(1.4rem, 1.9vw, 1.68rem);
+  --brand-blue: #0077c8;
+  --brand-blue-deep: #23348f;
+  --brand-orange: #f47b20;
+  --brand-yellow: #ffe20a;
+  --brand-red: #eb1d2d;
+  --bg-canvas: #eef3fb;
+  --bg-shell: #f3f7fd;
+  --bg-surface: rgba(255, 255, 255, 0.96);
+  --bg-subtle: #f6f8fd;
+  --bg-muted: #e9eef8;
+  --bg-accent: var(--brand-blue);
+  --bg-accent-strong: var(--brand-blue-deep);
+  --bg-accent-soft: #dfeafb;
+  --bg-accent-soft-strong: #c7dbf5;
+  --text-strong: #121b42;
+  --text-base: #34415f;
+  --text-muted: #7b8aaa;
+  --text-inverse: #fbfdff;
+  --border-soft: rgba(114, 131, 168, 0.2);
+  --border-strong: rgba(84, 102, 144, 0.34);
+  --shadow-soft: 0 16px 36px rgba(18, 34, 71, 0.08);
+  --shadow-card: 0 22px 54px rgba(18, 34, 71, 0.1);
+  --success-soft: #e7f5ea;
+  --success-text: #256148;
+  --warning-soft: #fcf0d9;
+  --warning-text: #8a631f;
+  --danger-soft: #fae1df;
+  --danger-text: #9b413d;
+  --slate-soft: #edf1f7;
+  --slate-text: #5e6b86;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 28%),
+    linear-gradient(180deg, #f4f7fd 0%, #edf2fb 100%);
+  color: var(--text-strong);
+  font-size: var(--font-size-body);
+  line-height: 1.55;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+a {
+  color: inherit;
 }
