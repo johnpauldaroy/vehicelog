@@ -282,9 +282,11 @@ function App() {
   const [rejectionModalOpen, setRejectionModalOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
+  const [requestDetailsModalOpen, setRequestDetailsModalOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedReviewRequest, setSelectedReviewRequest] = useState(null);
   const [selectedAssignmentRequest, setSelectedAssignmentRequest] = useState(null);
+  const [selectedRequestDetails, setSelectedRequestDetails] = useState(null);
   const [assignmentVehicleId, setAssignmentVehicleId] = useState('');
   const [rejectionRemarks, setRejectionRemarks] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('all');
@@ -1551,6 +1553,16 @@ function App() {
     setAssignmentModalOpen(false);
     setSelectedAssignmentRequest(null);
     setAssignmentVehicleId('');
+  }
+
+  function handleOpenRequestDetails(request) {
+    setSelectedRequestDetails(request);
+    setRequestDetailsModalOpen(true);
+  }
+
+  function handleCloseRequestDetails() {
+    setRequestDetailsModalOpen(false);
+    setSelectedRequestDetails(null);
   }
 
   async function handleReviewRequest(request, nextStatus) {
@@ -3334,12 +3346,16 @@ function App() {
             onRequestSubmit={handleRequestSubmit}
             rejectionModalOpen={rejectionModalOpen}
             assignmentModalOpen={assignmentModalOpen}
+            requestDetailsModalOpen={requestDetailsModalOpen}
             rejectionRemarks={rejectionRemarks}
             selectedReviewRequest={selectedReviewRequest}
             selectedAssignmentRequest={selectedAssignmentRequest}
+            selectedRequestDetails={selectedRequestDetails}
             assignmentVehicleId={assignmentVehicleId}
             onCloseRejectionModal={handleCloseRejectionModal}
             onCloseAssignmentModal={handleCloseAssignmentModal}
+            onOpenRequestDetails={handleOpenRequestDetails}
+            onCloseRequestDetails={handleCloseRequestDetails}
             onAssignmentVehicleChange={setAssignmentVehicleId}
             onRejectionRemarksChange={setRejectionRemarks}
             onRejectRequest={handleRejectRequest}

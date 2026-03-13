@@ -20,12 +20,16 @@ export default function RequestsPage({
   onRequestSubmit,
   rejectionModalOpen,
   assignmentModalOpen,
+  requestDetailsModalOpen,
   rejectionRemarks,
   selectedReviewRequest,
   selectedAssignmentRequest,
+  selectedRequestDetails,
   assignmentVehicleId,
   onCloseRejectionModal,
   onCloseAssignmentModal,
+  onOpenRequestDetails,
+  onCloseRequestDetails,
   onAssignmentVehicleChange,
   onRejectionRemarksChange,
   onRejectRequest,
@@ -118,6 +122,13 @@ export default function RequestsPage({
                     {showsAssignmentActions && (
                       <td>
                         <div className="row-actions">
+                          <button
+                            type="button"
+                            className="button button-secondary row-action-button"
+                            onClick={() => onOpenRequestDetails(request)}
+                          >
+                            View details
+                          </button>
                           <button
                             type="button"
                             className="button button-secondary row-action-button"
@@ -350,6 +361,104 @@ export default function RequestsPage({
                   </span>
                 </div>
               </form>
+            </section>
+          </div>
+        </>
+      )}
+
+      {requestDetailsModalOpen && selectedRequestDetails && showsAssignmentActions && (
+        <>
+          <button
+            type="button"
+            className="app-backdrop modal-backdrop"
+            aria-label="Close request details"
+            onClick={onCloseRequestDetails}
+          />
+          <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Request details">
+            <section className="modal-card">
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Request details</p>
+                  <h3>{selectedRequestDetails.requestNo}</h3>
+                  <p className="modal-copy">
+                    Review the requester, approver, assignment, and trip purpose before taking action.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="button button-secondary modal-close"
+                  onClick={onCloseRequestDetails}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="detail-panel">
+                <dl className="detail-list">
+                  <div>
+                    <dt>Requester</dt>
+                    <dd>{selectedRequestDetails.requestedBy}</dd>
+                  </div>
+                  <div>
+                    <dt>Approver</dt>
+                    <dd>{selectedRequestDetails.approver || 'Pending'}</dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd><StatusBadge status={selectedRequestDetails.status} /></dd>
+                  </div>
+                  <div>
+                    <dt>Branch</dt>
+                    <dd>{selectedRequestDetails.branch}</dd>
+                  </div>
+                  <div>
+                    <dt>Purpose</dt>
+                    <dd>{selectedRequestDetails.purpose || '-'}</dd>
+                  </div>
+                  <div>
+                    <dt>Destination</dt>
+                    <dd>{selectedRequestDetails.destination || '-'}</dd>
+                  </div>
+                  <div>
+                    <dt>Departure</dt>
+                    <dd>{formatDate(selectedRequestDetails.departureDatetime, true)}</dd>
+                  </div>
+                  <div>
+                    <dt>Expected return</dt>
+                    <dd>{formatDate(selectedRequestDetails.expectedReturnDatetime, true)}</dd>
+                  </div>
+                  <div>
+                    <dt>Passenger count</dt>
+                    <dd>{selectedRequestDetails.passengerCount || 0}</dd>
+                  </div>
+                  <div>
+                    <dt>Assigned vehicle</dt>
+                    <dd>{selectedRequestDetails.assignedVehicle || 'Unassigned'}</dd>
+                  </div>
+                  <div>
+                    <dt>Assigned driver</dt>
+                    <dd>{selectedRequestDetails.assignedDriver || 'Unassigned'}</dd>
+                  </div>
+                  <div>
+                    <dt>Fuel authorization</dt>
+                    <dd>
+                      {selectedRequestDetails.fuelRequested
+                        ? `Requested (${selectedRequestDetails.fuelLiters || 0}L / PHP ${selectedRequestDetails.fuelAmount || 0})`
+                        : 'Not requested'}
+                    </dd>
+                  </div>
+                  <div className="full-span">
+                    <dt>Notes</dt>
+                    <dd>{selectedRequestDetails.notes || 'No notes provided.'}</dd>
+                  </div>
+                  {selectedRequestDetails.rejectionReason && (
+                    <div className="full-span">
+                      <dt>Rejection reason</dt>
+                      <dd>{selectedRequestDetails.rejectionReason}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
             </section>
           </div>
         </>
