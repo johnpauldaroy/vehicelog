@@ -447,17 +447,20 @@ on public.maintenance_logs
 for select
 using (public.has_role('admin') or public.same_branch(branch_id));
 
+drop policy if exists "maintenance manage by admin approver driver" on public.maintenance_logs;
 drop policy if exists "maintenance manage by admin approver" on public.maintenance_logs;
-create policy "maintenance manage by admin approver"
+create policy "maintenance manage by admin approver driver"
 on public.maintenance_logs
 for all
 using (
   public.has_role('admin')
   or public.has_role('approver', branch_id)
+  or public.has_role('driver', branch_id)
 )
 with check (
   public.has_role('admin')
   or public.has_role('approver', branch_id)
+  or public.has_role('driver', branch_id)
 );
 
 drop policy if exists "insurance scoped select" on public.insurance_policies;

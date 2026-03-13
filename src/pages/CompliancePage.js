@@ -22,6 +22,9 @@ export default function CompliancePage({
   const [selectedExpiryDetails, setSelectedExpiryDetails] = useState(null);
 
   const isAdmin = mode === 'admin';
+  const isApprover = mode === 'approver';
+  const isDriver = mode === 'driver';
+  const canManageMaintenance = isAdmin || isApprover || isDriver;
   const insuranceWatch = vehicleRecords.filter((vehicle) => daysUntil(vehicle.insuranceExpiry) <= 30);
   const registrationWatch = vehicleRecords.filter((vehicle) => daysUntil(vehicle.registrationExpiry) <= 30);
   
@@ -199,14 +202,16 @@ export default function CompliancePage({
                   <p className="muted">Showing high-priority alerts across all categories.</p>
                 </div>
                 <div className="toolbar-right">
-                  <button 
-                    type="button" 
-                    className="button button-primary"
-                    onClick={() => onOpenMaintenanceModal()}
-                  >
-                    <AppIcon name="wrench" className="button-icon" />
-                    Log maintenance
-                  </button>
+                  {canManageMaintenance && (
+                    <button 
+                      type="button" 
+                      className="button button-primary"
+                      onClick={() => onOpenMaintenanceModal()}
+                    >
+                      <AppIcon name="wrench" className="button-icon" />
+                      Log maintenance
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -227,7 +232,11 @@ export default function CompliancePage({
                       </tr>
                     ) : (
                       pendingMaintenance.map((entry) => (
-                        <tr key={entry.id} className="interactive-row" onClick={() => onOpenMaintenanceModal(entry)}>
+                        <tr
+                          key={entry.id}
+                          className={canManageMaintenance ? 'interactive-row' : ''}
+                          onClick={canManageMaintenance ? () => onOpenMaintenanceModal(entry) : undefined}
+                        >
                           <td><strong>{entry.vehicle}</strong></td>
                           <td><span style={{ fontWeight: 600 }}>{entry.maintenanceType}</span></td>
                           <td>
@@ -237,7 +246,9 @@ export default function CompliancePage({
                             </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <button className="row-action-button button-secondary">Edit</button>
+                            {canManageMaintenance && (
+                              <button className="row-action-button button-secondary">Edit</button>
+                            )}
                           </td>
                         </tr>
                       ))
@@ -402,14 +413,16 @@ export default function CompliancePage({
                   <AppIcon name="email" className="button-icon" />
                   Export CSV
                 </button>
-                <button 
-                  type="button" 
-                  className="button button-primary"
-                  onClick={() => onOpenMaintenanceModal()}
-                >
-                  <AppIcon name="wrench" className="button-icon" />
-                  Log maintenance
-                </button>
+                {canManageMaintenance && (
+                  <button 
+                    type="button" 
+                    className="button button-primary"
+                    onClick={() => onOpenMaintenanceModal()}
+                  >
+                    <AppIcon name="wrench" className="button-icon" />
+                    Log maintenance
+                  </button>
+                )}
               </div>
             </div>
 
@@ -430,7 +443,11 @@ export default function CompliancePage({
                     <tr><td colSpan="6" className="empty-state">No matching records.</td></tr>
                   ) : (
                     filteredMaintenance.map((entry) => (
-                      <tr key={entry.id} className="interactive-row" onClick={() => onOpenMaintenanceModal(entry)}>
+                      <tr
+                        key={entry.id}
+                        className={canManageMaintenance ? 'interactive-row' : ''}
+                        onClick={canManageMaintenance ? () => onOpenMaintenanceModal(entry) : undefined}
+                      >
                         <td>
                           <strong>{entry.vehicle}</strong>
                           {isAdmin && <span className="cell-subtle" style={{ fontSize: '0.7rem' }}>{entry.branch}</span>}

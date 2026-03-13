@@ -47,7 +47,6 @@ import {
   sortByLatestDate,
 } from './utils/appHelpers';
 
-const OPERATIONS_DAY = '2026-03-11T00:00:00';
 const TOAST_DISMISS_MS = 4200;
 const LIVE_BOOTSTRAP_TIMEOUT_MS = 12000;
 const SESSION_PROFILE_TIMEOUT_MS = 20000;
@@ -329,6 +328,11 @@ function App() {
   const sessionHydrationRef = useRef({ userId: '', promise: null });
   const liveDataRefreshRef = useRef({ userId: '', promise: null });
   const normalizedRole = currentSessionUser.role?.toLowerCase();
+  const operationsDay = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return now;
+  }, []);
   const userMode = normalizedRole === 'admin'
     ? 'admin'
     : normalizedRole === 'approver'
@@ -935,10 +939,10 @@ function App() {
       overdue: visibleTripRecords.filter((trip) => trip.tripStatus === 'Overdue').length,
       returned: visibleTripRecords.filter((trip) => trip.tripStatus === 'Returned').length,
       scheduledToday: visibleTripRecords.filter((trip) =>
-        isSameCalendarDay(trip.dateOut || trip.expectedReturn, OPERATIONS_DAY)
+        isSameCalendarDay(trip.dateOut || trip.expectedReturn, operationsDay)
       ).length,
     }),
-    [visibleTripRecords]
+    [operationsDay, visibleTripRecords]
   );
 
   const fleetSummary = useMemo(
@@ -1014,8 +1018,17 @@ function App() {
         weekday: 'long',
         month: 'long',
         day: 'numeric',
-      }).format(new Date(OPERATIONS_DAY)),
-    []
+      }).format(operationsDay),
+    [operationsDay]
+  );
+
+  const todayShortLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat('en-PH', {
+        month: 'long',
+        day: 'numeric',
+      }).format(operationsDay),
+    [operationsDay]
   );
 
   const heroContent = useMemo(() => {
@@ -1334,7 +1347,7 @@ function App() {
           primaryAction: actionFor('requests', 'New request'),
           secondaryAction: actionFor('trips', 'Open dispatch'),
           spotlights: [
-            { label: 'Today', value: tripStatusSummary.scheduledToday, helper: 'Trips touching March 11', icon: 'calendar' },
+            { label: 'Today', value: tripStatusSummary.scheduledToday, helper: `Trips touching ${todayShortLabel}`, icon: 'calendar' },
             { label: 'Alerts', value: notificationFeed.length, helper: 'Active reminders', icon: 'alerts' },
             { label: 'Fleet ready', value: fleetSummary.available, helper: 'Available vehicles', icon: 'vehicles' },
           ],
@@ -1351,6 +1364,7 @@ function App() {
     notificationFeed.length,
     requestStatusSummary,
     selectedView,
+    todayShortLabel,
     tripStatusSummary,
     userMode,
     userRecords.length,
@@ -2179,6 +2193,12 @@ function App() {
   }
 
   function handleOpenMaintenanceModal(maintenance = null) {
+    if (!['admin', 'approver', 'driver'].includes(userMode)) {
+      showToast('Only admins, approvers, and drivers can log maintenance.', 'warning', 'Permission denied');
+      setMaintenanceModalOpen(false);
+      return;
+    }
+
     const defaultBranchId = findBranchId(branchRecords, currentSessionUser.branch);
 
     if (maintenance) {
@@ -2229,6 +2249,12 @@ function App() {
 
   async function handleMaintenanceSubmit(event) {
     event.preventDefault();
+
+    if (!['admin', 'approver', 'driver'].includes(userMode)) {
+      showToast('Only admins, approvers, and drivers can save maintenance logs.', 'warning', 'Permission denied');
+      setMaintenanceModalOpen(false);
+      return;
+    }
 
     if (!maintenanceForm.vehicleId || !maintenanceForm.maintenanceType.trim()) {
       showToast('Select a vehicle and enter the maintenance type.', 'warning', 'Missing details');

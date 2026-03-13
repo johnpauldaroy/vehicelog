@@ -28,6 +28,20 @@ const statusClassMap = {
   'incident reported': 'status-purple',
 };
 
+function padNumber(value) {
+  return String(value).padStart(2, '0');
+}
+
+function toLocalDateTimeInputValue(date) {
+  return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}T${padNumber(date.getHours())}:${padNumber(date.getMinutes())}`;
+}
+
+function getStartOfToday() {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return now;
+}
+
 export function formatDate(value, withTime = false) {
   if (!value) {
     return '-';
@@ -41,7 +55,7 @@ export function formatDate(value, withTime = false) {
 }
 
 export function daysUntil(value) {
-  const now = new Date('2026-03-11T00:00:00');
+  const now = getStartOfToday();
   const target = new Date(value);
   const diff = target.getTime() - now.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
@@ -71,13 +85,20 @@ export function toStatusClass(status) {
 }
 
 export function createRequestForm() {
+  const departure = new Date();
+  departure.setSeconds(0, 0);
+
+  const expectedReturn = new Date(departure);
+  expectedReturn.setHours(expectedReturn.getHours() + 8);
+
   return {
     purpose: '',
     destination: '',
-    departureDatetime: '2026-03-12T07:30',
-    expectedReturnDatetime: '2026-03-12T18:00',
+    departureDatetime: toLocalDateTimeInputValue(departure),
+    expectedReturnDatetime: toLocalDateTimeInputValue(expectedReturn),
     passengerCount: '1',
     assignedDriverId: '',
+    assignedVehicleId: '',
     notes: '',
     fuelRequested: false,
     fuelAmount: '0',
@@ -90,10 +111,12 @@ export function createRequestForm() {
 export function pickCheckoutDefaults(tripRecords, vehicleRecords, readyStatuses) {
   const selectedTrip = tripRecords.find((trip) => readyStatuses.includes(trip.tripStatus));
   const vehicle = vehicleRecords.find((entry) => entry.vehicleName === selectedTrip?.vehicle);
+  const now = new Date();
+  now.setSeconds(0, 0);
 
   return {
     tripId: selectedTrip?.id || '',
-    dateOut: '2026-03-11T09:00',
+    dateOut: toLocalDateTimeInputValue(now),
     odometerOut: selectedTrip?.odometerOut
       ? String(selectedTrip.odometerOut)
       : vehicle
@@ -114,10 +137,12 @@ export function pickCheckoutDefaults(tripRecords, vehicleRecords, readyStatuses)
 
 export function pickCheckinDefaults(tripRecords, activeStatuses) {
   const selectedTrip = tripRecords.find((trip) => activeStatuses.includes(trip.tripStatus));
+  const now = new Date();
+  now.setSeconds(0, 0);
 
   return {
     tripId: selectedTrip?.id || '',
-    dateIn: '2026-03-11T14:15',
+    dateIn: toLocalDateTimeInputValue(now),
     odometerIn: '',
     fuelIn: selectedTrip?.fuelIn || '1/2',
     remarks: 'Fuel receipt uploaded. Slight delay due to bank queue.',
@@ -134,7 +159,8 @@ export function pickCheckinDefaults(tripRecords, activeStatuses) {
 
 export function createRequestNumber(requestRecords) {
   const nextNumber = String(requestRecords.length + 1).padStart(3, '0');
-  return `VR-2026-0311-${nextNumber}`;
+  const now = new Date();
+  return `VR-${now.getFullYear()}-${padNumber(now.getMonth() + 1)}${padNumber(now.getDate())}-${nextNumber}`;
 }
 
 export function createId(prefix) {
