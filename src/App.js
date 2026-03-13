@@ -37,11 +37,15 @@ import VehiclesPage from './pages/VehiclesPage';
 import {
   createId,
   createIncidentForm,
+  createPassengerNameSlots,
   createRequestForm,
   createRequestNumber,
   daysUntil,
+  formatDate,
+  getDriverAssignmentValidation,
   getLatestActivityTimestamp,
   isSameCalendarDay,
+  normalizePassengerCount,
   pickCheckinDefaults,
   pickCheckoutDefaults,
   sortByLatestDate,
@@ -183,6 +187,17 @@ function createMaintenanceForm(defaultVehicleId = '', defaultBranchId = '') {
   };
 }
 
+function createRequestApprovalForm(request = null) {
+  return {
+    assignedDriverId: request?.assignedDriverId || '',
+    fuelRequested: Boolean(request?.fuelRequested),
+    fuelAmount: String(request?.fuelAmount ?? 0),
+    fuelLiters: String(request?.fuelLiters ?? 0),
+    estimatedKms: String(request?.estimatedKms ?? 0),
+    fuelRemarks: request?.fuelRemarks || '',
+  };
+}
+
 function withTimeout(promise, message, timeoutMs = LIVE_BOOTSTRAP_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -288,6 +303,7 @@ function App() {
   const [selectedAssignmentRequest, setSelectedAssignmentRequest] = useState(null);
   const [selectedRequestDetails, setSelectedRequestDetails] = useState(null);
   const [assignmentVehicleId, setAssignmentVehicleId] = useState('');
+  const [requestApprovalForm, setRequestApprovalForm] = useState(() => createRequestApprovalForm());
   const [rejectionRemarks, setRejectionRemarks] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('all');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -836,9 +852,27 @@ function App() {
         && (
           (vehicle.status === 'available' && !unavailableVehicleIds.has(vehicle.id))
           || vehicle.id === selectedAssignmentRequest.assignedVehicleId
-        )
+      )
     );
   }, [selectedAssignmentRequest, unavailableVehicleIds, vehicleRecords]);
+
+  const requestApprovalDriverOptions = useMemo(() => {
+    if (!selectedRequestDetails) {
+      return [];
+    }
+
+    return driverRecords.filter(
+      (driver) =>
+        driver.branch === selectedRequestDetails.branch
+        && (
+          (
+            String(driver.status).toLowerCase() === 'available'
+            && !unavailableDriverIds.has(driver.id)
+          )
+          || driver.id === selectedRequestDetails.assignedDriverId
+        )
+    );
+  }, [driverRecords, selectedRequestDetails, unavailableDriverIds]);
 
   useEffect(() => {
     if (
@@ -908,6 +942,10 @@ function App() {
   const vehicleBranchOptions = useMemo(
     () => buildBranchSelectOptions(branchOptions, vehicleSettingsForm.branchId, vehicleSettingsForm.branchName),
     [branchOptions, vehicleSettingsForm.branchId, vehicleSettingsForm.branchName]
+  );
+  const selectedRequestApprovalVehicle = useMemo(
+    () => vehicleRecords.find((vehicle) => vehicle.id === selectedRequestDetails?.assignedVehicleId) || null,
+    [selectedRequestDetails?.assignedVehicleId, vehicleRecords]
   );
 
   const requestStatusSummary = useMemo(
@@ -1431,9 +1469,33 @@ function App() {
   }
 
   function handleRequestFormChange(field, value) {
+    setRequestForm((current) => {
+      if (field === 'passengerCount') {
+        const passengerCount = String(normalizePassengerCount(value));
+        const nextPassengerNames = createPassengerNameSlots(passengerCount).map(
+          (_entry, index) => current.passengerNames?.[index] || ''
+        );
+
+        return {
+          ...current,
+          passengerCount,
+          passengerNames: nextPassengerNames,
+        };
+      }
+
+      return {
+        ...current,
+        [field]: value,
+      };
+    });
+  }
+
+  function handleRequestPassengerNameChange(index, value) {
     setRequestForm((current) => ({
       ...current,
-      [field]: value,
+      passengerNames: createPassengerNameSlots(current.passengerCount).map(
+        (_entry, slotIndex) => (slotIndex === index ? value : current.passengerNames?.[slotIndex] || '')
+      ),
     }));
   }
 
@@ -1557,22 +1619,77 @@ function App() {
 
   function handleOpenRequestDetails(request) {
     setSelectedRequestDetails(request);
+    setRequestApprovalForm(createRequestApprovalForm(request));
     setRequestDetailsModalOpen(true);
   }
 
   function handleCloseRequestDetails() {
     setRequestDetailsModalOpen(false);
     setSelectedRequestDetails(null);
+    setRequestApprovalForm(createRequestApprovalForm());
   }
 
-  async function handleReviewRequest(request, nextStatus) {
+  function handleRequestApprovalFieldChange(field, value) {
+    setRequestApprovalForm((current) => {
+      if (field === 'fuelRequested' || field === 'fuelAmount' || field === 'estimatedKms' || field === 'fuelRemarks') {
+        return current;
+      }
+
+      if (field === 'fuelLiters') {
+        const selectedVehicle = vehicleRecords.find((vehicle) => vehicle.id === selectedRequestDetails?.assignedVehicleId);
+        const efficiency = Number(selectedVehicle?.fuelEfficiency || 10);
+        const liters = value;
+
+        return {
+          ...current,
+          fuelLiters: liters,
+          estimatedKms: String((Number(liters) || 0) * efficiency),
+        };
+      }
+
+      return {
+        ...current,
+        [field]: value,
+      };
+    });
+  }
+
+  function getDriverAssignmentValidationMessage(validation) {
+    const messages = [];
+
+    if (validation.licenseExpired) {
+      messages.push(`The selected driver's license expired on ${formatDate(validation.licenseExpiry)}.`);
+    }
+
+    if (validation.restrictionMismatch) {
+      const currentRestrictions = validation.driverRestrictions.length ? validation.driverRestrictions.join(', ') : 'None';
+      const requiredRestrictions = validation.requiredRestrictions.join(' or ');
+      messages.push(`The selected driver's restrictions (${currentRestrictions}) do not match the ${validation.vehicleTypeLabel || 'selected vehicle'} requirement (${requiredRestrictions}).`);
+    }
+
+    return messages.join(' ');
+  }
+
+  async function handleReviewRequest(request, nextStatus, approvalDetails = null) {
     if (userMode !== 'approver') {
-      return;
+      return false;
+    }
+
+    if (nextStatus === 'Approved' && approvalDetails) {
+      const selectedDriver = driverRecords.find(
+        (driver) => driver.id === (approvalDetails.assignedDriverId || request.assignedDriverId || '')
+      );
+      const validation = getDriverAssignmentValidation(selectedDriver, selectedRequestApprovalVehicle);
+
+      if (!validation.isValid) {
+        showToast(getDriverAssignmentValidationMessage(validation), 'warning', 'Driver validation');
+        return false;
+      }
     }
 
     if (supabase) {
       try {
-        await reviewLiveRequest(supabase, request, currentSessionUser, nextStatus);
+        await reviewLiveRequest(supabase, request, currentSessionUser, nextStatus, approvalDetails);
         await refreshLiveData(currentSessionUser);
         appendAuditEntry({
           category: 'request',
@@ -1582,12 +1699,16 @@ function App() {
           details: `${currentSessionUser.name} changed ${request.requestNo} to ${nextStatus}.`,
         });
         showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
+        return true;
       } catch (error) {
         showToast(error.message || `Unable to mark the request as ${nextStatus.toLowerCase()}.`, 'danger', 'Update failed');
+        return false;
       }
-
-      return;
     }
+
+    const nextAssignedDriverId = approvalDetails?.assignedDriverId ?? request.assignedDriverId;
+    const nextAssignedDriver = driverRecords.find((driver) => driver.id === nextAssignedDriverId);
+    const previousAssignedDriverId = request.assignedDriverId;
 
     setRequestRecords((current) =>
       current.map((entry) =>
@@ -1598,10 +1719,39 @@ function App() {
               rejectionReason: nextStatus === 'Rejected' ? entry.rejectionReason || '' : '',
               approver: currentSessionUser.name,
               approverId: currentSessionUser.id,
+              assignedDriverId: nextAssignedDriverId || '',
+              assignedDriver: nextAssignedDriver?.fullName || entry.assignedDriver,
+              fuelRequested: approvalDetails?.fuelRequested ?? entry.fuelRequested,
+              fuelAmount: Number(approvalDetails?.fuelAmount ?? entry.fuelAmount ?? 0),
+              fuelLiters: Number(approvalDetails?.fuelLiters ?? entry.fuelLiters ?? 0),
+              estimatedKms: Number(approvalDetails?.estimatedKms ?? entry.estimatedKms ?? 0),
+              fuelRemarks: approvalDetails?.fuelRemarks ?? entry.fuelRemarks ?? '',
             }
           : entry
       )
     );
+    if (nextStatus === 'Approved' && previousAssignedDriverId !== nextAssignedDriverId) {
+      setDriverRecords((current) =>
+        current.map((driver) => {
+          if (previousAssignedDriverId && driver.id === previousAssignedDriverId) {
+            return {
+              ...driver,
+              status: 'available',
+            };
+          }
+
+          if (nextAssignedDriverId && driver.id === nextAssignedDriverId) {
+            return {
+              ...driver,
+              status: 'assigned',
+            };
+          }
+
+          return driver;
+        })
+      );
+    }
+
     if (nextStatus === 'Rejected') {
       if (request.assignedVehicleId) {
         setVehicleRecords((current) =>
@@ -1637,6 +1787,7 @@ function App() {
       details: `${currentSessionUser.name} changed ${request.requestNo} to ${nextStatus}.`,
     });
     showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
+    return true;
   }
 
   function handleRejectRequest(request) {
@@ -2572,14 +2723,24 @@ function App() {
 
     const purpose = requestForm.purpose.trim();
     const destination = requestForm.destination.trim();
+    const passengerCount = normalizePassengerCount(requestForm.passengerCount);
+    const passengerNames = createPassengerNameSlots(passengerCount).map(
+      (_entry, index) => String(requestForm.passengerNames?.[index] || '').trim()
+    );
 
     if (!purpose || !destination) {
       showToast('Add a purpose and destination before sending the request.', 'warning', 'Missing details');
       return;
     }
 
+    if (passengerNames.some((name) => !name)) {
+      showToast('Add a companion name for every additional passenger beyond the driver.', 'warning', 'Missing passengers');
+      return;
+    }
+
     const selectedVehicle = vehicleRecords.find((vehicle) => vehicle.id === requestForm.assignedVehicleId);
     const selectedDriver = driverRecords.find((driver) => driver.id === requestForm.assignedDriverId);
+    const driverAssignmentValidation = getDriverAssignmentValidation(selectedDriver, selectedVehicle);
 
     if (
       requestForm.assignedVehicleId
@@ -2603,12 +2764,21 @@ function App() {
       return;
     }
 
+    if (requestForm.assignedDriverId && !driverAssignmentValidation.isValid) {
+      showToast(getDriverAssignmentValidationMessage(driverAssignmentValidation), 'warning', 'Driver validation');
+      return;
+    }
+
     if (supabase) {
       try {
         const requestNo = await createLiveRequest(
           supabase,
           currentSessionUser,
-          requestForm,
+          {
+            ...requestForm,
+            passengerCount,
+            passengerNames,
+          },
           requestRecords.length
         );
 
@@ -2643,13 +2813,19 @@ function App() {
       destination,
       departureDatetime: requestForm.departureDatetime,
       expectedReturnDatetime: requestForm.expectedReturnDatetime,
-      passengerCount: Number(requestForm.passengerCount || 1),
+      passengerCount,
+      passengerNames,
       status: 'Pending Approval',
       approver: 'Pending',
       assignedVehicle: selectedVehicle?.vehicleName || 'Unassigned',
       assignedVehicleId: requestForm.assignedVehicleId || '',
       assignedDriver: selectedDriver?.fullName || 'Unassigned',
       assignedDriverId: requestForm.assignedDriverId || '',
+      fuelRequested: requestForm.fuelRequested,
+      fuelAmount: Number(requestForm.fuelAmount || 0),
+      fuelLiters: Number(requestForm.fuelLiters || 0),
+      estimatedKms: Number(requestForm.estimatedKms || 0),
+      fuelRemarks: requestForm.fuelRemarks.trim(),
     };
 
     setRequestRecords((current) => [nextRequest, ...current]);
@@ -3337,12 +3513,17 @@ function App() {
             filteredRequests={filteredRequests}
             requestModalOpen={requestModalOpen}
             requestForm={requestForm}
+            requestApprovalForm={requestApprovalForm}
             driverOptions={requestDriverOptions}
             vehicleOptions={requestVehicleOptions}
+            allVehicleRecords={vehicleRecords}
             assignmentVehicleOptions={assignmentVehicleOptions}
+            requestApprovalDriverOptions={requestApprovalDriverOptions}
             onOpenRequestModal={handleOpenRequestModal}
             onCloseRequestModal={() => setRequestModalOpen(false)}
             onRequestFormChange={handleRequestFormChange}
+            onRequestApprovalFieldChange={handleRequestApprovalFieldChange}
+            onRequestPassengerNameChange={handleRequestPassengerNameChange}
             onRequestSubmit={handleRequestSubmit}
             rejectionModalOpen={rejectionModalOpen}
             assignmentModalOpen={assignmentModalOpen}
@@ -3428,7 +3609,6 @@ function App() {
             onEditDriver={handleOpenDriverSettingsModal}
             onDeleteDriver={handleDeleteDriver}
             onAddVehicle={() => handleOpenVehicleSettingsModal()}
-            onEditVehicle={handleOpenVehicleSettingsModal}
             onDeleteVehicle={handleDeleteVehicle}
           />
         )}

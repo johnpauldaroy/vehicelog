@@ -1,7 +1,8 @@
+import { useEffect, useRef, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
-import { formatDate } from '../utils/appHelpers';
+import { formatDate, getDriverAssignmentValidation } from '../utils/appHelpers';
 
 export default function RequestsPage({
   mode,
@@ -11,12 +12,17 @@ export default function RequestsPage({
   filteredRequests,
   requestModalOpen,
   requestForm,
+  requestApprovalForm,
   driverOptions,
   vehicleOptions,
+  allVehicleRecords = [],
   assignmentVehicleOptions,
+  requestApprovalDriverOptions,
   onOpenRequestModal,
   onCloseRequestModal,
   onRequestFormChange,
+  onRequestApprovalFieldChange,
+  onRequestPassengerNameChange,
   onRequestSubmit,
   rejectionModalOpen,
   assignmentModalOpen,
@@ -43,14 +49,82 @@ export default function RequestsPage({
   const isDriver = mode === 'driver';
   const showsQueue = isAdmin || isApprover;
   const showsAssignmentActions = isAdmin || isApprover;
+  const [openActionMenuId, setOpenActionMenuId] = useState('');
+  const actionMenuRef = useRef(null);
+  const selectedRequestDriver = driverOptions.find((driver) => driver.id === requestForm.assignedDriverId) || null;
+  const selectedRequestVehicle = vehicleOptions.find((vehicle) => vehicle.id === requestForm.assignedVehicleId) || null;
+  const requestDriverValidation = getDriverAssignmentValidation(selectedRequestDriver, selectedRequestVehicle);
+  const selectedApprovalDriver = requestApprovalDriverOptions.find(
+    (driver) => driver.id === requestApprovalForm.assignedDriverId
+  ) || null;
+  const selectedApprovalVehicle = allVehicleRecords.find(
+    (vehicle) => vehicle.id === selectedRequestDetails?.assignedVehicleId
+  ) || null;
+  const approvalDriverValidation = getDriverAssignmentValidation(selectedApprovalDriver, selectedApprovalVehicle);
+
+  function renderDriverValidationNotice(validation) {
+    if (validation.isValid) {
+      return null;
+    }
+
+    return (
+      <div
+        style={{
+          marginTop: '8px',
+          padding: '12px',
+          borderRadius: '12px',
+          border: '1px solid rgba(185, 28, 28, 0.2)',
+          background: 'rgba(185, 28, 28, 0.08)',
+          color: '#991b1b',
+        }}
+      >
+        {validation.licenseExpired && (
+          <div>Selected driver license expired on {formatDate(validation.licenseExpiry)}.</div>
+        )}
+        {validation.restrictionMismatch && (
+          <div>
+            Selected driver restrictions {validation.driverRestrictions.length ? validation.driverRestrictions.join(', ') : 'none'}
+            {' '}do not match the {validation.vehicleTypeLabel || 'selected vehicle'} requirement
+            {' '}({validation.requiredRestrictions.join(' or ')}).
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(event.target)) {
+        setOpenActionMenuId('');
+      }
+    }
+
+    function handleEscape(event) {
+      if (event.key === 'Escape') {
+        setOpenActionMenuId('');
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
 
   async function handleApproveFromDetails() {
     if (!selectedRequestDetails) {
       return;
     }
 
-    await onApproveRequest(selectedRequestDetails, 'Approved');
-    onCloseRequestDetails();
+    const didApprove = await onApproveRequest(selectedRequestDetails, 'Approved', requestApprovalForm);
+
+    if (didApprove) {
+      setOpenActionMenuId('');
+      onCloseRequestDetails();
+    }
   }
 
   function handleRejectFromDetails() {
@@ -58,6 +132,7 @@ export default function RequestsPage({
       return;
     }
 
+    setOpenActionMenuId('');
     onCloseRequestDetails();
     onRejectRequest(selectedRequestDetails);
   }
@@ -94,7 +169,7 @@ export default function RequestsPage({
             )}
           </div>
 
-          <div className="table-wrap">
+          <div className="table-wrap request-table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
@@ -115,7 +190,7 @@ export default function RequestsPage({
                     </td>
                   </tr>
                 )}
-                {filteredRequests.map((request) => (
+                {filteredRequests.map((request, index) => (
                   <tr key={request.id}>
                     <td>{request.requestNo}</td>
                     {showsQueue && <td>{request.requestedBy}</td>}
@@ -139,40 +214,74 @@ export default function RequestsPage({
                     </td>
                     {showsAssignmentActions && (
                       <td>
-                        <div className="row-actions">
+                        {(() => {
+                          const isClosedRequest = String(request.status || '').toLowerCase() === 'closed';
+                          const opensUpward = index >= Math.max(filteredRequests.length - 2, 0);
+
+                          return (
+                        <div className="action-menu-shell" ref={openActionMenuId === request.id ? actionMenuRef : null}>
                           <button
                             type="button"
-                            className="button button-secondary row-action-button"
-                            onClick={() => onOpenRequestDetails(request)}
+                            className="button button-secondary action-menu-trigger"
+                            aria-label={`Open actions for ${request.requestNo}`}
+                            aria-expanded={openActionMenuId === request.id}
+                            onClick={() => setOpenActionMenuId((current) => (current === request.id ? '' : request.id))}
                           >
-                            View details
+                            <AppIcon name="more" className="button-icon" />
                           </button>
-                          <button
-                            type="button"
-                            className="button button-secondary row-action-button"
-                            onClick={() => onOpenAssignmentModal(request)}
-                          >
-                            {request.assignedVehicleId ? 'Edit vehicle' : 'Assign vehicle'}
-                          </button>
-                          {isApprover && request.status === 'Pending Approval' && (
-                            <>
+                          {openActionMenuId === request.id && (
+                            <div className={`action-menu-popover${opensUpward ? ' action-menu-popover-up' : ''}`}>
                               <button
                                 type="button"
-                                className="button button-primary row-action-button"
-                                onClick={() => onOpenRequestDetails(request)}
+                                className="action-menu-item"
+                                onClick={() => {
+                                  setOpenActionMenuId('');
+                                  onOpenRequestDetails(request);
+                                }}
                               >
-                                Approve
+                                View details
                               </button>
-                              <button
-                                type="button"
-                                className="button button-danger row-action-button"
-                                onClick={() => onRejectRequest(request)}
-                              >
-                                Reject
-                              </button>
-                            </>
+                              {!isClosedRequest && (
+                                <button
+                                  type="button"
+                                  className="action-menu-item"
+                                  onClick={() => {
+                                    setOpenActionMenuId('');
+                                    onOpenAssignmentModal(request);
+                                  }}
+                                >
+                                  {request.assignedVehicleId ? 'Edit vehicle' : 'Assign vehicle'}
+                                </button>
+                              )}
+                              {!isClosedRequest && isApprover && request.status === 'Pending Approval' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="action-menu-item action-menu-item-primary"
+                                    onClick={() => {
+                                      setOpenActionMenuId('');
+                                      onOpenRequestDetails(request);
+                                    }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="action-menu-item action-menu-item-danger"
+                                    onClick={() => {
+                                      setOpenActionMenuId('');
+                                      onRejectRequest(request);
+                                    }}
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           )}
                         </div>
+                          );
+                        })()}
                       </td>
                     )}
                   </tr>
@@ -255,6 +364,26 @@ export default function RequestsPage({
                     onChange={(event) => onRequestFormChange('passengerCount', event.target.value)}
                   />
                 </label>
+                <div className="full-span">
+                  <span className="field-label">Passenger / companion names</span>
+                  {Number(requestForm.passengerCount) <= 1 ? (
+                    <div className="cell-subtle">No companion name needed. A passenger count of 1 indicates the driver only.</div>
+                  ) : (
+                    <div className="form-grid">
+                      {requestForm.passengerNames.map((passengerName, index) => (
+                        <label key={`passenger-slot-${index}`}>
+                          <span className="field-label">Companion {index + 1}</span>
+                          <input
+                            className="input"
+                            value={passengerName}
+                            onChange={(event) => onRequestPassengerNameChange(index, event.target.value)}
+                            placeholder={`Name for companion ${index + 1}`}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <label>
                   <span className="field-label">Assigned driver</span>
                   <select
@@ -296,6 +425,11 @@ export default function RequestsPage({
                     ))}
                   </select>
                 </label>
+                {!requestDriverValidation.isValid && (
+                  <div className="full-span">
+                    {renderDriverValidationNotice(requestDriverValidation)}
+                  </div>
+                )}
                 <div className="full-span" style={{ marginTop: '8px', padding: '12px', background: 'rgba(0,0,0,0.02)', borderRadius: '12px' }}>
                   <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
                     <input
@@ -449,20 +583,116 @@ export default function RequestsPage({
                     <dt>Passenger count</dt>
                     <dd>{selectedRequestDetails.passengerCount || 0}</dd>
                   </div>
+                  <div className="full-span">
+                    <dt>Passenger names</dt>
+                    <dd>
+                      {Number(selectedRequestDetails.passengerCount || 0) <= 1 ? (
+                        'Driver only'
+                      ) : selectedRequestDetails.passengerNames?.length ? (
+                        <ul className="detail-inline-list">
+                          {selectedRequestDetails.passengerNames.map((passengerName, index) => (
+                            <li key={`${selectedRequestDetails.id}-passenger-${index}`}>{passengerName}</li>
+                          ))}
+                        </ul>
+                      ) : 'No passenger names provided.'}
+                    </dd>
+                  </div>
                   <div>
                     <dt>Assigned vehicle</dt>
                     <dd>{selectedRequestDetails.assignedVehicle || 'Unassigned'}</dd>
                   </div>
                   <div>
                     <dt>Assigned driver</dt>
-                    <dd>{selectedRequestDetails.assignedDriver || 'Unassigned'}</dd>
+                    <dd>
+                      {isApprover && selectedRequestDetails.status === 'Pending Approval' ? (
+                        <select
+                          className="input"
+                          value={requestApprovalForm.assignedDriverId}
+                          onChange={(event) => onRequestApprovalFieldChange('assignedDriverId', event.target.value)}
+                        >
+                          <option value="">No driver selected</option>
+                          {requestApprovalDriverOptions.map((driver) => (
+                            <option key={driver.id} value={driver.id}>
+                              {driver.fullName} ({driver.status})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        selectedRequestDetails.assignedDriver || 'Unassigned'
+                      )}
+                    </dd>
                   </div>
-                  <div>
+                  {isApprover && selectedRequestDetails.status === 'Pending Approval' && approvalDriverValidation && !approvalDriverValidation.isValid && (
+                    <div className="full-span">
+                      {renderDriverValidationNotice(approvalDriverValidation)}
+                    </div>
+                  )}
+                  <div className="full-span">
                     <dt>Fuel authorization</dt>
                     <dd>
-                      {selectedRequestDetails.fuelRequested
-                        ? `Requested (${selectedRequestDetails.fuelLiters || 0}L / PHP ${selectedRequestDetails.fuelAmount || 0})`
-                        : 'Not requested'}
+                      {isApprover && selectedRequestDetails.status === 'Pending Approval' ? (
+                        <div className="form-grid">
+                          {requestApprovalForm.fuelRequested ? (
+                            <>
+                              <span className="cell-subtle full-span">Fuel authorization requested.</span>
+                              <label>
+                                <span className="field-label">Fuel amount (PHP)</span>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  min="0"
+                                  value={requestApprovalForm.fuelAmount}
+                                  readOnly
+                                  style={{ background: 'rgba(0,0,0,0.05)', fontWeight: '600' }}
+                                />
+                              </label>
+                              <label>
+                                <span className="field-label">Approved liters</span>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  min="0"
+                                  value={requestApprovalForm.fuelLiters}
+                                  onChange={(event) => onRequestApprovalFieldChange('fuelLiters', event.target.value)}
+                                />
+                              </label>
+                              <label>
+                                <span className="field-label">Estimated range (KM)</span>
+                                <input
+                                  className="input"
+                                  type="number"
+                                  value={requestApprovalForm.estimatedKms}
+                                  readOnly
+                                  style={{ background: 'rgba(0,0,0,0.05)', fontWeight: '600' }}
+                                />
+                              </label>
+                              <label className="full-span">
+                                <span className="field-label">Fuel remarks</span>
+                                <input
+                                  className="input"
+                                  value={requestApprovalForm.fuelRemarks}
+                                  readOnly
+                                  style={{ background: 'rgba(0,0,0,0.05)' }}
+                                />
+                              </label>
+                            </>
+                          ) : (
+                            <span className="cell-subtle">No fuel authorization requested for this trip.</span>
+                          )}
+                        </div>
+                      ) : selectedRequestDetails.fuelRequested ? (
+                        <>
+                          <span>{`Requested (${selectedRequestDetails.fuelLiters || 0}L / PHP ${selectedRequestDetails.fuelAmount || 0})`}</span>
+                          {selectedRequestDetails.estimatedKms ? (
+                            <span className="cell-subtle">{`${selectedRequestDetails.estimatedKms} KM estimated range`}</span>
+                          ) : null}
+                          {selectedRequestDetails.fuelRemarks ? (
+                            <span className="cell-subtle">{selectedRequestDetails.fuelRemarks}</span>
+                          ) : null}
+                        </>
+                      ) : (
+                        'Not requested'
+                      )}
                     </dd>
                   </div>
                   <div className="full-span">

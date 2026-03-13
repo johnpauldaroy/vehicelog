@@ -320,6 +320,122 @@ async function requiredSelect(label, query) {
   return data ?? [];
 }
 
+function isMissingVehicleRequestFuelColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+
+  return (
+    (message.includes('vehicle_requests.fuel_') || message.includes("'fuel_"))
+    && (message.includes('does not exist') || message.includes('schema cache'))
+  );
+}
+
+function withVehicleRequestFuelDefaults(request) {
+  return {
+    ...request,
+    fuel_requested: Boolean(request?.fuel_requested),
+    fuel_amount: Number(request?.fuel_amount || 0),
+    fuel_liters: Number(request?.fuel_liters || 0),
+    estimated_kms: Number(request?.estimated_kms || 0),
+    fuel_remarks: request?.fuel_remarks || '',
+  };
+}
+
+function stripVehicleRequestFuelFields(payload) {
+  const {
+    fuel_requested,
+    fuel_amount,
+    fuel_liters,
+    estimated_kms,
+    fuel_remarks,
+    ...rest
+  } = payload;
+
+  return rest;
+}
+
+async function selectVehicleRequests(client) {
+  const baseSelect = `
+    id,
+    request_no,
+    requested_by,
+    branch_id,
+    purpose,
+    destination,
+    departure_datetime,
+    expected_return_datetime,
+    passenger_count,
+    notes,
+    status,
+    rejection_reason,
+    approver_id,
+    assigned_vehicle_id,
+    assigned_driver_id
+  `;
+  const fuelSelect = `
+    fuel_requested,
+    fuel_amount,
+    fuel_liters,
+    estimated_kms,
+    fuel_remarks
+  `;
+
+  const { data, error } = await client
+    .from('vehicle_requests')
+    .select(`${baseSelect},${fuelSelect}`);
+
+  if (!error) {
+    return (data ?? []).map(withVehicleRequestFuelDefaults);
+  }
+
+  if (!isMissingVehicleRequestFuelColumnError(error)) {
+    throw new Error(`Unable to load vehicle requests: ${error.message}`);
+  }
+
+  const { data: fallbackData, error: fallbackError } = await client
+    .from('vehicle_requests')
+    .select(baseSelect);
+
+  if (fallbackError) {
+    throw new Error(`Unable to load vehicle requests: ${fallbackError.message}`);
+  }
+
+  return (fallbackData ?? []).map(withVehicleRequestFuelDefaults);
+}
+
+async function insertVehicleRequest(client, payload) {
+  let result = await client
+    .from('vehicle_requests')
+    .insert(payload)
+    .select('id')
+    .single();
+
+  if (result.error && isMissingVehicleRequestFuelColumnError(result.error)) {
+    result = await client
+      .from('vehicle_requests')
+      .insert(stripVehicleRequestFuelFields(payload))
+      .select('id')
+      .single();
+  }
+
+  return result;
+}
+
+async function updateVehicleRequest(client, requestId, payload) {
+  let result = await client
+    .from('vehicle_requests')
+    .update(payload)
+    .eq('id', requestId);
+
+  if (result.error && isMissingVehicleRequestFuelColumnError(result.error)) {
+    result = await client
+      .from('vehicle_requests')
+      .update(stripVehicleRequestFuelFields(payload))
+      .eq('id', requestId);
+  }
+
+  return result;
+}
+
 async function selectFirst(label, query) {
   const { data, error } = await query;
 
@@ -604,6 +720,7 @@ export async function fetchLiveAppData(client) {
     vehicles,
     drivers,
     requests,
+    requestPassengers,
     tripLogs,
     maintenanceLogs,
     notifications,
@@ -630,25 +747,13 @@ export async function fetchLiveAppData(client) {
       `)
     ),
     requiredSelect('drivers', client.from('drivers').select('id, profile_id, full_name, status, branch_id, license_number, license_restrictions, license_expiry, employee_id, contact_number')),
+    selectVehicleRequests(client),
     requiredSelect(
-      'vehicle requests',
-      client.from('vehicle_requests').select(`
-        id,
-        request_no,
-        requested_by,
-        branch_id,
-        purpose,
-        destination,
-        departure_datetime,
-        expected_return_datetime,
-        passenger_count,
-        notes,
-        status,
-        rejection_reason,
-        approver_id,
-        assigned_vehicle_id,
-        assigned_driver_id
-      `)
+      'request passengers',
+      client
+        .from('request_passengers')
+        .select('id, request_id, passenger_name, passenger_role, created_at')
+        .order('created_at', { ascending: true })
     ),
     requiredSelect(
       'trip logs',
@@ -726,9 +831,20 @@ export async function fetchLiveAppData(client) {
   const vehicleMap = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const driverMap = new Map(drivers.map((driver) => [driver.id, driver]));
   const tripByRequestId = new Map(tripLogs.map((trip) => [trip.request_id, trip]));
+  const passengersByRequestId = requestPassengers.reduce((map, passenger) => {
+    const entries = map.get(passenger.request_id) || [];
+    entries.push({
+      id: passenger.id,
+      name: passenger.passenger_name,
+      role: passenger.passenger_role || '',
+    });
+    map.set(passenger.request_id, entries);
+    return map;
+  }, new Map());
 
   const requestRecords = requests.map((request) => {
     const trip = tripByRequestId.get(request.id);
+    const passengerEntries = passengersByRequestId.get(request.id) || [];
 
     return {
       id: request.id,
@@ -744,7 +860,14 @@ export async function fetchLiveAppData(client) {
       departureDatetime: request.departure_datetime,
       expectedReturnDatetime: request.expected_return_datetime,
       passengerCount: request.passenger_count,
+      passengerNames: passengerEntries.map((entry) => entry.name),
+      passengers: passengerEntries,
       notes: request.notes || '',
+      fuelRequested: Boolean(request.fuel_requested),
+      fuelAmount: Number(request.fuel_amount || 0),
+      fuelLiters: Number(request.fuel_liters || 0),
+      estimatedKms: Number(request.estimated_kms || 0),
+      fuelRemarks: request.fuel_remarks || '',
       status: deriveRequestStatus(request, trip),
       rejectionReason: request.rejection_reason || '',
       approver: request.approver_id ? profileMap.get(request.approver_id)?.full_name || 'Pending' : 'Pending',
@@ -757,11 +880,6 @@ export async function fetchLiveAppData(client) {
         ? driverMap.get(request.assigned_driver_id)?.full_name || 'Unassigned'
         : 'Unassigned',
       assignedDriverId: request.assigned_driver_id,
-      fuelRequested: false,
-      fuelAmount: 0,
-      fuelLiters: 0,
-      estimatedKms: 0,
-      fuelRemarks: '',
     };
   });
 
@@ -937,13 +1055,16 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
   const requestNo = formatRequestNumber(new Date(), existingCount + 1);
   const selectedVehicleId = requestForm.assignedVehicleId || null;
   const selectedDriverId = requestForm.assignedDriverId || null;
+  const passengerNames = Array.isArray(requestForm.passengerNames)
+    ? requestForm.passengerNames.map((name) => String(name || '').trim()).filter(Boolean)
+    : [];
 
   await Promise.all([
     assertVehicleIsAvailable(client, selectedVehicleId),
     assertDriverIsAvailable(client, selectedDriverId),
   ]);
 
-  const { error } = await client.from('vehicle_requests').insert({
+  const requestInsertPayload = {
     request_no: requestNo,
     requested_by: currentSessionUser.id,
     branch_id: currentSessionUser.branchId,
@@ -953,14 +1074,38 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     expected_return_datetime: requestForm.expectedReturnDatetime,
     passenger_count: Number(requestForm.passengerCount || 1),
     notes: requestForm.notes.trim(),
+    fuel_requested: Boolean(requestForm.fuelRequested),
+    fuel_amount: Number(requestForm.fuelAmount || 0),
+    fuel_liters: Number(requestForm.fuelLiters || 0),
+    estimated_kms: Number(requestForm.estimatedKms || 0),
+    fuel_remarks: requestForm.fuelRemarks?.trim() || '',
     status: 'Pending Approval',
     assigned_vehicle_id: selectedVehicleId,
     assigned_driver_id: selectedDriverId,
     created_by: currentSessionUser.id,
-  });
+  };
+
+  const { data: insertedRequest, error } = await insertVehicleRequest(client, requestInsertPayload);
 
   if (error) {
     throw error;
+  }
+
+  if (passengerNames.length) {
+    const { error: passengerInsertError } = await client
+      .from('request_passengers')
+      .insert(
+        passengerNames.map((passengerName) => ({
+          request_id: insertedRequest.id,
+          passenger_name: passengerName,
+          passenger_role: 'Passenger',
+          created_by: currentSessionUser.id,
+        }))
+      );
+
+    if (passengerInsertError) {
+      throw passengerInsertError;
+    }
   }
 
   const statusUpdates = [];
@@ -1079,27 +1224,80 @@ export async function checkinLiveTrip(client, trip, checkinForm, odometerIn) {
   }
 }
 
-export async function reviewLiveRequest(client, request, sessionUser, nextStatus, rejectionReason = '') {
+export async function reviewLiveRequest(client, request, sessionUser, nextStatus, approvalDetailsOrRejectionReason = null) {
+  const approvalDetails = nextStatus === 'Approved' && approvalDetailsOrRejectionReason && typeof approvalDetailsOrRejectionReason === 'object'
+    ? approvalDetailsOrRejectionReason
+    : null;
+  const rejectionReason = nextStatus === 'Rejected'
+    ? String(approvalDetailsOrRejectionReason || '')
+    : '';
+  const nextAssignedDriverId = approvalDetails?.assignedDriverId || request.assignedDriverId || null;
+  const previousAssignedDriverId = request.assignedDriverId || null;
   const updatePayload = {
     status: nextStatus,
     approver_id: sessionUser.id,
     rejection_reason: nextStatus === 'Rejected' ? rejectionReason.trim() : null,
   };
 
+  if (approvalDetails) {
+    updatePayload.assigned_driver_id = nextAssignedDriverId;
+    updatePayload.fuel_requested = Boolean(approvalDetails.fuelRequested);
+    updatePayload.fuel_amount = Number(approvalDetails.fuelAmount || 0);
+    updatePayload.fuel_liters = Number(approvalDetails.fuelLiters || 0);
+    updatePayload.estimated_kms = Number(approvalDetails.estimatedKms || 0);
+    updatePayload.fuel_remarks = approvalDetails.fuelRemarks?.trim() || '';
+  }
+
   if (nextStatus === 'Approved') {
+    if (nextAssignedDriverId && nextAssignedDriverId !== previousAssignedDriverId) {
+      await assertDriverIsAvailable(client, nextAssignedDriverId);
+    }
+
     updatePayload.approved_at = new Date().toISOString();
   }
 
-  const { error } = await client
-    .from('vehicle_requests')
-    .update(updatePayload)
-    .eq('id', request.dbId || request.requestId || request.id);
+  const { error } = await updateVehicleRequest(
+    client,
+    request.dbId || request.requestId || request.id,
+    updatePayload
+  );
 
   if (error) {
     throw error;
   }
 
   if (nextStatus === 'Approved') {
+    if (nextAssignedDriverId !== previousAssignedDriverId) {
+      const driverUpdates = [];
+
+      if (previousAssignedDriverId) {
+        driverUpdates.push(
+          client
+            .from('drivers')
+            .update({ status: 'available' })
+            .eq('id', previousAssignedDriverId)
+        );
+      }
+
+      if (nextAssignedDriverId) {
+        driverUpdates.push(
+          client
+            .from('drivers')
+            .update({ status: 'assigned' })
+            .eq('id', nextAssignedDriverId)
+        );
+      }
+
+      if (driverUpdates.length) {
+        const driverResults = await Promise.all(driverUpdates);
+        const driverUpdateError = driverResults.find((result) => result.error)?.error;
+
+        if (driverUpdateError) {
+          throw driverUpdateError;
+        }
+      }
+    }
+
     await syncTripLogForRequest(client, request.dbId || request.requestId || request.id);
   }
 

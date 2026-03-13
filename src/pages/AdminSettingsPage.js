@@ -21,7 +21,6 @@ export default function AdminSettingsPage({
   onEditDriver,
   onDeleteDriver,
   onAddVehicle,
-  onEditVehicle,
   onDeleteVehicle,
 }) {
   const [activeTab, setActiveTab] = useState('users');
@@ -354,9 +353,6 @@ export default function AdminSettingsPage({
                           <AppIcon name="eye" className="button-icon" />
                           View details
                         </button>
-                        <button type="button" className="button button-secondary row-action-button" onClick={() => onEditVehicle(vehicle)}>
-                          Edit
-                        </button>
                         <button type="button" className="button button-danger row-action-button" onClick={() => onDeleteVehicle(vehicle)}>
                           <AppIcon name="trash" className="button-icon" />
                           Delete
@@ -501,7 +497,6 @@ export default function AdminSettingsPage({
       onEditBranch,
       onEditDriver,
       onEditUser,
-      onEditVehicle,
       userRecords,
       vehicleRecords,
     ],

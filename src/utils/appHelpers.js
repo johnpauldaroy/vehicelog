@@ -42,6 +42,85 @@ function getStartOfToday() {
   return now;
 }
 
+export function normalizePassengerCount(value) {
+  const parsedValue = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return 1;
+  }
+
+  return parsedValue;
+}
+
+export function createPassengerNameSlots(count) {
+  return Array.from({ length: Math.max(normalizePassengerCount(count) - 1, 0) }, () => '');
+}
+
+function normalizeRestrictionCodes(value) {
+  return String(value || '')
+    .split(/[,\s/]+/)
+    .map((entry) => entry.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function getVehicleRestrictionRequirement(vehicleType) {
+  const normalizedType = String(vehicleType || '').trim().toLowerCase();
+
+  if (!normalizedType) {
+    return null;
+  }
+
+  if (normalizedType.includes('van')) {
+    return { requiredRestrictions: ['B2'], label: 'Van' };
+  }
+
+  if (normalizedType.includes('pickup') || normalizedType.includes('suv') || normalizedType.includes('mpv')) {
+    return { requiredRestrictions: ['B1', 'B2'], label: String(vehicleType).trim() };
+  }
+
+  if (normalizedType.includes('sedan')) {
+    return { requiredRestrictions: ['B', 'B1', 'B2'], label: 'Sedan' };
+  }
+
+  return null;
+}
+
+export function getDriverAssignmentValidation(driver, vehicle) {
+  if (!driver) {
+    return {
+      isValid: true,
+      licenseExpired: false,
+      restrictionMismatch: false,
+      licenseExpiry: '',
+      driverRestrictions: [],
+      requiredRestrictions: [],
+      vehicleTypeLabel: '',
+    };
+  }
+
+  const today = getStartOfToday();
+  const expiryDate = driver.licenseExpiry ? new Date(`${driver.licenseExpiry}T00:00:00`) : null;
+  const licenseExpired = Boolean(expiryDate && expiryDate.getTime() < today.getTime());
+  const driverRestrictions = normalizeRestrictionCodes(driver.licenseRestrictions || driver.restrictions);
+  const vehicleRequirement = getVehicleRestrictionRequirement(vehicle?.type);
+  const requiredRestrictions = vehicleRequirement?.requiredRestrictions || [];
+  const restrictionMismatch = Boolean(
+    vehicleRequirement
+    && requiredRestrictions.length
+    && !driverRestrictions.some((restriction) => requiredRestrictions.includes(restriction))
+  );
+
+  return {
+    isValid: !licenseExpired && !restrictionMismatch,
+    licenseExpired,
+    restrictionMismatch,
+    licenseExpiry: driver.licenseExpiry || '',
+    driverRestrictions,
+    requiredRestrictions,
+    vehicleTypeLabel: vehicleRequirement?.label || String(vehicle?.type || '').trim(),
+  };
+}
+
 export function formatDate(value, withTime = false) {
   if (!value) {
     return '-';
@@ -97,6 +176,7 @@ export function createRequestForm() {
     departureDatetime: toLocalDateTimeInputValue(departure),
     expectedReturnDatetime: toLocalDateTimeInputValue(expectedReturn),
     passengerCount: '1',
+    passengerNames: createPassengerNameSlots(1),
     assignedDriverId: '',
     assignedVehicleId: '',
     notes: '',
