@@ -44,6 +44,24 @@ export default function RequestsPage({
   const showsQueue = isAdmin || isApprover;
   const showsAssignmentActions = isAdmin || isApprover;
 
+  async function handleApproveFromDetails() {
+    if (!selectedRequestDetails) {
+      return;
+    }
+
+    await onApproveRequest(selectedRequestDetails, 'Approved');
+    onCloseRequestDetails();
+  }
+
+  function handleRejectFromDetails() {
+    if (!selectedRequestDetails) {
+      return;
+    }
+
+    onCloseRequestDetails();
+    onRejectRequest(selectedRequestDetails);
+  }
+
   return (
     <>
       <div className="content-grid content-grid-tight">
@@ -141,7 +159,7 @@ export default function RequestsPage({
                               <button
                                 type="button"
                                 className="button button-primary row-action-button"
-                                onClick={() => onApproveRequest(request, 'Approved')}
+                                onClick={() => onOpenRequestDetails(request)}
                               >
                                 Approve
                               </button>
@@ -459,6 +477,24 @@ export default function RequestsPage({
                   )}
                 </dl>
               </div>
+              {isApprover && selectedRequestDetails.status === 'Pending Approval' && (
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="button button-primary button-solid"
+                    onClick={handleApproveFromDetails}
+                  >
+                    Approve request
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-danger"
+                    onClick={handleRejectFromDetails}
+                  >
+                    Reject request
+                  </button>
+                </div>
+              )}
             </section>
           </div>
         </>
