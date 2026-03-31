@@ -2749,6 +2749,36 @@
   border: 1px solid rgba(114, 131, 168, 0.12);
 }
 
+.calendar-status-overview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.calendar-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+
+.calendar-status-pill-booked {
+  color: #8a4d00;
+  background: rgba(244, 123, 32, 0.12);
+  border-color: rgba(244, 123, 32, 0.2);
+}
+
+.calendar-status-pill-ongoing {
+  color: #0e568f;
+  background: rgba(0, 119, 200, 0.12);
+  border-color: rgba(0, 119, 200, 0.2);
+}
+
 .react-calendar {
   width: 100% !important;
   max-width: 400px;
@@ -2808,7 +2838,48 @@
   height: 5px;
   background: var(--brand-orange);
   border-radius: 50%;
-  margin-top: 4px;
+  margin-top: 2px;
+}
+
+.calendar-tile-meta {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.calendar-tile-counts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+.calendar-count-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.calendar-count-tag-booked {
+  color: #8a4d00;
+  background: rgba(244, 123, 32, 0.18);
+}
+
+.calendar-count-tag-ongoing {
+  color: #0e568f;
+  background: rgba(0, 119, 200, 0.16);
+}
+
+@media (max-width: 560px) {
+  .calendar-count-tag {
+    font-size: 0.58rem;
+    padding: 1px 5px;
+  }
 }
 
 .event-red { border-bottom: 3px solid var(--danger-text) !important; }

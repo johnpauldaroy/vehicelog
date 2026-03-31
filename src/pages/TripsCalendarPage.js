@@ -3,11 +3,25 @@ import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
+import { ACTIVE_TRIP_STATUSES, READY_FOR_CHECKOUT } from '../constants/appConfig';
 import { formatDate, toEventClass } from '../utils/appHelpers';
 
 export default function TripsCalendarPage({ tripRecords }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTripId, setSelectedTripId] = useState(null);
+  const [activeStartDate, setActiveStartDate] = useState(new Date());
+
+  function toDayKey(value) {
+    return `${value.getFullYear()}-${value.getMonth()}-${value.getDate()}`;
+  }
+
+  function isBookedTrip(trip) {
+    return READY_FOR_CHECKOUT.includes(String(trip?.tripStatus || ''));
+  }
+
+  function isOngoingTrip(trip) {
+    return ACTIVE_TRIP_STATUSES.includes(String(trip?.tripStatus || ''));
+  }
 
   const selectedTrip = useMemo(() => {
     return selectedTripId ? tripRecords.find(t => t.id === selectedTripId) : null;
@@ -34,17 +48,102 @@ export default function TripsCalendarPage({ tripRecords }) {
     );
   }
 
+  const tripCountsByDay = useMemo(() => {
+    const nextCounts = new Map();
+
+    tripRecords.forEach((trip) => {
+      const uniqueDayKeys = new Set(
+        getTripCalendarDates(trip).map((tripDate) => toDayKey(tripDate))
+      );
+
+      uniqueDayKeys.forEach((dayKey) => {
+        const existing = nextCounts.get(dayKey) || {
+          total: 0,
+          booked: 0,
+          ongoing: 0,
+        };
+
+        existing.total += 1;
+
+        if (isBookedTrip(trip)) {
+          existing.booked += 1;
+        }
+
+        if (isOngoingTrip(trip)) {
+          existing.ongoing += 1;
+        }
+
+        nextCounts.set(dayKey, existing);
+      });
+    });
+
+    return nextCounts;
+  }, [tripRecords]);
+
   const tripsOnSelectedDate = useMemo(() => {
     return tripRecords.filter((trip) => {
       return getTripCalendarDates(trip).some((tripDate) => isSameDay(tripDate, selectedDate));
     });
   }, [selectedDate, tripRecords]);
 
+  const selectedDateCounts = useMemo(() => {
+    return tripCountsByDay.get(toDayKey(selectedDate)) || {
+      total: 0,
+      booked: 0,
+      ongoing: 0,
+    };
+  }, [selectedDate, tripCountsByDay]);
+
+  const activeMonthCounts = useMemo(() => {
+    const month = activeStartDate.getMonth();
+    const year = activeStartDate.getFullYear();
+
+    return tripRecords.reduce((summary, trip) => {
+      const touchesMonth = getTripCalendarDates(trip).some(
+        (tripDate) => tripDate.getFullYear() === year && tripDate.getMonth() === month
+      );
+
+      if (!touchesMonth) {
+        return summary;
+      }
+
+      if (isBookedTrip(trip)) {
+        summary.booked += 1;
+      }
+
+      if (isOngoingTrip(trip)) {
+        summary.ongoing += 1;
+      }
+
+      return summary;
+    }, { booked: 0, ongoing: 0 });
+  }, [activeStartDate, tripRecords]);
+
   const tileContent = ({ date, view }) => {
     if (view === 'month') {
-      const hasTrip = tripRecords.some((trip) => getTripCalendarDates(trip).some((tripDate) => isSameDay(tripDate, date)));
+      const dayCounts = tripCountsByDay.get(toDayKey(date));
 
-      return hasTrip ? <div className="calendar-dot" /> : null;
+      if (!dayCounts?.total) {
+        return null;
+      }
+
+      return (
+        <div className="calendar-tile-meta">
+          <div className="calendar-dot" />
+          <div className="calendar-tile-counts">
+            {dayCounts.booked > 0 && (
+              <span className="calendar-count-tag calendar-count-tag-booked">
+                {dayCounts.booked} booked
+              </span>
+            )}
+            {dayCounts.ongoing > 0 && (
+              <span className="calendar-count-tag calendar-count-tag-ongoing">
+                {dayCounts.ongoing} ongoing
+              </span>
+            )}
+          </div>
+        </div>
+      );
     }
 
     return null;
@@ -67,10 +166,23 @@ export default function TripsCalendarPage({ tripRecords }) {
     <div className="content-grid-tight calendar-page">
       <div className="calendar-layout">
         <SectionCard title="Trip Calendar" subtitle="Check vehicle bookings and scheduled travel">
+          <div className="calendar-status-overview">
+            <span className="calendar-status-pill calendar-status-pill-booked">
+              Booked this month: {activeMonthCounts.booked}
+            </span>
+            <span className="calendar-status-pill calendar-status-pill-ongoing">
+              Ongoing this month: {activeMonthCounts.ongoing}
+            </span>
+          </div>
           <div className="calendar-container premium-glass">
             <Calendar
               onChange={setSelectedDate}
               value={selectedDate}
+              onActiveStartDateChange={({ activeStartDate: nextStartDate }) => {
+                if (nextStartDate) {
+                  setActiveStartDate(nextStartDate);
+                }
+              }}
               tileContent={tileContent}
               tileClassName={tileClassName}
             />
@@ -79,7 +191,9 @@ export default function TripsCalendarPage({ tripRecords }) {
 
         <SectionCard 
           title={`Trips for ${formatDate(selectedDate)}`}
-          subtitle={tripsOnSelectedDate.length > 0 ? `${tripsOnSelectedDate.length} booking(s) scheduled` : "No trips scheduled for this date"}
+          subtitle={tripsOnSelectedDate.length > 0
+            ? `${tripsOnSelectedDate.length} trip(s): ${selectedDateCounts.booked} booked, ${selectedDateCounts.ongoing} ongoing`
+            : 'No trips scheduled for this date'}
         >
           <div className="calendar-trip-list">
             {tripsOnSelectedDate.length === 0 ? (
