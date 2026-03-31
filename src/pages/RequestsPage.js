@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
-import { formatDate, getDriverAssignmentValidation } from '../utils/appHelpers';
+import { canPrintRequestStatus, formatDate, getDriverAssignmentValidation } from '../utils/appHelpers';
 
 export default function RequestsPage({
   mode,
@@ -42,6 +42,7 @@ export default function RequestsPage({
   onOpenAssignmentModal,
   onAssignmentSubmit,
   onApproveRequest,
+  onPrintRequest,
   onRejectSubmit,
 }) {
   const isAdmin = mode === 'admin';
@@ -50,7 +51,11 @@ export default function RequestsPage({
   const showsQueue = isAdmin || isApprover;
   const showsAssignmentActions = isAdmin || isApprover;
   const [openActionMenuId, setOpenActionMenuId] = useState('');
+  const [requestDateFrom, setRequestDateFrom] = useState('');
+  const [requestDateTo, setRequestDateTo] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const actionMenuRef = useRef(null);
+  const requestsPerPage = 6;
   const selectedRequestDriver = driverOptions.find((driver) => driver.id === requestForm.assignedDriverId) || null;
   const selectedRequestVehicle = vehicleOptions.find((vehicle) => vehicle.id === requestForm.assignedVehicleId) || null;
   const requestDriverValidation = getDriverAssignmentValidation(selectedRequestDriver, selectedRequestVehicle);
@@ -61,10 +66,28 @@ export default function RequestsPage({
     (vehicle) => vehicle.id === selectedRequestDetails?.assignedVehicleId
   ) || null;
   const approvalDriverValidation = getDriverAssignmentValidation(selectedApprovalDriver, selectedApprovalVehicle);
+  const canPrintSelectedRequest = showsAssignmentActions && canPrintRequestStatus(selectedRequestDetails?.status);
+  const isRequestSubmissionBlocked = Boolean(requestForm.assignedDriverId && !requestDriverValidation.isValid);
 
   function renderDriverValidationNotice(validation) {
     if (validation.isValid) {
       return null;
+    }
+
+    const guidanceItems = [];
+
+    if (validation.licenseExpired) {
+      guidanceItems.push(`Update the driver's license expiry before assigning this request.`);
+    }
+
+    if (validation.vehicleRequirementMissing) {
+      guidanceItems.push('Edit the selected vehicle and set either its vehicle type or its required restriction profile before assigning a driver.');
+    }
+
+    if (validation.restrictionMismatch) {
+      guidanceItems.push(
+        `Select a driver whose license restrictions include all codes required for ${validation.vehicleTypeLabel || 'the selected vehicle'}: ${validation.requiredRestrictions.join(', ')}.`
+      );
     }
 
     return (
@@ -81,27 +104,69 @@ export default function RequestsPage({
         {validation.licenseExpired && (
           <div>Selected driver license expired on {formatDate(validation.licenseExpiry)}.</div>
         )}
+        {validation.vehicleRequirementMissing && (
+          <div>
+            The selected vehicle does not have a configured type or required restriction profile yet.
+          </div>
+        )}
         {validation.restrictionMismatch && (
           <div>
-            Selected driver restrictions {validation.driverRestrictions.length ? validation.driverRestrictions.join(', ') : 'none'}
-            {' '}do not match the {validation.vehicleTypeLabel || 'selected vehicle'} requirement
-            {' '}({validation.requiredRestrictions.join(' or ')}).
+            The selected driver's license restrictions ({validation.driverRestrictions.length ? validation.driverRestrictions.join(', ') : 'none'})
+            {' '}do not satisfy the full requirement for {validation.vehicleTypeLabel || 'the selected vehicle'}
+            {' '}({validation.requiredRestrictions.join(', ')}).
+          </div>
+        )}
+        {guidanceItems.length > 0 && (
+          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(185, 28, 28, 0.16)' }}>
+            <strong style={{ display: 'block', marginBottom: '4px' }}>Notes</strong>
+            {guidanceItems.map((item) => (
+              <div key={item}>{item}</div>
+            ))}
           </div>
         )}
       </div>
     );
   }
 
+  function closeActionMenu() {
+    setOpenActionMenuId('');
+  }
+
+  const dateFilteredRequests = useMemo(() => {
+    return filteredRequests.filter((request) => {
+      const requestDate = String(request.departureDatetime || '').slice(0, 10);
+
+      if (requestDateFrom && requestDate < requestDateFrom) {
+        return false;
+      }
+
+      if (requestDateTo && requestDate > requestDateTo) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [filteredRequests, requestDateFrom, requestDateTo]);
+
+  const totalPages = Math.max(1, Math.ceil(dateFilteredRequests.length / requestsPerPage));
+  const paginatedRequests = useMemo(() => {
+    const startIndex = (currentPage - 1) * requestsPerPage;
+    return dateFilteredRequests.slice(startIndex, startIndex + requestsPerPage);
+  }, [currentPage, dateFilteredRequests]);
+
+  const pageStart = dateFilteredRequests.length === 0 ? 0 : (currentPage - 1) * requestsPerPage + 1;
+  const pageEnd = Math.min(currentPage * requestsPerPage, dateFilteredRequests.length);
+
   useEffect(() => {
     function handlePointerDown(event) {
       if (actionMenuRef.current && !actionMenuRef.current.contains(event.target)) {
-        setOpenActionMenuId('');
+        closeActionMenu();
       }
     }
 
     function handleEscape(event) {
       if (event.key === 'Escape') {
-        setOpenActionMenuId('');
+        closeActionMenu();
       }
     }
 
@@ -114,6 +179,16 @@ export default function RequestsPage({
     };
   }, []);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [requestSearch, requestDateFrom, requestDateTo]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   async function handleApproveFromDetails() {
     if (!selectedRequestDetails) {
       return;
@@ -122,7 +197,7 @@ export default function RequestsPage({
     const didApprove = await onApproveRequest(selectedRequestDetails, 'Approved', requestApprovalForm);
 
     if (didApprove) {
-      setOpenActionMenuId('');
+      closeActionMenu();
       onCloseRequestDetails();
     }
   }
@@ -132,9 +207,14 @@ export default function RequestsPage({
       return;
     }
 
-    setOpenActionMenuId('');
+    closeActionMenu();
     onCloseRequestDetails();
     onRejectRequest(selectedRequestDetails);
+  }
+
+  function clearDateFilters() {
+    setRequestDateFrom('');
+    setRequestDateTo('');
   }
 
   return (
@@ -161,6 +241,34 @@ export default function RequestsPage({
                   : 'Search request number, destination, or status'
               }
             />
+            <div className="request-filter-group">
+              <label className="request-date-filter">
+                <span className="field-label">From</span>
+                <input
+                  type="date"
+                  className="input"
+                  value={requestDateFrom}
+                  onChange={(event) => setRequestDateFrom(event.target.value)}
+                />
+              </label>
+              <label className="request-date-filter">
+                <span className="field-label">To</span>
+                <input
+                  type="date"
+                  className="input"
+                  value={requestDateTo}
+                  onChange={(event) => setRequestDateTo(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="button button-secondary request-filter-clear"
+                onClick={clearDateFilters}
+                disabled={!requestDateFrom && !requestDateTo}
+              >
+                Clear dates
+              </button>
+            </div>
             {!isApprover && (
               <button type="button" className="button button-primary" onClick={onOpenRequestModal}>
                 <AppIcon name="requests" className="button-icon" />
@@ -173,29 +281,25 @@ export default function RequestsPage({
             <table className="data-table">
               <thead>
                 <tr>
+                  <th>Status</th>
                   <th>Request No</th>
                   {showsQueue && <th>Requester</th>}
                   <th>Destination</th>
                   <th>Schedule</th>
-                  <th>Status</th>
                   <th>Assignment</th>
                   {showsAssignmentActions && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {filteredRequests.length === 0 && (
+                {dateFilteredRequests.length === 0 && (
                   <tr>
                     <td colSpan={showsQueue ? (showsAssignmentActions ? 7 : 6) : 5} className="empty-state">
-                      {showsQueue ? 'No requests match the current search.' : isDriver ? 'No submitted or assigned requests match your search.' : 'No requests match your search.'}
+                      {showsQueue ? 'No requests match the current search or date filter.' : isDriver ? 'No submitted or assigned requests match your search or date filter.' : 'No requests match your search or date filter.'}
                     </td>
                   </tr>
                 )}
-                {filteredRequests.map((request, index) => (
+                {paginatedRequests.map((request, index) => (
                   <tr key={request.id}>
-                    <td>{request.requestNo}</td>
-                    {showsQueue && <td>{request.requestedBy}</td>}
-                    <td>{request.destination}</td>
-                    <td>{formatDate(request.departureDatetime, true)}</td>
                     <td>
                       <StatusBadge status={request.status} />
                       {request.rejectionReason && (
@@ -204,10 +308,14 @@ export default function RequestsPage({
                       {request.fuelRequested && (
                         <div className="fuel-indicator" style={{ marginTop: '4px', fontSize: '0.75rem', color: '#5b7ee3', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <AppIcon name="release" style={{ width: '12px', height: '12px' }} />
-                          <span>Fuel requested (₱{request.fuelAmount})</span>
+                          <span>{`Fuel requested (\u20B1${request.fuelAmount})`}</span>
                         </div>
                       )}
                     </td>
+                    <td>{request.requestNo}</td>
+                    {showsQueue && <td>{request.requestedBy}</td>}
+                    <td>{request.destination}</td>
+                    <td>{formatDate(request.departureDatetime, true)}</td>
                     <td>
                       {request.assignedVehicle}
                       <span className="cell-subtle">{request.assignedDriver}</span>
@@ -216,70 +324,75 @@ export default function RequestsPage({
                       <td>
                         {(() => {
                           const isClosedRequest = String(request.status || '').toLowerCase() === 'closed';
-                          const opensUpward = index >= Math.max(filteredRequests.length - 2, 0);
+                          const isPendingApproval = request.status === 'Pending Approval';
+                          const opensUpward = index >= Math.max(paginatedRequests.length - 2, 0);
 
                           return (
-                        <div className="action-menu-shell" ref={openActionMenuId === request.id ? actionMenuRef : null}>
-                          <button
-                            type="button"
-                            className="button button-secondary action-menu-trigger"
-                            aria-label={`Open actions for ${request.requestNo}`}
-                            aria-expanded={openActionMenuId === request.id}
-                            onClick={() => setOpenActionMenuId((current) => (current === request.id ? '' : request.id))}
-                          >
-                            <AppIcon name="more" className="button-icon" />
-                          </button>
-                          {openActionMenuId === request.id && (
-                            <div className={`action-menu-popover${opensUpward ? ' action-menu-popover-up' : ''}`}>
+                            <div className="action-menu-shell" ref={openActionMenuId === request.id ? actionMenuRef : null}>
                               <button
                                 type="button"
-                                className="action-menu-item"
-                                onClick={() => {
-                                  setOpenActionMenuId('');
-                                  onOpenRequestDetails(request);
-                                }}
+                                className="button button-secondary action-menu-trigger"
+                                aria-label={`Open actions for ${request.requestNo}`}
+                                aria-expanded={openActionMenuId === request.id}
+                                aria-haspopup="menu"
+                                onClick={() => setOpenActionMenuId((current) => (current === request.id ? '' : request.id))}
                               >
-                                View details
+                                <span className="action-menu-trigger-label">Actions</span>
+                                <AppIcon name="more" className="button-icon" />
                               </button>
-                              {!isClosedRequest && (
-                                <button
-                                  type="button"
-                                  className="action-menu-item"
-                                  onClick={() => {
-                                    setOpenActionMenuId('');
-                                    onOpenAssignmentModal(request);
-                                  }}
-                                >
-                                  {request.assignedVehicleId ? 'Edit vehicle' : 'Assign vehicle'}
-                                </button>
-                              )}
-                              {!isClosedRequest && isApprover && request.status === 'Pending Approval' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="action-menu-item action-menu-item-primary"
-                                    onClick={() => {
-                                      setOpenActionMenuId('');
-                                      onOpenRequestDetails(request);
-                                    }}
-                                  >
-                                    Approve
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="action-menu-item action-menu-item-danger"
-                                    onClick={() => {
-                                      setOpenActionMenuId('');
-                                      onRejectRequest(request);
-                                    }}
-                                  >
-                                    Reject
-                                  </button>
-                                </>
+                              {openActionMenuId === request.id && (
+                                <div className={`action-menu-popover${opensUpward ? ' action-menu-popover-up' : ''}`} role="menu">
+                                  {(!isApprover || !isPendingApproval) && (
+                                    <button
+                                      type="button"
+                                      className="action-menu-item"
+                                      onClick={() => {
+                                        closeActionMenu();
+                                        onOpenRequestDetails(request);
+                                      }}
+                                    >
+                                      View details
+                                    </button>
+                                  )}
+                                  {!isClosedRequest && isAdmin && (
+                                    <button
+                                      type="button"
+                                      className="action-menu-item"
+                                      onClick={() => {
+                                        closeActionMenu();
+                                        onOpenAssignmentModal(request);
+                                      }}
+                                    >
+                                      {request.assignedVehicleId ? 'Edit vehicle' : 'Assign vehicle'}
+                                    </button>
+                                  )}
+                                  {!isClosedRequest && isApprover && isPendingApproval && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="action-menu-item action-menu-item-primary"
+                                        onClick={() => {
+                                          closeActionMenu();
+                                          onOpenRequestDetails(request);
+                                        }}
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="action-menu-item action-menu-item-danger"
+                                        onClick={() => {
+                                          closeActionMenu();
+                                          onRejectRequest(request);
+                                        }}
+                                      >
+                                        Reject
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               )}
                             </div>
-                          )}
-                        </div>
                           );
                         })()}
                       </td>
@@ -288,6 +401,34 @@ export default function RequestsPage({
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="request-pagination">
+            <p className="request-pagination-copy">
+              {dateFilteredRequests.length === 0
+                ? 'No requests to show'
+                : `Showing ${pageStart}-${pageEnd} of ${dateFilteredRequests.length} requests`}
+            </p>
+            <div className="request-pagination-actions">
+              <button
+                type="button"
+                className="button button-secondary request-page-button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </button>
+              <span className="request-page-indicator">
+                Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="button button-secondary request-page-button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </SectionCard>
       </div>
@@ -505,11 +646,13 @@ export default function RequestsPage({
                   />
                 </label>
                 <div className="full-span form-actions">
-                  <button type="submit" className="button button-primary button-solid">
+                  <button type="submit" className="button button-primary button-solid" disabled={isRequestSubmissionBlocked}>
                     Submit request
                   </button>
                   <span className="muted">
-                    Only currently available drivers and vehicles are shown for selection.
+                    {isRequestSubmissionBlocked
+                      ? 'Resolve the driver validation note before submitting this request.'
+                      : 'Only currently available drivers and vehicles are shown for selection.'}
                   </span>
                 </div>
               </form>
@@ -707,8 +850,19 @@ export default function RequestsPage({
                   )}
                 </dl>
               </div>
+              {canPrintSelectedRequest && (
+                <div className="form-actions request-detail-actions">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => onPrintRequest(selectedRequestDetails)}
+                  >
+                    {selectedRequestDetails.fuelRequested ? 'Open fuel slip PDF' : 'Open approved PDF'}
+                  </button>
+                </div>
+              )}
               {isApprover && selectedRequestDetails.status === 'Pending Approval' && (
-                <div className="form-actions">
+                <div className="form-actions request-detail-actions">
                   <button
                     type="button"
                     className="button button-primary button-solid"

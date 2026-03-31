@@ -67,6 +67,14 @@ export default function AppIcon({ name, className = '' }) {
           <path d="M4 7h16M4 12h16M4 17h16" />
         </svg>
       );
+    case 'more':
+      return (
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className={iconClassName}>
+          <circle cx="6.5" cy="12" r="1.7" />
+          <circle cx="12" cy="12" r="1.7" />
+          <circle cx="17.5" cy="12" r="1.7" />
+        </svg>
+      );
     case 'email':
       return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName}>
@@ -124,6 +132,15 @@ export default function AppIcon({ name, className = '' }) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName}>
           <path d="M8 3.5v4M16 3.5v4M5.5 7h13A1.5 1.5 0 0 1 20 8.5v10A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5v-10A1.5 1.5 0 0 1 5.5 7Z" />
           <path d="M4 10h16" />
+        </svg>
+      );
+    case 'reports':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName}>
+          <path d="M5 19.5h14" />
+          <path d="M7.5 17V10.5" />
+          <path d="M12 17V6.5" />
+          <path d="M16.5 17v-4.5" />
         </svg>
       );
     case 'people':

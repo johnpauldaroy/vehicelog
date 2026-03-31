@@ -31,10 +31,13 @@ import AdminSettingsPage from './pages/AdminSettingsPage';
 import CompliancePage from './pages/CompliancePage';
 import DashboardPage from './pages/DashboardPage';
 import RequestsPage from './pages/RequestsPage';
+import ReportsPage from './pages/ReportsPage';
 import TripsPage from './pages/TripsPage';
 import TripsCalendarPage from './pages/TripsCalendarPage';
 import VehiclesPage from './pages/VehiclesPage';
+import { openApprovedRequestPdf } from './utils/requestPdf';
 import {
+  canPrintRequestStatus,
   createId,
   createIncidentForm,
   createPassengerNameSlots,
@@ -63,6 +66,27 @@ const EMPTY_SESSION_USER = {
   branch: 'Unassigned',
   branchId: '',
 };
+
+const DEFAULT_VEHICLE_TYPE_RECORDS = [
+  { id: '20000000-0000-0000-0000-000000000001', name: 'Pickup' },
+  { id: '20000000-0000-0000-0000-000000000002', name: 'SUV' },
+  { id: '20000000-0000-0000-0000-000000000003', name: 'MPV' },
+  { id: '20000000-0000-0000-0000-000000000004', name: 'Sedan' },
+  { id: '20000000-0000-0000-0000-000000000005', name: 'Van' },
+];
+
+const LICENSE_RESTRICTION_OPTIONS = ['A', 'A1', 'B', 'B1', 'B2', 'C', 'D', 'BE'];
+
+function normalizeRestrictionSelection(value) {
+  return Array.from(
+    new Set(
+      String(value || '')
+        .split(/[,\s/]+/)
+        .map((entry) => entry.trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+}
 
 function getToastIconName(tone) {
   switch (tone) {
@@ -170,6 +194,7 @@ function createVehicleSettingsForm(defaultBranchId = '', defaultTypeId = '') {
     insurance_expiry: '2026-12-31',
     fuelEfficiency: '10',
     isOdoDefective: false,
+    requiredRestrictions: '',
   };
 }
 
@@ -286,9 +311,11 @@ function readCachedSessionUserForId(authUserId) {
 }
 
 function App() {
-  const [currentSessionUser, setCurrentSessionUser] = useState(EMPTY_SESSION_USER);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(Boolean(supabase));
+  const initialCachedSessionUserRef = useRef(readCachedSessionUser());
+  const initialCachedSessionUser = initialCachedSessionUserRef.current;
+  const [currentSessionUser, setCurrentSessionUser] = useState(() => initialCachedSessionUser || EMPTY_SESSION_USER);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(initialCachedSessionUser));
+  const [isBootstrapping, setIsBootstrapping] = useState(() => Boolean(supabase && !initialCachedSessionUser));
   const [, setIsLiveDataLoading] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [activeView, setActiveView] = useState('dashboard');
@@ -340,7 +367,7 @@ function App() {
   const [checkoutForm, setCheckoutForm] = useState(() => pickCheckoutDefaults([], [], READY_FOR_CHECKOUT));
   const [checkinForm, setCheckinForm] = useState(() => pickCheckinDefaults([], ACTIVE_TRIP_STATUSES));
   const [toast, setToast] = useState(null);
-  const cachedSessionUserRef = useRef(readCachedSessionUser());
+  const cachedSessionUserRef = useRef(initialCachedSessionUser);
   const isSigningOutRef = useRef(false);
   const expectedSessionUserIdRef = useRef('');
   const sessionHydrationRef = useRef({ userId: '', promise: null });
@@ -529,6 +556,7 @@ function App() {
         setMaintenanceRecords(liveData.maintenanceRecords);
         setIncidentRecords(liveData.incidentRecords);
         setNotificationFeed(liveData.notificationFeed);
+        setAuditRecords(liveData.auditRecords || []);
         setLiveDataError('');
         return liveData;
       })
@@ -747,20 +775,52 @@ function App() {
   );
 
   const filteredRequests = useMemo(() => {
-    return visibleRequestRecords.filter((request) => {
-      const haystack = [
-        request.requestNo,
-        request.requestedBy,
-        request.branch,
-        request.purpose,
-        request.destination,
-        request.status,
-      ]
-        .join(' ')
-        .toLowerCase();
+    function getRequestSortValue(request) {
+      const createdTime = Date.parse(request.createdAt || '');
 
-      return haystack.includes(requestSearch.toLowerCase());
-    });
+      if (Number.isFinite(createdTime)) {
+        return createdTime;
+      }
+
+      const departureTime = Date.parse(request.departureDatetime || '');
+
+      if (Number.isFinite(departureTime)) {
+        return departureTime;
+      }
+
+      const requestNoMatch = String(request.requestNo || '').match(/^VR-(\d{4})-(\d{4})-(\d{3})$/);
+
+      if (requestNoMatch) {
+        return Number(`${requestNoMatch[1]}${requestNoMatch[2]}${requestNoMatch[3]}`);
+      }
+
+      return 0;
+    }
+
+    return visibleRequestRecords
+      .filter((request) => {
+        const haystack = [
+          request.requestNo,
+          request.requestedBy,
+          request.branch,
+          request.purpose,
+          request.destination,
+          request.status,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(requestSearch.toLowerCase());
+      })
+      .sort((left, right) => {
+        const sortDifference = getRequestSortValue(right) - getRequestSortValue(left);
+
+        if (sortDifference !== 0) {
+          return sortDifference;
+        }
+
+        return String(right.requestNo || '').localeCompare(String(left.requestNo || ''));
+      });
   }, [requestSearch, visibleRequestRecords]);
 
   const filteredVehicles = useMemo(() => {
@@ -901,6 +961,15 @@ function App() {
   const branchOptions = useMemo(
     () => branchRecords.map((branch) => ({ id: branch.id, name: branch.name, isActive: branch.isActive })),
     [branchRecords]
+  );
+  const availableVehicleTypeRecords = vehicleTypeRecords.length ? vehicleTypeRecords : DEFAULT_VEHICLE_TYPE_RECORDS;
+  const selectedDriverRestrictionCodes = useMemo(
+    () => normalizeRestrictionSelection(driverSettingsForm.licenseRestrictions),
+    [driverSettingsForm.licenseRestrictions]
+  );
+  const selectedVehicleRestrictionCodes = useMemo(
+    () => normalizeRestrictionSelection(vehicleSettingsForm.requiredRestrictions),
+    [vehicleSettingsForm.requiredRestrictions]
   );
   const userBranchOptions = useMemo(
     () => buildBranchSelectOptions(branchOptions, userSettingsForm.branchId, userSettingsForm.branchName),
@@ -1212,6 +1281,20 @@ function App() {
             { label: 'Overdue', value: tripStatusSummary.overdue, helper: 'Needs follow-up', icon: 'warning' },
           ],
         };
+      case 'reports':
+        return {
+          kicker: 'Reporting',
+          title: 'Generate operational reports without leaving the workspace.',
+          description:
+            'Filter branch data, compare request and trip activity, and export the exact report rows you need.',
+          primaryAction: null,
+          secondaryAction: userMode === 'admin' ? actionFor('settings', 'Open settings') : actionFor('requests', 'Open requests'),
+          spotlights: [
+            { label: 'Requests', value: visibleRequestRecords.length, helper: 'Records in reporting scope', icon: 'requests' },
+            { label: 'Trips', value: visibleTripRecords.length, helper: 'Dispatch records available', icon: 'trips' },
+            { label: 'Fuel-authorized', value: visibleRequestRecords.filter((request) => request.fuelRequested).length, helper: 'Requests with fuel support', icon: 'reports' },
+          ],
+        };
       case 'vehicles':
         return {
           kicker: 'Fleet',
@@ -1409,7 +1492,9 @@ function App() {
     userMode,
     userRecords.length,
     vehicleRecords.length,
+    visibleRequestRecords,
     visibleRequestStatusSummary,
+    visibleTripRecords,
   ]);
 
   function pushNotification(title, detail, tone) {
@@ -1451,21 +1536,48 @@ function App() {
     source = 'live session',
     details = '',
   }) {
+    const nextAuditEntry = {
+      id: createId('aud'),
+      actor,
+      actorRole,
+      category,
+      action,
+      target,
+      branch,
+      source,
+      details,
+      timestamp: new Date().toISOString(),
+    };
+
     setAuditRecords((current) => [
-      {
-        id: createId('aud'),
-        actor,
-        actorRole,
-        category,
-        action,
-        target,
-        branch,
-        source,
-        details,
-        timestamp: new Date().toISOString(),
-      },
+      nextAuditEntry,
       ...current,
     ]);
+
+    if (supabase && currentSessionUser.id) {
+      const branchId = branchOptions.find((entry) => entry.name === branch)?.id || currentSessionUser.branchId || null;
+
+      supabase
+        .from('audit_logs')
+        .insert({
+          actor_id: currentSessionUser.id,
+          branch_id: branchId,
+          action,
+          target_table: category || 'session',
+          target_label: target,
+          after_data: {
+            category,
+            source,
+            details,
+            actorRole,
+          },
+        })
+        .then(({ error }) => {
+          if (error) {
+            console.error('Unable to persist audit log.', error);
+          }
+        });
+    }
   }
 
   function handleRequestFormChange(field, value) {
@@ -1528,11 +1640,39 @@ function App() {
     }));
   }
 
+  function handleDriverRestrictionToggle(code) {
+    setDriverSettingsForm((current) => {
+      const selectedRestrictions = normalizeRestrictionSelection(current.licenseRestrictions);
+      const nextRestrictions = selectedRestrictions.includes(code)
+        ? selectedRestrictions.filter((entry) => entry !== code)
+        : [...selectedRestrictions, code];
+
+      return {
+        ...current,
+        licenseRestrictions: nextRestrictions.join(', '),
+      };
+    });
+  }
+
   function handleVehicleSettingsFieldChange(field, value) {
     setVehicleSettingsForm((current) => ({
       ...current,
       [field]: value,
     }));
+  }
+
+  function handleVehicleRestrictionToggle(code) {
+    setVehicleSettingsForm((current) => {
+      const selectedRestrictions = normalizeRestrictionSelection(current.requiredRestrictions);
+      const nextRestrictions = selectedRestrictions.includes(code)
+        ? selectedRestrictions.filter((entry) => entry !== code)
+        : [...selectedRestrictions, code];
+
+      return {
+        ...current,
+        requiredRestrictions: nextRestrictions.join(', '),
+      };
+    });
   }
 
   function handleCheckoutFieldChange(field, value) {
@@ -1661,19 +1801,81 @@ function App() {
       messages.push(`The selected driver's license expired on ${formatDate(validation.licenseExpiry)}.`);
     }
 
+    if (validation.vehicleRequirementMissing) {
+      messages.push('The selected vehicle does not have a configured type or required restriction profile yet. Edit the vehicle record first.');
+    }
+
     if (validation.restrictionMismatch) {
       const currentRestrictions = validation.driverRestrictions.length ? validation.driverRestrictions.join(', ') : 'None';
-      const requiredRestrictions = validation.requiredRestrictions.join(' or ');
-      messages.push(`The selected driver's restrictions (${currentRestrictions}) do not match the ${validation.vehicleTypeLabel || 'selected vehicle'} requirement (${requiredRestrictions}).`);
+      const requiredRestrictions = validation.requiredRestrictions.join(', ');
+      messages.push(`The selected driver's license restrictions (${currentRestrictions}) do not satisfy the full requirement for ${validation.vehicleTypeLabel || 'the selected vehicle'} (${requiredRestrictions}).`);
     }
 
     return messages.join(' ');
+  }
+
+  function openRequestPdfPreviewWindow(requestNo) {
+    const previewWindow = window.open('', '_blank', 'width=980,height=860');
+
+    if (!previewWindow) {
+      return null;
+    }
+
+    previewWindow.document.open();
+    previewWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${String(requestNo || 'Approved request')} PDF</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #eef3fb;
+        color: #1d2b57;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      .panel {
+        width: min(420px, calc(100vw - 48px));
+        padding: 28px;
+        border: 1px solid #d8e0f0;
+        border-radius: 18px;
+        background: #ffffff;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 22px;
+      }
+      p {
+        margin: 0;
+        color: #607095;
+        line-height: 1.55;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <h1>Generating approved PDF</h1>
+      <p>${String(requestNo || 'Your approved ticket')} is being prepared.</p>
+    </main>
+  </body>
+</html>`);
+    previewWindow.document.close();
+
+    return previewWindow;
   }
 
   async function handleReviewRequest(request, nextStatus, approvalDetails = null) {
     if (userMode !== 'approver') {
       return false;
     }
+
+    const previewWindow = nextStatus === 'Approved'
+      ? openRequestPdfPreviewWindow(request?.requestNo)
+      : null;
 
     if (nextStatus === 'Approved' && approvalDetails) {
       const selectedDriver = driverRecords.find(
@@ -1682,6 +1884,9 @@ function App() {
       const validation = getDriverAssignmentValidation(selectedDriver, selectedRequestApprovalVehicle);
 
       if (!validation.isValid) {
+        if (previewWindow && !previewWindow.closed) {
+          previewWindow.close();
+        }
         showToast(getDriverAssignmentValidationMessage(validation), 'warning', 'Driver validation');
         return false;
       }
@@ -1690,7 +1895,31 @@ function App() {
     if (supabase) {
       try {
         await reviewLiveRequest(supabase, request, currentSessionUser, nextStatus, approvalDetails);
-        await refreshLiveData(currentSessionUser);
+        const liveData = await refreshLiveData(currentSessionUser);
+        const approvedRequest = nextStatus === 'Approved'
+          ? liveData?.requestRecords?.find((entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id)
+          : null;
+
+        if (nextStatus === 'Approved') {
+          const didOpenPdf = handlePrintRequest(approvedRequest || {
+            ...request,
+            status: nextStatus,
+            approver: currentSessionUser.name,
+            approverId: currentSessionUser.id,
+            assignedDriverId: approvalDetails?.assignedDriverId ?? request.assignedDriverId,
+            fuelRequested: approvalDetails?.fuelRequested ?? request.fuelRequested,
+            fuelAmount: Number(approvalDetails?.fuelAmount ?? request.fuelAmount ?? 0),
+            fuelLiters: Number(approvalDetails?.fuelLiters ?? request.fuelLiters ?? 0),
+            estimatedKms: Number(approvalDetails?.estimatedKms ?? request.estimatedKms ?? 0),
+            fuelRemarks: approvalDetails?.fuelRemarks ?? request.fuelRemarks ?? '',
+            approvedAt: new Date().toISOString(),
+          }, previewWindow);
+
+          if (!didOpenPdf) {
+            showToast('Allow pop-ups for this site to open the approved request PDF automatically.', 'warning', 'PDF blocked');
+          }
+        }
+
         appendAuditEntry({
           category: 'request',
           action: `Marked request as ${nextStatus}`,
@@ -1701,6 +1930,9 @@ function App() {
         showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
         return true;
       } catch (error) {
+        if (previewWindow && !previewWindow.closed) {
+          previewWindow.close();
+        }
         showToast(error.message || `Unable to mark the request as ${nextStatus.toLowerCase()}.`, 'danger', 'Update failed');
         return false;
       }
@@ -1709,24 +1941,29 @@ function App() {
     const nextAssignedDriverId = approvalDetails?.assignedDriverId ?? request.assignedDriverId;
     const nextAssignedDriver = driverRecords.find((driver) => driver.id === nextAssignedDriverId);
     const previousAssignedDriverId = request.assignedDriverId;
+    const approvedAt = nextStatus === 'Approved'
+      ? new Date().toISOString()
+      : request.approvedAt || '';
+    const updatedRequest = {
+      ...request,
+      status: nextStatus,
+      rejectionReason: nextStatus === 'Rejected' ? request.rejectionReason || '' : '',
+      approver: currentSessionUser.name,
+      approverId: currentSessionUser.id,
+      assignedDriverId: nextAssignedDriverId || '',
+      assignedDriver: nextAssignedDriver?.fullName || request.assignedDriver,
+      fuelRequested: approvalDetails?.fuelRequested ?? request.fuelRequested,
+      fuelAmount: Number(approvalDetails?.fuelAmount ?? request.fuelAmount ?? 0),
+      fuelLiters: Number(approvalDetails?.fuelLiters ?? request.fuelLiters ?? 0),
+      estimatedKms: Number(approvalDetails?.estimatedKms ?? request.estimatedKms ?? 0),
+      fuelRemarks: approvalDetails?.fuelRemarks ?? request.fuelRemarks ?? '',
+      approvedAt,
+    };
 
     setRequestRecords((current) =>
       current.map((entry) =>
         entry.id === request.id
-          ? {
-              ...entry,
-              status: nextStatus,
-              rejectionReason: nextStatus === 'Rejected' ? entry.rejectionReason || '' : '',
-              approver: currentSessionUser.name,
-              approverId: currentSessionUser.id,
-              assignedDriverId: nextAssignedDriverId || '',
-              assignedDriver: nextAssignedDriver?.fullName || entry.assignedDriver,
-              fuelRequested: approvalDetails?.fuelRequested ?? entry.fuelRequested,
-              fuelAmount: Number(approvalDetails?.fuelAmount ?? entry.fuelAmount ?? 0),
-              fuelLiters: Number(approvalDetails?.fuelLiters ?? entry.fuelLiters ?? 0),
-              estimatedKms: Number(approvalDetails?.estimatedKms ?? entry.estimatedKms ?? 0),
-              fuelRemarks: approvalDetails?.fuelRemarks ?? entry.fuelRemarks ?? '',
-            }
+          ? updatedRequest
           : entry
       )
     );
@@ -1779,6 +2016,17 @@ function App() {
         );
       }
     }
+
+    if (nextStatus === 'Approved') {
+      const didOpenPdf = handlePrintRequest(updatedRequest, previewWindow);
+
+      if (!didOpenPdf) {
+        showToast('Allow pop-ups for this site to open the approved request PDF automatically.', 'warning', 'PDF blocked');
+      }
+    } else if (previewWindow && !previewWindow.closed) {
+      previewWindow.close();
+    }
+
     appendAuditEntry({
       category: 'request',
       action: `Marked request as ${nextStatus}`,
@@ -1890,6 +2138,17 @@ function App() {
     handleCloseRejectionModal();
   }
 
+  function handlePrintRequest(request, previewWindow = null) {
+    if (!canPrintRequestStatus(request?.status)) {
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.close();
+      }
+      showToast('PDF access is only available for approved requests and later statuses.', 'warning', 'PDF unavailable');
+      return false;
+    }
+    return openApprovedRequestPdf(request, previewWindow);
+  }
+
   async function handleAssignmentSubmit(event) {
     event.preventDefault();
 
@@ -1898,6 +2157,14 @@ function App() {
     }
 
     const nextVehicle = vehicleRecords.find((vehicle) => vehicle.id === assignmentVehicleId);
+    if (nextVehicle && selectedAssignmentRequest.assignedDriverId) {
+      const currentDriver = driverRecords.find((driver) => driver.id === selectedAssignmentRequest.assignedDriverId);
+      const validation = getDriverAssignmentValidation(currentDriver, nextVehicle);
+      if (!validation.isValid) {
+        showToast(getDriverAssignmentValidationMessage(validation), 'warning', 'Driver validation');
+        return;
+      }
+    }
 
     if (supabase) {
       try {
@@ -2576,7 +2843,7 @@ function App() {
             plateNumber: vehicle.plateNumber,
             branchId: vehicle.branchId || findBranchId(branchRecords, vehicle.branch),
             branchName: vehicle.branch,
-            typeId: vehicle.typeId || vehicleTypeRecords.find((type) => type.name === vehicle.type)?.id || vehicle.type,
+            typeId: vehicle.typeId || availableVehicleTypeRecords.find((type) => type.name === vehicle.type)?.id || vehicle.type,
             status: vehicle.status,
             fuelType: vehicle.fuelType,
             seatingCapacity: String(vehicle.seatingCapacity),
@@ -2585,8 +2852,9 @@ function App() {
             insuranceExpiry: vehicle.insuranceExpiry,
             fuelEfficiency: String(vehicle.fuelEfficiency || 10),
             isOdoDefective: vehicle.isOdoDefective || false,
+            requiredRestrictions: vehicle.requiredRestrictions || vehicle.required_restrictions || '',
           }
-        : createVehicleSettingsForm(branchOptions[0]?.id || '', vehicleTypeRecords[0]?.id || '')
+        : createVehicleSettingsForm(branchOptions[0]?.id || '', availableVehicleTypeRecords[0]?.id || '')
     );
     setVehicleSettingsModalOpen(true);
   }
@@ -2605,7 +2873,7 @@ function App() {
 
     if (supabase) {
       try {
-        await saveLiveVehicle(supabase, vehicleSettingsForm, vehicleTypeRecords);
+        await saveLiveVehicle(supabase, vehicleSettingsForm, availableVehicleTypeRecords);
         await refreshLiveData(currentSessionUser);
         appendAuditEntry({
           category: 'vehicle',
@@ -2624,7 +2892,7 @@ function App() {
     }
 
     const branchName = branchOptions.find((branch) => branch.id === vehicleSettingsForm.branchId)?.name || 'Unassigned';
-    const vehicleTypeName = vehicleTypeRecords.find((type) => type.id === vehicleSettingsForm.typeId)?.name || vehicleSettingsForm.typeId;
+    const vehicleTypeName = availableVehicleTypeRecords.find((type) => type.id === vehicleSettingsForm.typeId)?.name || vehicleSettingsForm.typeId;
     const nextVehicle = {
       id: vehicleSettingsForm.id || createId('veh'),
       plateNumber: vehicleSettingsForm.plateNumber.trim(),
@@ -2640,6 +2908,7 @@ function App() {
       registrationExpiry: vehicleSettingsForm.registrationExpiry,
       insuranceExpiry: vehicleSettingsForm.insuranceExpiry,
       fuelEfficiency: Number(vehicleSettingsForm.fuelEfficiency || 10),
+      requiredRestrictions: vehicleSettingsForm.requiredRestrictions.trim(),
       isOdoDefective: vehicleSettingsForm.isOdoDefective || false,
       assignedDriver: 'Unassigned',
     };
@@ -2806,6 +3075,7 @@ function App() {
     const requestNo = createRequestNumber(requestRecords);
     const nextRequest = {
       id: createId('req'),
+      createdAt: new Date().toISOString(),
       requestNo,
       branch: currentSessionUser.branch,
       requestedBy: currentSessionUser.name,
@@ -3471,7 +3741,8 @@ function App() {
           </div>
         </header>
 
-        <PageHero heroContent={heroContent} onAction={handleHeroAction} />
+        <div id="dashboard-filter-portal"></div>
+        {selectedView !== 'reports' && <PageHero heroContent={heroContent} onAction={handleHeroAction} />}
 
         {toast && (
           <section className={`toast-notification toast-${toast.tone}`} key={toast.id} role="status" aria-live="polite">
@@ -3543,6 +3814,7 @@ function App() {
             onOpenAssignmentModal={handleOpenAssignmentModal}
             onAssignmentSubmit={handleAssignmentSubmit}
             onApproveRequest={handleReviewRequest}
+            onPrintRequest={handlePrintRequest}
             onRejectSubmit={handleRejectSubmit}
           />
         )}
@@ -3568,6 +3840,18 @@ function App() {
         )}
         {selectedView === 'calendar' && (
           <TripsCalendarPage tripRecords={visibleTripRecords} />
+        )}
+        {selectedView === 'reports' && (
+          <ReportsPage
+            mode={userMode}
+            currentUser={currentSessionUser}
+            branchRecords={branchRecords}
+            requestRecords={visibleRequestRecords}
+            tripRecords={visibleTripRecords}
+            vehicleRecords={vehicleRecords}
+            maintenanceRecords={maintenanceRecords}
+            incidentRecords={incidentRecords}
+          />
         )}
         {selectedView === 'vehicles' && (
           <VehiclesPage
@@ -3609,6 +3893,7 @@ function App() {
             onEditDriver={handleOpenDriverSettingsModal}
             onDeleteDriver={handleDeleteDriver}
             onAddVehicle={() => handleOpenVehicleSettingsModal()}
+            onEditVehicle={handleOpenVehicleSettingsModal}
             onDeleteVehicle={handleDeleteVehicle}
           />
         )}
@@ -3926,7 +4211,22 @@ function App() {
                   </label>
                   <label>
                     <span className="field-label">Restrictions</span>
-                    <input className="input" value={driverSettingsForm.licenseRestrictions} onChange={(event) => handleDriverSettingsFieldChange('licenseRestrictions', event.target.value)} />
+                    <div className="selection-chip-grid" role="group" aria-label="Driver license restrictions">
+                      {LICENSE_RESTRICTION_OPTIONS.map((restrictionCode) => (
+                        <button
+                          key={restrictionCode}
+                          type="button"
+                          className={`chip-button ${selectedDriverRestrictionCodes.includes(restrictionCode) ? 'chip-button-active' : ''}`}
+                          aria-pressed={selectedDriverRestrictionCodes.includes(restrictionCode)}
+                          onClick={() => handleDriverRestrictionToggle(restrictionCode)}
+                        >
+                          {restrictionCode}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="field-help-text">
+                      Selected: {selectedDriverRestrictionCodes.length ? selectedDriverRestrictionCodes.join(', ') : 'No restrictions selected'}
+                    </span>
                   </label>
                   <label>
                     <span className="field-label">License expiry</span>
@@ -3986,7 +4286,8 @@ function App() {
                   <label>
                     <span className="field-label">Type</span>
                     <select className="input" value={vehicleSettingsForm.typeId} onChange={(event) => handleVehicleSettingsFieldChange('typeId', event.target.value)}>
-                      {vehicleTypeRecords.map((type) => (
+                      <option value="" disabled>Select vehicle type</option>
+                      {availableVehicleTypeRecords.map((type) => (
                         <option key={type.id} value={type.id}>{type.name}</option>
                       ))}
                     </select>
@@ -4001,7 +4302,31 @@ function App() {
                   </label>
                   <label>
                     <span className="field-label">Fuel type</span>
-                    <input className="input" value={vehicleSettingsForm.fuelType} onChange={(event) => handleVehicleSettingsFieldChange('fuelType', event.target.value)} />
+                    <select className="input" value={vehicleSettingsForm.fuelType} onChange={(event) => handleVehicleSettingsFieldChange('fuelType', event.target.value)}>
+                      <option value="" disabled>Select fuel type</option>
+                      {['Diesel', 'Gasoline', 'Electric', 'Hybrid'].map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="field-label">Required Restrictions</span>
+                    <div className="selection-chip-grid" role="group" aria-label="Required license restrictions">
+                      {LICENSE_RESTRICTION_OPTIONS.map((restrictionCode) => (
+                        <button
+                          key={restrictionCode}
+                          type="button"
+                          className={`chip-button ${selectedVehicleRestrictionCodes.includes(restrictionCode) ? 'chip-button-active' : ''}`}
+                          aria-pressed={selectedVehicleRestrictionCodes.includes(restrictionCode)}
+                          onClick={() => handleVehicleRestrictionToggle(restrictionCode)}
+                        >
+                          {restrictionCode}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="field-help-text">
+                      Selected: {selectedVehicleRestrictionCodes.length ? selectedVehicleRestrictionCodes.join(', ') : 'No specific restriction required'}
+                    </span>
                   </label>
                   <label>
                     <span className="field-label">Seating capacity</span>

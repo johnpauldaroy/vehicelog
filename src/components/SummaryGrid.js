@@ -1,8 +1,10 @@
 import AppIcon from './AppIcon';
 
 export default function SummaryGrid({ items }) {
+  const gridClassName = `summary-grid summary-grid-${Math.min(Math.max(items.length, 1), 4)}`;
+
   return (
-    <div className="summary-grid">
+    <div className={gridClassName}>
       {items.map((item) => (
         <article
           key={item.label}

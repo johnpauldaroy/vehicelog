@@ -77,6 +77,109 @@ function canSyncTripAssignment(tripStatus) {
   return !tripStatus || ['Scheduled', 'Ready for Release'].includes(tripStatus);
 }
 
+function normalizeRestrictionCodes(value) {
+  return String(value || '')
+    .split(/[,\s/]+/)
+    .map((entry) => entry.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function getVehicleRestrictionRequirement(vehicleType) {
+  const normalizedType = String(vehicleType || '').trim().toLowerCase();
+
+  if (!normalizedType) {
+    return null;
+  }
+
+  if (normalizedType.includes('van')) {
+    return { requiredRestrictions: ['B2'], label: 'Van' };
+  }
+
+  if (normalizedType.includes('pickup') || normalizedType.includes('suv') || normalizedType.includes('mpv')) {
+    return { requiredRestrictions: ['B1', 'B2'], label: String(vehicleType).trim() };
+  }
+
+  if (normalizedType.includes('sedan')) {
+    return { requiredRestrictions: ['B', 'B1', 'B2'], label: 'Sedan' };
+  }
+
+  return null;
+}
+
+function inferAuditCategory(targetTable, action, afterData = {}) {
+  const explicitCategory = String(afterData?.category || '').trim().toLowerCase();
+
+  if (explicitCategory) {
+    return explicitCategory;
+  }
+
+  const normalizedTable = String(targetTable || '').trim().toLowerCase();
+  const normalizedAction = String(action || '').trim().toLowerCase();
+
+  if (normalizedTable.includes('request')) {
+    return 'request';
+  }
+
+  if (normalizedTable.includes('trip')) {
+    return 'trip';
+  }
+
+  if (normalizedTable.includes('branch')) {
+    return 'branch';
+  }
+
+  if (normalizedTable.includes('vehicle')) {
+    return 'vehicle';
+  }
+
+  if (normalizedTable.includes('profile') || normalizedTable.includes('user')) {
+    return 'user';
+  }
+
+  if (normalizedTable.includes('driver')) {
+    return 'driver';
+  }
+
+  if (normalizedTable.includes('maintenance')) {
+    return 'maintenance';
+  }
+
+  if (normalizedTable.includes('incident')) {
+    return 'incident';
+  }
+
+  if (normalizedAction.includes('password') || normalizedAction.includes('security')) {
+    return 'security';
+  }
+
+  if (normalizedAction.includes('login') || normalizedAction.includes('logout') || normalizedAction.includes('session')) {
+    return 'session';
+  }
+
+  return normalizedTable || 'session';
+}
+
+function summarizeAuditDetails(afterData = {}) {
+  if (!afterData || typeof afterData !== 'object') {
+    return '';
+  }
+
+  if (typeof afterData.details === 'string' && afterData.details.trim()) {
+    return afterData.details.trim();
+  }
+
+  const summaryEntries = Object.entries(afterData).filter(([key, value]) => (
+    !['category', 'source', 'actorRole'].includes(key)
+    && value !== null
+    && value !== ''
+    && typeof value !== 'undefined'
+  ));
+
+  return summaryEntries
+    .map(([key, value]) => `${key.replace(/_/g, ' ')}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
+    .join(' | ');
+}
+
 async function getAuthenticatedUserId(client) {
   const { data, error } = await client.auth.getUser();
 
@@ -190,6 +293,84 @@ async function assertDriverIsAvailable(client, driverId) {
 
   if (activeTrips?.length) {
     throw new Error('The selected driver is already assigned to an active trip.');
+  }
+}
+
+async function assertDriverMatchesVehicleRestrictions(client, driverId, vehicleId) {
+  if (!driverId || !vehicleId) {
+    return;
+  }
+
+  const [{ data: driver, error: driverError }, { data: vehicle, error: vehicleError }] = await Promise.all([
+    client
+      .from('drivers')
+      .select('id, full_name, license_restrictions, license_expiry')
+      .eq('id', driverId)
+      .single(),
+    client
+      .from('vehicles')
+      .select('id, vehicle_name, vehicle_type_id, required_restrictions')
+      .eq('id', vehicleId)
+      .single(),
+  ]);
+
+  if (driverError) {
+    throw driverError;
+  }
+
+  if (vehicleError) {
+    throw vehicleError;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (driver.license_expiry) {
+    const expiryDate = new Date(`${driver.license_expiry}T00:00:00`);
+
+    if (expiryDate.getTime() < today.getTime()) {
+      throw new Error(`The selected driver's license expired on ${driver.license_expiry}.`);
+    }
+  }
+
+  const vehicleSpecificRestrictions = normalizeRestrictionCodes(vehicle.required_restrictions);
+  let vehicleRequirement = vehicleSpecificRestrictions.length > 0
+    ? {
+        requiredRestrictions: vehicleSpecificRestrictions,
+        label: vehicle.vehicle_name || 'Vehicle',
+      }
+    : null;
+
+  if (!vehicleRequirement && vehicle.vehicle_type_id) {
+    const { data: vehicleType, error: vehicleTypeError } = await client
+      .from('vehicle_types')
+      .select('name')
+      .eq('id', vehicle.vehicle_type_id)
+      .single();
+
+    if (vehicleTypeError) {
+      throw vehicleTypeError;
+    }
+
+    vehicleRequirement = getVehicleRestrictionRequirement(vehicleType?.name);
+  }
+
+  const requiredRestrictions = vehicleRequirement?.requiredRestrictions || [];
+
+  if (!vehicleRequirement) {
+    throw new Error('The selected vehicle does not have a configured type or required restriction profile yet. Edit the vehicle record first.');
+  }
+
+  if (!requiredRestrictions.length) {
+    return;
+  }
+
+  const driverRestrictions = normalizeRestrictionCodes(driver.license_restrictions);
+
+  if (!requiredRestrictions.every((restriction) => driverRestrictions.includes(restriction))) {
+    throw new Error(
+      `Driver restrictions (${driverRestrictions.length ? driverRestrictions.join(', ') : 'none'}) do not include the full ${vehicleRequirement?.label || 'vehicle'} requirement (${requiredRestrictions.join(', ')}).`
+    );
   }
 }
 
@@ -356,6 +537,7 @@ function stripVehicleRequestFuelFields(payload) {
 async function selectVehicleRequests(client) {
   const baseSelect = `
     id,
+    created_at,
     request_no,
     requested_by,
     branch_id,
@@ -725,6 +907,7 @@ export async function fetchLiveAppData(client) {
     maintenanceLogs,
     notifications,
     incidents,
+    auditLogs,
   ] = await Promise.all([
     requiredSelect('branches', client.from('branches').select('id, code, name, address, is_active, deleted_at').order('name')),
     requiredSelect('profiles', client.from('profiles').select('id, full_name, email, branch_id, is_active, deleted_at')),
@@ -743,7 +926,8 @@ export async function fetchLiveAppData(client) {
         seating_capacity,
         odometer_current,
         registration_expiry,
-        insurance_expiry
+        insurance_expiry,
+        required_restrictions
       `)
     ),
     requiredSelect('drivers', client.from('drivers').select('id, profile_id, full_name, status, branch_id, license_number, license_restrictions, license_expiry, employee_id, contact_number')),
@@ -811,6 +995,20 @@ export async function fetchLiveAppData(client) {
         attachment_urls
       `)
     ),
+    requiredSelect(
+      'audit logs',
+      client.from('audit_logs').select(`
+        id,
+        actor_id,
+        branch_id,
+        action,
+        target_table,
+        target_id,
+        target_label,
+        after_data,
+        created_at
+      `).order('created_at', { ascending: false })
+    ),
   ]);
 
   const visibleBranches = branches.filter((branch) => !branch.deleted_at);
@@ -850,6 +1048,7 @@ export async function fetchLiveAppData(client) {
       id: request.id,
       dbId: request.id,
       requestId: request.id,
+      createdAt: request.created_at || '',
       requestNo: request.request_no,
       requestedBy: profileMap.get(request.requested_by)?.full_name || 'Unknown',
       requestedById: request.requested_by,
@@ -869,6 +1068,7 @@ export async function fetchLiveAppData(client) {
       estimatedKms: Number(request.estimated_kms || 0),
       fuelRemarks: request.fuel_remarks || '',
       status: deriveRequestStatus(request, trip),
+      approvedAt: request.approved_at || '',
       rejectionReason: request.rejection_reason || '',
       approver: request.approver_id ? profileMap.get(request.approver_id)?.full_name || 'Pending' : 'Pending',
       approverId: request.approver_id,
@@ -959,6 +1159,7 @@ export async function fetchLiveAppData(client) {
       registrationExpiry: vehicle.registration_expiry,
       insuranceExpiry: vehicle.insurance_expiry,
       fuelEfficiency: vehicle.fuel_efficiency || 10,
+      requiredRestrictions: vehicle.required_restrictions || '',
       isOdoDefective: false,
       assignedDriver: relatedTrip?.driver || 'Unassigned',
     };
@@ -1037,6 +1238,24 @@ export async function fetchLiveAppData(client) {
     tone: notice.notification_type,
   }));
 
+  const auditRecords = auditLogs.map((entry) => {
+    const actorProfile = entry.actor_id ? profileMap.get(entry.actor_id) : null;
+    const afterData = entry.after_data && typeof entry.after_data === 'object' ? entry.after_data : {};
+
+    return {
+      id: entry.id,
+      actor: actorProfile?.full_name || 'System',
+      actorRole: actorProfile ? titleCaseRole(roleByUserId.get(entry.actor_id) || 'requester') : String(afterData.actorRole || 'System'),
+      category: inferAuditCategory(entry.target_table, entry.action, afterData),
+      action: entry.action,
+      target: entry.target_label || entry.target_id || entry.target_table,
+      branch: branchMap.get(entry.branch_id)?.name || 'Unassigned',
+      source: String(afterData.source || 'database log'),
+      details: summarizeAuditDetails(afterData),
+      timestamp: entry.created_at,
+    };
+  });
+
   return {
     branches: computeBranchUtilization(visibleBranches, vehicles, visibleProfiles, drivers),
     requestRecords,
@@ -1048,6 +1267,7 @@ export async function fetchLiveAppData(client) {
     maintenanceRecords,
     incidentRecords,
     notificationFeed,
+    auditRecords,
   };
 }
 
@@ -1062,6 +1282,7 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
   await Promise.all([
     assertVehicleIsAvailable(client, selectedVehicleId),
     assertDriverIsAvailable(client, selectedDriverId),
+    assertDriverMatchesVehicleRestrictions(client, selectedDriverId, selectedVehicleId),
   ]);
 
   const requestInsertPayload = {
@@ -1253,6 +1474,8 @@ export async function reviewLiveRequest(client, request, sessionUser, nextStatus
       await assertDriverIsAvailable(client, nextAssignedDriverId);
     }
 
+    await assertDriverMatchesVehicleRestrictions(client, nextAssignedDriverId, request.assignedVehicleId || null);
+
     updatePayload.approved_at = new Date().toISOString();
   }
 
@@ -1350,6 +1573,8 @@ export async function approveLiveTripTicket(client, tripId, approverId) {
 export async function updateLiveRequestVehicleAssignment(client, request, nextVehicleId) {
   const previousVehicleId = request.assignedVehicleId || null;
   const vehicleId = nextVehicleId || null;
+
+  await assertDriverMatchesVehicleRestrictions(client, request.assignedDriverId || null, vehicleId);
 
   const { error } = await client
     .from('vehicle_requests')
@@ -1539,6 +1764,7 @@ export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
     odometer_current: Number(vehicleForm.odometerCurrent || 0),
     registration_expiry: vehicleForm.registrationExpiry,
     insurance_expiry: vehicleForm.insuranceExpiry,
+    required_restrictions: vehicleForm.requiredRestrictions?.trim() || null,
   };
 
   const query = vehicleForm.id

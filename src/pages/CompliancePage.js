@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
-import SummaryGrid from '../components/SummaryGrid';
 import { daysUntil, formatDate, exportToCSV } from '../utils/appHelpers';
 import AppIcon from '../components/AppIcon';
 
@@ -25,11 +24,14 @@ export default function CompliancePage({
   const isApprover = mode === 'approver';
   const isDriver = mode === 'driver';
   const canManageMaintenance = isAdmin || isApprover || isDriver;
-  const insuranceWatch = vehicleRecords.filter((vehicle) => daysUntil(vehicle.insuranceExpiry) <= 30);
-  const registrationWatch = vehicleRecords.filter((vehicle) => daysUntil(vehicle.registrationExpiry) <= 30);
+  const visibleVehicles = isAdmin ? vehicleRecords : vehicleRecords.filter(v => v.branch === currentUser.branch);
+  const insuranceWatch = visibleVehicles.filter((vehicle) => daysUntil(vehicle.insuranceExpiry) <= 30);
+  const registrationWatch = visibleVehicles.filter((vehicle) => daysUntil(vehicle.registrationExpiry) <= 30);
+  const visibleIncidents = isAdmin ? incidentRecords : incidentRecords.filter(i => i.branch === currentUser.branch);
   
   // Pending items for Watchlist
-  const pendingMaintenance = maintenanceRecords.filter(m => m.status === 'Pending');
+  const rawPendingMaintenance = maintenanceRecords.filter(m => m.status === 'Pending');
+  const pendingMaintenance = isAdmin ? rawPendingMaintenance : rawPendingMaintenance.filter(m => m.branch === currentUser.branch);
 
   // Filtered items for Service History Tab
   const filteredMaintenance = useMemo(() => {
@@ -76,29 +78,6 @@ export default function CompliancePage({
     });
   }
 
-  const summaryItems = [
-    {
-      label: 'Watchlist Items',
-      value: pendingMaintenance.length + insuranceWatch.length + registrationWatch.length + incidentRecords.length,
-      helper: 'Total risks identified',
-      tone: 'red',
-      icon: 'warning',
-    },
-    {
-      label: 'Open Service',
-      value: pendingMaintenance.length,
-      helper: 'Awaiting completion',
-      tone: 'amber',
-      icon: 'wrench',
-    },
-    {
-      label: 'Doc Expiry',
-      value: insuranceWatch.length + registrationWatch.length,
-      helper: 'Within 30 days',
-      tone: 'blue',
-      icon: 'calendar',
-    },
-  ];
 
   return (
     <div style={{ display: 'grid', gap: '24px' }}>
@@ -195,25 +174,7 @@ export default function CompliancePage({
           {/* Watchlist View */}
           <div className="content-grid-tight">
             <SectionCard title="Priority Watchlist" subtitle="Critical items and pending maintenance requiring immediate attention.">
-              <SummaryGrid items={summaryItems} />
-              
-              <div className="toolbar toolbar-split">
-                <div className="toolbar-left">
-                  <p className="muted">Showing high-priority alerts across all categories.</p>
-                </div>
-                <div className="toolbar-right">
-                  {canManageMaintenance && (
-                    <button 
-                      type="button" 
-                      className="button button-primary"
-                      onClick={() => onOpenMaintenanceModal()}
-                    >
-                      <AppIcon name="wrench" className="button-icon" />
-                      Log maintenance
-                    </button>
-                  )}
-                </div>
-              </div>
+              <p className="muted" style={{ marginBottom: '16px' }}>Showing high-priority alerts across all categories.</p>
 
               <div className="table-wrap">
                 <table className="data-table">
@@ -319,23 +280,33 @@ export default function CompliancePage({
               }
             >
               <div className="stack-list">
-                {incidentRecords.length === 0 ? <p className="empty-state">Clear</p> : incidentRecords.map(i => (
-                  <div key={i.id} className="list-row interactive-row" onClick={() => onOpenIncidentModal(i)}>
-                    <div style={{ flex: 1 }}>
-                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <strong>{i.vehicle}</strong>
-                          <StatusBadge status={i.status} />
-                       </div>
-                       <p className="cell-subtle" style={{ margin: 0 }}>{i.description}</p>
-                       {(i.photo_url || i.photoUrl) && (
-                         <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                           <AppIcon name="user" style={{ width: '14px', opacity: 0.6 }} />
-                           <span className="cell-subtle" style={{ fontSize: '0.75rem', color: 'var(--brand-blue)', fontWeight: 600 }}>Photo attached</span>
-                         </div>
-                       )}
-                    </div>
-                  </div>
-                ))}
+                {/* Filter incidentRecords */}
+                {(() => {
+                  const visibleIncidents = isAdmin
+                    ? incidentRecords
+                    : incidentRecords.filter(i => i.branch === currentUser.branch);
+                  return (
+                    <>
+                      {visibleIncidents.length === 0 ? <p className="empty-state">Clear</p> : visibleIncidents.map(i => (
+                        <div key={i.id} className="list-row interactive-row" onClick={() => onOpenIncidentModal(i)}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <strong>{i.vehicle}</strong>
+                                <StatusBadge status={i.status} />
+                            </div>
+                            <p className="cell-subtle" style={{ margin: 0 }}>{i.description}</p>
+                            {(i.photo_url || i.photoUrl) && (
+                              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <AppIcon name="user" style={{ width: '14px', opacity: 0.6 }} />
+                                <span className="cell-subtle" style={{ fontSize: '0.75rem', color: 'var(--brand-blue)', fontWeight: 600 }}>Photo attached</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
               </div>
             </SectionCard>
           </div>

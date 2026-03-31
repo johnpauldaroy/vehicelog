@@ -7,42 +7,54 @@ import { formatDate, toEventClass } from '../utils/appHelpers';
 
 export default function TripsCalendarPage({ tripRecords }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTripId, setSelectedTripId] = useState(null);
+
+  const selectedTrip = useMemo(() => {
+    return selectedTripId ? tripRecords.find(t => t.id === selectedTripId) : null;
+  }, [selectedTripId, tripRecords]);
+
+  function getTripCalendarDates(trip) {
+    return [
+      trip.departureDatetime,
+      trip.dateOut,
+      trip.expectedReturnDatetime,
+      trip.expectedReturn,
+      trip.dateIn,
+    ]
+      .filter(Boolean)
+      .map((value) => new Date(value))
+      .filter((value) => !Number.isNaN(value.getTime()));
+  }
+
+  function isSameDay(left, right) {
+    return (
+      left.getFullYear() === right.getFullYear()
+      && left.getMonth() === right.getMonth()
+      && left.getDate() === right.getDate()
+    );
+  }
 
   const tripsOnSelectedDate = useMemo(() => {
     return tripRecords.filter((trip) => {
-      const departure = trip.departureDatetime ? new Date(trip.departureDatetime) : null;
-      const expectedDate = trip.expectedReturnDatetime ? new Date(trip.expectedReturnDatetime) : (trip.expectedReturn ? new Date(trip.expectedReturn) : null);
-      
-      const checkDate = (d) => 
-        d && d.getFullYear() === selectedDate.getFullYear() &&
-        d.getMonth() === selectedDate.getMonth() &&
-        d.getDate() === selectedDate.getDate();
-
-      return checkDate(departure) || checkDate(expectedDate);
+      return getTripCalendarDates(trip).some((tripDate) => isSameDay(tripDate, selectedDate));
     });
   }, [selectedDate, tripRecords]);
 
   const tileContent = ({ date, view }) => {
     if (view === 'month') {
-      const hasTrip = tripRecords.some((trip) => {
-        const d = trip.departureDatetime ? new Date(trip.departureDatetime) : (trip.dateOut ? new Date(trip.dateOut) : null);
-        return d && d.getFullYear() === date.getFullYear() &&
-               d.getMonth() === date.getMonth() &&
-               d.getDate() === date.getDate();
-      });
+      const hasTrip = tripRecords.some((trip) => getTripCalendarDates(trip).some((tripDate) => isSameDay(tripDate, date)));
 
       return hasTrip ? <div className="calendar-dot" /> : null;
     }
+
+    return null;
   };
 
   const tileClassName = ({ date, view }) => {
     if (view === 'month') {
-      const trip = tripRecords.find((trip) => {
-        const d = trip.departureDatetime ? new Date(trip.departureDatetime) : (trip.dateOut ? new Date(trip.dateOut) : null);
-        return d && d.getFullYear() === date.getFullYear() &&
-               d.getMonth() === date.getMonth() &&
-               d.getDate() === date.getDate();
-      });
+      const trip = tripRecords.find((entry) =>
+        getTripCalendarDates(entry).some((tripDate) => isSameDay(tripDate, date))
+      );
 
       if (trip) {
         return toEventClass(trip.tripStatus);
@@ -77,7 +89,13 @@ export default function TripsCalendarPage({ tripRecords }) {
             ) : (
               <div className="trip-mini-grid">
                 {tripsOnSelectedDate.map((trip) => (
-                  <div key={trip.id} className="trip-mini-card">
+                  <button 
+                    key={trip.id} 
+                    type="button"
+                    className="trip-mini-card interactive-row"
+                    onClick={() => setSelectedTripId(trip.id)}
+                    style={{ textAlign: 'left', width: '100%', cursor: 'pointer', border: 'none', background: 'var(--surface)' }}
+                  >
                     <div className="trip-mini-head">
                       <div>
                         <strong>{trip.requestNo}</strong>
@@ -90,13 +108,83 @@ export default function TripsCalendarPage({ tripRecords }) {
                       <p><strong>Destination:</strong> {trip.destination}</p>
                       <p><strong>Departure:</strong> {formatDate(trip.departureDatetime || trip.dateOut, true)}</p>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
           </div>
         </SectionCard>
       </div>
+
+      {selectedTrip && (
+        <>
+          <button
+            type="button"
+            className="app-backdrop modal-backdrop"
+            aria-label="Close trip details"
+            onClick={() => setSelectedTripId(null)}
+          />
+          <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Trip details">
+            <section className="modal-card">
+              <div className="modal-head">
+                <div>
+                  <p className="eyebrow">Trip Details</p>
+                  <h3>{selectedTrip.requestNo}</h3>
+                  <p className="modal-copy">{selectedTrip.vehicle}</p>
+                </div>
+                <button
+                  type="button"
+                  className="button button-secondary modal-close"
+                  onClick={() => setSelectedTripId(null)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="detail-panel">
+                <dl className="detail-list">
+                  <div>
+                    <dt>Status</dt>
+                    <dd><StatusBadge status={selectedTrip.tripStatus} /></dd>
+                  </div>
+                  <div>
+                    <dt>Driver</dt>
+                    <dd>{selectedTrip.driver}</dd>
+                  </div>
+                  <div>
+                    <dt>Destination</dt>
+                    <dd>{selectedTrip.destination}</dd>
+                  </div>
+                  <div>
+                    <dt>Purpose</dt>
+                    <dd>{selectedTrip.purpose}</dd>
+                  </div>
+                  <div>
+                    <dt>Departure Time</dt>
+                    <dd>{formatDate(selectedTrip.departureDatetime || selectedTrip.dateOut, true)}</dd>
+                  </div>
+                  <div>
+                    <dt>Expected Return</dt>
+                    <dd>{formatDate(selectedTrip.expectedReturnDatetime || selectedTrip.expectedReturn, true)}</dd>
+                  </div>
+                  {selectedTrip.dateIn && (
+                    <div>
+                      <dt>Actual Return</dt>
+                      <dd>{formatDate(selectedTrip.dateIn, true)}</dd>
+                    </div>
+                  )}
+                  {selectedTrip.remarks && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <dt>Remarks</dt>
+                      <dd>{selectedTrip.remarks}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            </section>
+          </div>
+        </>
+      )}
     </div>
   );
 }

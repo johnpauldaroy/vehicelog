@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
-import SummaryGrid from '../components/SummaryGrid';
 import { ACTIVE_TRIP_STATUSES, READY_FOR_CHECKOUT } from '../constants/appConfig';
 import { formatDate } from '../utils/appHelpers';
 
@@ -22,8 +21,6 @@ export default function TripsPage({
   onCheckinSubmit,
   onApproveTripTicket,
 }) {
-  const releasableTrips = tripRecords.filter((trip) => READY_FOR_CHECKOUT.includes(trip.tripStatus));
-  const activeTrips = tripRecords.filter((trip) => ACTIVE_TRIP_STATUSES.includes(trip.tripStatus));
   const [detailTripId, setDetailTripId] = useState('');
   const [detailModalOpen, setDetailModalOpen] = useState(false);
 
@@ -43,30 +40,6 @@ export default function TripsPage({
       setDetailModalOpen(false);
     }
   }, [detailTrip, detailTripId]);
-
-  const summaryItems = [
-    {
-      label: 'Records',
-      value: tripRecords.length,
-      helper: 'Current trip log',
-      tone: 'green',
-      icon: 'dashboard',
-    },
-    {
-      label: 'Ready',
-      value: releasableTrips.length,
-      helper: 'Ready for dispatch',
-      tone: 'amber',
-      icon: 'release',
-    },
-    {
-      label: 'Open returns',
-      value: activeTrips.length,
-      helper: 'Need check-in',
-      tone: 'blue',
-      icon: 'return',
-    },
-  ];
 
   function openTripDetails(trip) {
     setDetailTripId(trip.id);
@@ -352,7 +325,6 @@ export default function TripsPage({
 
       <div className="content-grid-tight">
         <SectionCard title="Trip operations" subtitle="One table for release, active, and returned trips">
-          <SummaryGrid items={summaryItems} />
           <div className="section-context-note">
             Open any trip from the table to review details. Release and return fields only appear
             inside the detail view for actionable trips.

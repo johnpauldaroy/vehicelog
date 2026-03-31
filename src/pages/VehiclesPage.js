@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
-import SummaryGrid from '../components/SummaryGrid';
 import {
   daysUntil,
   formatDate,
@@ -23,32 +22,6 @@ export default function VehiclesPage({
   const [pendingVehicleId, setPendingVehicleId] = useState('');
   const latestTrip = selectedVehicleTrips[0] || null;
   const latestMaintenance = selectedVehicleMaintenance[0] || null;
-  const summaryItems = [
-    {
-      label: 'Showing',
-      value: filteredVehicles.length,
-      helper: 'Vehicles matching the selected status',
-      tone: 'green',
-      icon: 'filter',
-    },
-    {
-      label: 'Ready in view',
-      value: filteredVehicles.filter((vehicle) => vehicle.status === 'available').length,
-      helper: 'Assignable within these filtered results',
-      tone: 'blue',
-      icon: 'vehicles',
-    },
-    {
-      label: 'Watchlist in view',
-      value: filteredVehicles.filter(
-        (vehicle) =>
-          daysUntil(vehicle.insuranceExpiry) <= 30 || daysUntil(vehicle.registrationExpiry) <= 30
-      ).length,
-      helper: 'Expiring documents inside this result set',
-      tone: 'amber',
-      icon: 'warning',
-    },
-  ];
 
   useEffect(() => {
     if (!selectedVehicle) {
@@ -195,7 +168,6 @@ export default function VehiclesPage({
 
       <div className="content-grid-tight">
         <SectionCard title="Fleet list" subtitle="Filtered results for the selected status">
-          <SummaryGrid items={summaryItems} />
           <div className="toolbar">
             <div className="chip-row">
               {['all', 'available', 'reserved', 'in_use', 'maintenance', 'inactive'].map((filter) => (

@@ -28,6 +28,17 @@ const statusClassMap = {
   'incident reported': 'status-purple',
 };
 
+export const PRINTABLE_REQUEST_STATUSES = new Set([
+  'approved',
+  'ready for release',
+  'checked out',
+  'in transit',
+  'returned',
+  'overdue',
+  'incident reported',
+  'closed',
+]);
+
 function padNumber(value) {
   return String(value).padStart(2, '0');
 }
@@ -91,6 +102,7 @@ export function getDriverAssignmentValidation(driver, vehicle) {
       isValid: true,
       licenseExpired: false,
       restrictionMismatch: false,
+      vehicleRequirementMissing: false,
       licenseExpiry: '',
       driverRestrictions: [],
       requiredRestrictions: [],
@@ -102,18 +114,31 @@ export function getDriverAssignmentValidation(driver, vehicle) {
   const expiryDate = driver.licenseExpiry ? new Date(`${driver.licenseExpiry}T00:00:00`) : null;
   const licenseExpired = Boolean(expiryDate && expiryDate.getTime() < today.getTime());
   const driverRestrictions = normalizeRestrictionCodes(driver.licenseRestrictions || driver.restrictions);
-  const vehicleRequirement = getVehicleRestrictionRequirement(vehicle?.type);
+  
+  // Per-vehicle restrictions override type-based defaults
+  const vehicleSpecificRestrictions = normalizeRestrictionCodes(vehicle?.requiredRestrictions);
+  const vehicleRequirement = vehicleSpecificRestrictions.length > 0
+    ? { requiredRestrictions: vehicleSpecificRestrictions, label: vehicle.vehicleName || 'Vehicle' }
+    : getVehicleRestrictionRequirement(vehicle?.type);
+  const vehicleRequirementMissing = Boolean(
+    vehicle
+    && !vehicleRequirement
+    && ['vehicle', ''].includes(String(vehicle?.type || '').trim().toLowerCase())
+  );
+
   const requiredRestrictions = vehicleRequirement?.requiredRestrictions || [];
   const restrictionMismatch = Boolean(
-    vehicleRequirement
+    !vehicleRequirementMissing
+    && vehicleRequirement
     && requiredRestrictions.length
-    && !driverRestrictions.some((restriction) => requiredRestrictions.includes(restriction))
+    && !requiredRestrictions.every((restriction) => driverRestrictions.includes(restriction))
   );
 
   return {
-    isValid: !licenseExpired && !restrictionMismatch,
+    isValid: !licenseExpired && !restrictionMismatch && !vehicleRequirementMissing,
     licenseExpired,
     restrictionMismatch,
+    vehicleRequirementMissing,
     licenseExpiry: driver.licenseExpiry || '',
     driverRestrictions,
     requiredRestrictions,
@@ -157,6 +182,10 @@ export function isSameCalendarDay(value, targetValue) {
 
 export function formatStatusLabel(status) {
   return String(status).replace(/_/g, ' ');
+}
+
+export function canPrintRequestStatus(status) {
+  return PRINTABLE_REQUEST_STATUSES.has(formatStatusLabel(status).toLowerCase());
 }
 
 export function toStatusClass(status) {
