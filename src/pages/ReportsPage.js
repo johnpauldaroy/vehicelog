@@ -64,7 +64,6 @@ export default function ReportsPage({
   vehicleRecords,
   maintenanceRecords,
   incidentRecords,
-  panayFuelPricing,
 }) {
   const isAdmin = mode === 'admin';
   const [activeReport, setActiveReport] = useState('requests');
@@ -77,7 +76,6 @@ export default function ReportsPage({
   const [requesterFilter, setRequesterFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 8;
-  const isPanayBranchUser = currentUser?.serviceRegion === 'panay';
 
   const vehicleById = useMemo(
     () => new Map(vehicleRecords.map((vehicle) => [vehicle.id, vehicle])),
@@ -700,28 +698,6 @@ export default function ReportsPage({
       </SectionCard>
 
       <SummaryGrid items={reportModel.summaryItems} />
-
-      {activeReport === 'fuel' && isPanayBranchUser && (
-        <SectionCard title="Panay market snapshot" subtitle={`Last sync: ${formatDate(panayFuelPricing?.lastUpdatedAt, true)}`}>
-          <div className="stack-list">
-            {(panayFuelPricing?.topStations || []).slice(0, 5).map((station, index) => (
-              <div key={`${station.stationName || station.station_name}-${index}`} className="list-row">
-                <div>
-                  <strong>{station.stationName || station.station_name}</strong>
-                  <p>{station.municipality}, {station.province}</p>
-                </div>
-                <div className="list-meta">
-                  <span>{station.fuelType || station.fuel_type}</span>
-                  <strong>PHP {Number(station.pricePerLiter || station.price_per_liter || 0).toFixed(2)}/L</strong>
-                </div>
-              </div>
-            ))}
-            {!(panayFuelPricing?.topStations || []).length && (
-              <div className="empty-state-panel">No Panay fuel snapshot rows are available yet.</div>
-            )}
-          </div>
-        </SectionCard>
-      )}
 
       <div className="content-grid">
         <SectionCard title={reportModel.chartTitle} subtitle={reportModel.chartCopy}>

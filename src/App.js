@@ -1802,6 +1802,7 @@ function App() {
       [field]: value,
     }));
     setLoginError('');
+    setLiveDataError('');
   }
 
   function handlePasswordFieldChange(field, value) {
@@ -3917,11 +3918,13 @@ function App() {
     const normalizedPassword = loginForm.password.trim();
 
     if (!normalizedEmail || !normalizedPassword) {
+      setLiveDataError('');
       setLoginError('Enter your email and password to continue.');
       return;
     }
 
     if (!supabase) {
+      setLiveDataError('');
       setLoginError('Supabase is not configured for this workspace.');
       return;
     }
@@ -3981,6 +3984,7 @@ function App() {
       cachedSessionUserRef.current = null;
       clearCachedSessionUser();
       setIsAuthenticated(false);
+      setLiveDataError('');
       setLoginError(error.message || 'Unable to sign in to Supabase.');
       appendAuditEntry({
         actor: normalizedEmail,
@@ -4032,6 +4036,8 @@ function App() {
   }
 
   if (!isAuthenticated) {
+    const authErrorMessage = loginError || liveDataError;
+
     return (
       <main className="auth-shell">
         <section className="auth-card">
@@ -4084,8 +4090,7 @@ function App() {
                 </button>
               </span>
             </label>
-            {liveDataError && <p className="auth-error">{liveDataError}</p>}
-            {loginError && <p className="auth-error">{loginError}</p>}
+            {authErrorMessage && <p className="auth-error">{authErrorMessage}</p>}
             <button type="submit" className="button button-primary auth-submit" disabled={isBootstrapping}>
               <AppIcon name="dashboard" className="button-icon" />
               {isBootstrapping ? 'Signing in...' : 'Log in'}
@@ -4321,7 +4326,6 @@ function App() {
             vehicleRecords={vehicleRecords}
             maintenanceRecords={maintenanceRecords}
             incidentRecords={incidentRecords}
-            panayFuelPricing={panayFuelPricing}
           />
         )}
         {selectedView === 'vehicles' && (

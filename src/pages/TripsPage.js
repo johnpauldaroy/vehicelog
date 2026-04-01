@@ -23,6 +23,8 @@ export default function TripsPage({
 }) {
   const [detailTripId, setDetailTripId] = useState('');
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const tripsPerPage = 8;
 
   const detailTrip = useMemo(
     () => tripRecords.find((trip) => trip.id === detailTripId) || null,
@@ -117,6 +119,20 @@ export default function TripsPage({
         ? 'return'
         : 'history'
     : null;
+
+  const totalPages = Math.max(1, Math.ceil(tripRecords.length / tripsPerPage));
+  const paginatedTripRecords = useMemo(() => {
+    const startIndex = (currentPage - 1) * tripsPerPage;
+    return tripRecords.slice(startIndex, startIndex + tripsPerPage);
+  }, [currentPage, tripRecords]);
+  const pageStart = tripRecords.length === 0 ? 0 : (currentPage - 1) * tripsPerPage + 1;
+  const pageEnd = Math.min(currentPage * tripsPerPage, tripRecords.length);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const actionTrip = detailMode === 'release'
     ? selectedCheckoutTrip
@@ -369,7 +385,7 @@ export default function TripsPage({
                     </td>
                   </tr>
                 )}
-                {tripRecords.map((trip) => {
+                {paginatedTripRecords.map((trip) => {
                   const buttonConfig = getTripButtonConfig(trip);
 
                   return (
@@ -422,6 +438,37 @@ export default function TripsPage({
                 })}
               </tbody>
             </table>
+          </div>
+          <div className="request-pagination">
+            <p className="request-pagination-copy">
+              {tripRecords.length === 0
+                ? 'No trip records to show'
+                : `Showing ${pageStart}-${pageEnd} of ${tripRecords.length} trips`}
+            </p>
+            <div className="request-pagination-actions">
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+              >
+                <span className="pagination-label-full">Previous</span>
+                <span className="pagination-label-short">Prev</span>
+              </button>
+              <span className="request-page-indicator">
+                <span className="request-page-indicator-full">Page {currentPage} of {totalPages}</span>
+                <span className="request-page-indicator-short">{currentPage}/{totalPages}</span>
+              </span>
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                <span className="pagination-label-full">Next</span>
+                <span className="pagination-label-short">Next</span>
+              </button>
+            </div>
           </div>
         </SectionCard>
       </div>
