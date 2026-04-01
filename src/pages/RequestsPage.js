@@ -392,7 +392,8 @@ export default function RequestsPage({
                       <td data-label="Actions">
                         {showsAssignmentActions
                           ? (() => {
-                              const isClosedRequest = String(request.status || '').toLowerCase() === 'closed';
+                              const normalizedRequestStatus = String(request.status || '').toLowerCase();
+                              const isVehicleAssignmentLocked = ['returned', 'closed', 'rejected'].includes(normalizedRequestStatus);
                               const isPendingApproval = request.status === 'Pending Approval';
                               const opensUpward = index >= Math.max(paginatedRequests.length - 2, 0);
 
@@ -423,7 +424,7 @@ export default function RequestsPage({
                                           View details
                                         </button>
                                       )}
-                                      {!isClosedRequest && isAdmin && (
+                                      {!isVehicleAssignmentLocked && isAdmin && (
                                         <button
                                           type="button"
                                           className="action-menu-item"
@@ -435,7 +436,7 @@ export default function RequestsPage({
                                           {request.assignedVehicleId ? 'Edit vehicle' : 'Assign vehicle'}
                                         </button>
                                       )}
-                                      {!isClosedRequest && isApprover && isPendingApproval && (
+                                      {!isVehicleAssignmentLocked && isApprover && isPendingApproval && (
                                         <>
                                           <button
                                             type="button"
