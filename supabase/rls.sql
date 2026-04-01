@@ -68,6 +68,7 @@ alter table public.maintenance_logs enable row level security;
 alter table public.insurance_policies enable row level security;
 alter table public.registration_records enable row level security;
 alter table public.incident_reports enable row level security;
+alter table public.maintenance_automation_settings enable row level security;
 alter table public.notifications enable row level security;
 alter table public.audit_logs enable row level security;
 
@@ -621,6 +622,25 @@ with check (
   or public.has_role('approver', branch_id)
   or created_by = auth.uid()
 );
+
+drop policy if exists "maintenance automation settings select authenticated" on public.maintenance_automation_settings;
+create policy "maintenance automation settings select authenticated"
+on public.maintenance_automation_settings
+for select
+using (auth.role() = 'authenticated');
+
+drop policy if exists "maintenance automation settings update by admin" on public.maintenance_automation_settings;
+create policy "maintenance automation settings update by admin"
+on public.maintenance_automation_settings
+for update
+using (public.has_role('admin'))
+with check (public.has_role('admin'));
+
+drop policy if exists "maintenance automation settings insert by admin" on public.maintenance_automation_settings;
+create policy "maintenance automation settings insert by admin"
+on public.maintenance_automation_settings
+for insert
+with check (public.has_role('admin'));
 
 drop policy if exists "notifications own or admin" on public.notifications;
 create policy "notifications own or admin"

@@ -27,6 +27,28 @@
 - Scans insurance and registration expiries within 30 days.
 - Creates in-app notifications and optional renewal emails.
 
+## `notify-oil-change-reminders`
+- Scheduled job (hourly trigger, daily dedupe).
+- Scans `maintenance_logs` for oil-change items (`maintenance_type` contains `oil`) that are pending/in-progress and due within the configured lead window.
+- Creates in-app notifications for:
+  - all admins
+  - branch approvers of the maintenance branch
+- Uses daily dedupe via notification keys:
+  - `source_key = oil-change:<maintenance_log_id>`
+  - `source_date = <today in configured timezone>`
+- Returns run summary payload:
+  - `scanned`, `due`, `recipients`, `inserted`, `skipped_deduped`, `errors`
+
+### Required runtime secrets for `notify-oil-change-reminders`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `OIL_CHANGE_REMINDER_TOKEN` (optional shared secret for scheduled/manual trigger auth)
+
+### Suggested schedule
+- Hourly invocation via Supabase cron:
+  - `0 * * * *`
+- SQL helper script: `supabase/schedule_notify_oil_change_reminders.sql`
+
 ## Suggested Provider
 - Resend for email delivery.
 - Supabase cron plus Edge Functions for scheduled jobs.

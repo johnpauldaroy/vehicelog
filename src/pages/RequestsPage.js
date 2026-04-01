@@ -358,6 +358,14 @@ export default function RequestsPage({
                       {request.rejectionReason && (
                         <span className="cell-subtle">Reason: {request.rejectionReason}</span>
                       )}
+                    </td>
+                    <td data-label="Request no">
+                      <div className="request-no-mobile-head">
+                        <span>{request.requestNo}</span>
+                        <span className="request-mobile-status">
+                          <StatusBadge status={request.status} />
+                        </span>
+                      </div>
                       {request.fuelRequested && (
                         <button
                           type="button"
@@ -369,27 +377,8 @@ export default function RequestsPage({
                           <span>{`Fuel requested (\u20B1${request.fuelAmount})`}</span>
                         </button>
                       )}
-                    </td>
-                    <td data-label="Request no">
-                      <div className="request-no-mobile-head">
-                        <span>{request.requestNo}</span>
-                        <span className="request-mobile-status">
-                          <StatusBadge status={request.status} />
-                        </span>
-                      </div>
                       {request.rejectionReason && (
                         <span className="cell-subtle request-mobile-only">Reason: {request.rejectionReason}</span>
-                      )}
-                      {request.fuelRequested && (
-                        <button
-                          type="button"
-                          className="fuel-indicator-button request-fuel-link request-mobile-only"
-                          onClick={() => onOpenRequestDetails(request)}
-                          title="View and update fuel details"
-                        >
-                          <AppIcon name="release" style={{ width: '12px', height: '12px' }} />
-                          <span>{`Fuel requested (\u20B1${request.fuelAmount})`}</span>
-                        </button>
                       )}
                     </td>
                     {showsQueue && <td data-label="Requester">{request.requestedBy}</td>}

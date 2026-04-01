@@ -365,6 +365,16 @@ create table if not exists public.incident_reports (
   deleted_at timestamptz
 );
 
+create table if not exists public.maintenance_automation_settings (
+  id text primary key default 'global',
+  enabled boolean not null default true,
+  oil_change_lead_days integer not null default 7 check (oil_change_lead_days >= 0 and oil_change_lead_days <= 60),
+  timezone text not null default 'Asia/Manila',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  updated_by uuid references public.profiles(id)
+);
+
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references public.profiles(id) on delete cascade,
@@ -372,12 +382,18 @@ create table if not exists public.notifications (
   title text not null,
   message text not null,
   notification_type text not null,
+  source_key text,
+  source_date date,
   is_read boolean not null default false,
   read_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   created_by uuid
 );
+
+alter table public.notifications
+  add column if not exists source_key text,
+  add column if not exists source_date date;
 
 create table if not exists public.audit_logs (
   id uuid primary key default gen_random_uuid(),
@@ -405,6 +421,9 @@ create index if not exists idx_maintenance_logs_vehicle_status_schedule on publi
 create index if not exists idx_insurance_policies_vehicle_expiry on public.insurance_policies(vehicle_id, expiry_date);
 create index if not exists idx_registration_records_vehicle_expiry on public.registration_records(vehicle_id, expiry_date);
 create index if not exists idx_notifications_user_read on public.notifications(user_id, is_read);
+create unique index if not exists idx_notifications_daily_source_dedupe
+  on public.notifications(user_id, source_key, source_date)
+  where source_key is not null and source_date is not null;
 create index if not exists idx_audit_logs_target_created on public.audit_logs(target_table, target_id, created_at desc);
 
 drop trigger if exists on_auth_user_created on auth.users;
@@ -462,6 +481,9 @@ create trigger set_fuel_price_sync_runs_updated_at before update on public.fuel_
 
 drop trigger if exists set_maintenance_logs_updated_at on public.maintenance_logs;
 create trigger set_maintenance_logs_updated_at before update on public.maintenance_logs for each row execute function public.set_updated_at();
+
+drop trigger if exists set_maintenance_automation_settings_updated_at on public.maintenance_automation_settings;
+create trigger set_maintenance_automation_settings_updated_at before update on public.maintenance_automation_settings for each row execute function public.set_updated_at();
 
 drop trigger if exists set_insurance_policies_updated_at on public.insurance_policies;
 create trigger set_insurance_policies_updated_at before update on public.insurance_policies for each row execute function public.set_updated_at();

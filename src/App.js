@@ -20,6 +20,7 @@ import {
   saveLiveBranch,
   saveLiveDriver,
   saveLiveIncident,
+  saveLiveOilReminderSettings,
   saveLiveMaintenance,
   saveLiveVehicle,
   updateLiveProfile,
@@ -75,6 +76,12 @@ const EMPTY_PANAY_FUEL_PRICING = {
   latestRun: null,
   stationCount: 0,
   topStations: [],
+};
+
+const DEFAULT_OIL_REMINDER_SETTINGS = {
+  enabled: true,
+  oilChangeLeadDays: 7,
+  timezone: 'Asia/Manila',
 };
 
 const DEFAULT_VEHICLE_TYPE_RECORDS = [
@@ -367,6 +374,7 @@ function App() {
   const [maintenanceRecords, setMaintenanceRecords] = useState([]);
   const [incidentRecords, setIncidentRecords] = useState([]);
   const [notificationFeed, setNotificationFeed] = useState([]);
+  const [oilReminderSettings, setOilReminderSettings] = useState(DEFAULT_OIL_REMINDER_SETTINGS);
   const [auditRecords, setAuditRecords] = useState([]);
   const [panayFuelPricing, setPanayFuelPricing] = useState(EMPTY_PANAY_FUEL_PRICING);
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
@@ -545,6 +553,8 @@ function App() {
     setMaintenanceRecords([]);
     setIncidentRecords([]);
     setNotificationFeed([]);
+    setOilReminderSettings(DEFAULT_OIL_REMINDER_SETTINGS);
+    setAuditRecords([]);
     setPanayFuelPricing(EMPTY_PANAY_FUEL_PRICING);
   }, []);
 
@@ -603,6 +613,7 @@ function App() {
         setMaintenanceRecords(liveData.maintenanceRecords);
         setIncidentRecords(liveData.incidentRecords);
         setNotificationFeed(liveData.notificationFeed);
+        setOilReminderSettings(liveData.oilReminderSettings || DEFAULT_OIL_REMINDER_SETTINGS);
         setAuditRecords(liveData.auditRecords || []);
         setPanayFuelPricing(liveData.panayFuelPricing || EMPTY_PANAY_FUEL_PRICING);
         setLiveDataError('');
@@ -3353,6 +3364,42 @@ function App() {
     showToast('Vehicle deleted successfully.', 'success', 'Settings saved');
   }
 
+  async function handleSaveOilReminderSettings(nextSettings) {
+    const normalizedLeadDays = Number.parseInt(String(nextSettings.oilChangeLeadDays ?? ''), 10);
+
+    if (!Number.isFinite(normalizedLeadDays) || normalizedLeadDays < 0 || normalizedLeadDays > 60) {
+      showToast('Lead days must be between 0 and 60.', 'warning', 'Invalid automation setting');
+      throw new Error('Lead days must be between 0 and 60.');
+    }
+
+    const payload = {
+      enabled: Boolean(nextSettings.enabled),
+      oilChangeLeadDays: normalizedLeadDays,
+      timezone: String(nextSettings.timezone || DEFAULT_OIL_REMINDER_SETTINGS.timezone),
+    };
+
+    if (supabase) {
+      try {
+        await saveLiveOilReminderSettings(supabase, payload);
+        await refreshLiveData(currentSessionUser);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to save automation settings.';
+        showToast(message, 'danger', 'Settings failed');
+        throw error;
+      }
+    } else {
+      setOilReminderSettings(payload);
+    }
+
+    appendAuditEntry({
+      category: 'settings',
+      action: 'Updated automation settings',
+      target: 'Oil-change reminders',
+      details: `Enabled: ${payload.enabled ? 'yes' : 'no'} | Lead days: ${payload.oilChangeLeadDays} | Timezone: ${payload.timezone}`,
+    });
+    showToast('Oil-change reminder settings updated.', 'success', 'Settings saved');
+  }
+
   async function handleRequestSubmit(event) {
     event.preventDefault();
 
@@ -4307,6 +4354,7 @@ function App() {
             driverRecords={driverRecords}
             vehicleRecords={vehicleRecords}
             auditRecords={auditRecords}
+            oilReminderSettings={oilReminderSettings}
             onAddBranch={() => handleOpenBranchSettingsModal()}
             onEditBranch={handleOpenBranchSettingsModal}
             onDeleteBranch={handleDeleteBranch}
@@ -4319,6 +4367,7 @@ function App() {
             onAddVehicle={() => handleOpenVehicleSettingsModal()}
             onEditVehicle={handleOpenVehicleSettingsModal}
             onDeleteVehicle={handleDeleteVehicle}
+            onSaveOilReminderSettings={handleSaveOilReminderSettings}
           />
         )}
 

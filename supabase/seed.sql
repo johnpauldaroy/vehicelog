@@ -250,6 +250,10 @@ insert into public.maintenance_logs (
   )
 on conflict (id) do nothing;
 
+insert into public.maintenance_automation_settings (id, enabled, oil_change_lead_days, timezone)
+values ('global', true, 7, 'Asia/Manila')
+on conflict (id) do nothing;
+
 insert into public.incident_reports (
   id,
   trip_log_id,

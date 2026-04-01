@@ -91,7 +91,7 @@ export default function TripsPage({
       return {
         icon: 'return',
         label: 'Return vehicle',
-        className: 'button button-primary row-action-button trip-action-button',
+        className: 'button button-success row-action-button trip-action-button',
       };
     }
 
@@ -304,7 +304,7 @@ export default function TripsPage({
                     <div className="full-span form-actions">
                       <button
                         type="submit"
-                        className="button button-primary button-solid"
+                        className="button button-success button-solid"
                         disabled={!checkinForm.tripId}
                       >
                         Return vehicle

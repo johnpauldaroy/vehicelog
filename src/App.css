@@ -777,6 +777,45 @@
   gap: 18px;
 }
 
+.automation-settings-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.automation-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.automation-toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--text-base);
+}
+
+.automation-toggle-control input {
+  width: 16px;
+  height: 16px;
+}
+
+.automation-settings-grid {
+  margin-top: 2px;
+}
+
+.automation-settings-note {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.automation-settings-note strong {
+  color: var(--text-strong);
+}
+
 .settings-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1070,6 +1109,17 @@
 
 .button-danger:hover:not(:disabled) {
   background: rgba(250, 225, 223, 0.96);
+}
+
+.button-success {
+  background: linear-gradient(135deg, #2f9f63, #1f7f4d);
+  color: var(--text-inverse);
+  box-shadow: 0 16px 28px rgba(47, 159, 99, 0.22);
+}
+
+.button-success:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px rgba(47, 159, 99, 0.26);
 }
 
 .button-tertiary {
@@ -2317,6 +2367,10 @@
   text-decoration: underline;
 }
 
+.request-fuel-link.request-mobile-only {
+  display: none;
+}
+
 .vehicle-actions-head,
 .vehicle-actions-cell {
   width: 1%;
@@ -2629,6 +2683,15 @@
   }
 
   .utilization-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .automation-toggle-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .automation-settings-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -3025,6 +3088,7 @@
 
   /* Buttons: minimum tap target on mobile */
   .button-primary,
+  .button-success,
   .button-secondary,
   .button-danger {
     min-height: 46px;
@@ -4581,6 +4645,7 @@
   }
 
   .button-primary,
+  .button-success,
   .button-secondary,
   .button-danger {
     min-height: 42px;

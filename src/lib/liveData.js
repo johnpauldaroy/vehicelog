@@ -22,6 +22,12 @@ const ROLE_ID_TO_NAME = {
   '00000000-0000-0000-0000-000000000004': 'requester',
 };
 
+const DEFAULT_OIL_REMINDER_SETTINGS = {
+  enabled: true,
+  oilChangeLeadDays: 7,
+  timezone: 'Asia/Manila',
+};
+
 function extractEmbeddedRoleName(roleValue) {
   if (Array.isArray(roleValue)) {
     return String(roleValue[0]?.name || '').toLowerCase();
@@ -718,6 +724,14 @@ function isMissingVehicleOdoDefectiveColumnError(error) {
   );
 }
 
+function isMissingOilReminderSettingsTableError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('maintenance_automation_settings')
+    && (message.includes('does not exist') || message.includes('schema cache') || message.includes('relation'))
+  );
+}
+
 async function selectVehicles(client) {
   const baseSelect = `
     id,
@@ -847,6 +861,36 @@ async function selectPanayFuelPricing(client) {
   }
 
   return summarizePanayPricing(snapshotResult.data || [], syncRunResult.data || []);
+}
+
+async function selectOilReminderSettings(client) {
+  const { data, error } = await client
+    .from('maintenance_automation_settings')
+    .select('id, enabled, oil_change_lead_days, timezone')
+    .eq('id', 'global')
+    .limit(1);
+
+  if (error) {
+    if (isMissingOilReminderSettingsTableError(error)) {
+      return DEFAULT_OIL_REMINDER_SETTINGS;
+    }
+
+    throw new Error(`Unable to load automation settings: ${error.message}`);
+  }
+
+  const row = data?.[0];
+
+  if (!row) {
+    return DEFAULT_OIL_REMINDER_SETTINGS;
+  }
+
+  return {
+    enabled: Boolean(row.enabled),
+    oilChangeLeadDays: Number.isFinite(Number(row.oil_change_lead_days))
+      ? Number(row.oil_change_lead_days)
+      : DEFAULT_OIL_REMINDER_SETTINGS.oilChangeLeadDays,
+    timezone: String(row.timezone || DEFAULT_OIL_REMINDER_SETTINGS.timezone),
+  };
 }
 
 async function selectFirst(label, query) {
@@ -1141,6 +1185,7 @@ export async function fetchLiveAppData(client) {
     incidents,
     auditLogs,
     panayFuelPricing,
+    oilReminderSettings,
   ] = await Promise.all([
     requiredSelect('branches', client.from('branches').select('id, code, name, address, service_region, is_active, deleted_at').order('name')),
     requiredSelect('profiles', client.from('profiles').select('id, full_name, email, branch_id, is_active, deleted_at')),
@@ -1227,6 +1272,7 @@ export async function fetchLiveAppData(client) {
       `).order('created_at', { ascending: false })
     ),
     selectPanayFuelPricing(client),
+    selectOilReminderSettings(client),
   ]);
 
   const visibleBranches = branches.filter((branch) => !branch.deleted_at);
@@ -1497,6 +1543,7 @@ export async function fetchLiveAppData(client) {
     notificationFeed,
     auditRecords,
     panayFuelPricing,
+    oilReminderSettings,
   };
 }
 
@@ -2138,6 +2185,34 @@ export async function deleteLiveBranch(client, branch) {
     .eq('id', branch.id);
 
   if (error) {
+    throw error;
+  }
+}
+
+export async function saveLiveOilReminderSettings(client, settings) {
+  const actorId = await getAuthenticatedUserId(client);
+  const oilChangeLeadDays = Number.parseInt(String(settings.oilChangeLeadDays ?? ''), 10);
+  const normalizedLeadDays = Number.isFinite(oilChangeLeadDays)
+    ? Math.min(60, Math.max(0, oilChangeLeadDays))
+    : DEFAULT_OIL_REMINDER_SETTINGS.oilChangeLeadDays;
+
+  const payload = {
+    id: 'global',
+    enabled: Boolean(settings.enabled),
+    oil_change_lead_days: normalizedLeadDays,
+    timezone: String(settings.timezone || DEFAULT_OIL_REMINDER_SETTINGS.timezone),
+    updated_by: actorId,
+  };
+
+  const { error } = await client
+    .from('maintenance_automation_settings')
+    .upsert(payload, { onConflict: 'id' });
+
+  if (error) {
+    if (isMissingOilReminderSettingsTableError(error)) {
+      throw new Error('Automation settings table is missing. Run the latest Supabase migration first.');
+    }
+
     throw error;
   }
 }
