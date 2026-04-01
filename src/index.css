@@ -68,6 +68,18 @@ body {
   min-height: 100vh;
 }
 
+@media (max-width: 600px) {
+  :root {
+    --font-size-body: 13px;
+    --font-size-small: 0.8rem;
+    --font-size-label: 0.62rem;
+    --font-size-section-title: 1.04rem;
+    --font-size-page-title: clamp(1.2rem, 5.4vw, 1.38rem);
+    --font-size-hero-title: clamp(1.18rem, 5.8vw, 1.4rem);
+    --font-size-stat: clamp(1.16rem, 5.2vw, 1.4rem);
+  }
+}
+
 button,
 input,
 select,

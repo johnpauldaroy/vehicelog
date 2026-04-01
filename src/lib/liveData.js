@@ -473,6 +473,7 @@ function computeBranchUtilization(branches, vehicles, profiles, drivers) {
       code: branch.code,
       name: branch.name,
       address: branch.address || '',
+      serviceRegion: branch.service_region || 'other',
       isActive: branch.is_active !== false,
       utilization,
       assignedUsers,
@@ -505,7 +506,13 @@ function isMissingVehicleRequestFuelColumnError(error) {
   const message = String(error?.message || '').toLowerCase();
 
   return (
-    (message.includes('vehicle_requests.fuel_') || message.includes("'fuel_"))
+    (
+      message.includes('vehicle_requests.fuel_')
+      || message.includes("'fuel_")
+      || message.includes('vehicle_requests.fuel_product')
+      || message.includes('vehicle_requests.fuel_quote_')
+      || message.includes("'fuel_quote_")
+    )
     && (message.includes('does not exist') || message.includes('schema cache'))
   );
 }
@@ -518,6 +525,15 @@ function withVehicleRequestFuelDefaults(request) {
     fuel_liters: Number(request?.fuel_liters || 0),
     estimated_kms: Number(request?.estimated_kms || 0),
     fuel_remarks: request?.fuel_remarks || '',
+    fuel_product: request?.fuel_product || '',
+    fuel_quote_price_per_liter: request?.fuel_quote_price_per_liter === null || typeof request?.fuel_quote_price_per_liter === 'undefined'
+      ? null
+      : Number(request?.fuel_quote_price_per_liter || 0),
+    fuel_quote_source: request?.fuel_quote_source || '',
+    fuel_quote_observed_at: request?.fuel_quote_observed_at || '',
+    fuel_quote_location: request?.fuel_quote_location || '',
+    fuel_quote_province: request?.fuel_quote_province || '',
+    fuel_quote_municipality: request?.fuel_quote_municipality || '',
   };
 }
 
@@ -528,6 +544,28 @@ function stripVehicleRequestFuelFields(payload) {
     fuel_liters,
     estimated_kms,
     fuel_remarks,
+    fuel_product,
+    fuel_quote_price_per_liter,
+    fuel_quote_source,
+    fuel_quote_observed_at,
+    fuel_quote_location,
+    fuel_quote_province,
+    fuel_quote_municipality,
+    ...rest
+  } = payload;
+
+  return rest;
+}
+
+function stripVehicleRequestQuoteFields(payload) {
+  const {
+    fuel_product,
+    fuel_quote_price_per_liter,
+    fuel_quote_source,
+    fuel_quote_observed_at,
+    fuel_quote_location,
+    fuel_quote_province,
+    fuel_quote_municipality,
     ...rest
   } = payload;
 
@@ -558,7 +596,14 @@ async function selectVehicleRequests(client) {
     fuel_amount,
     fuel_liters,
     estimated_kms,
-    fuel_remarks
+    fuel_remarks,
+    fuel_product,
+    fuel_quote_price_per_liter,
+    fuel_quote_source,
+    fuel_quote_observed_at,
+    fuel_quote_location,
+    fuel_quote_province,
+    fuel_quote_municipality
   `;
 
   const { data, error } = await client
@@ -571,6 +616,22 @@ async function selectVehicleRequests(client) {
 
   if (!isMissingVehicleRequestFuelColumnError(error)) {
     throw new Error(`Unable to load vehicle requests: ${error.message}`);
+  }
+
+  const legacyFuelSelect = `
+    fuel_requested,
+    fuel_amount,
+    fuel_liters,
+    estimated_kms,
+    fuel_remarks
+  `;
+
+  const { data: legacyFuelData, error: legacyFuelError } = await client
+    .from('vehicle_requests')
+    .select(`${baseSelect},${legacyFuelSelect}`);
+
+  if (!legacyFuelError) {
+    return (legacyFuelData ?? []).map(withVehicleRequestFuelDefaults);
   }
 
   const { data: fallbackData, error: fallbackError } = await client
@@ -594,6 +655,14 @@ async function insertVehicleRequest(client, payload) {
   if (result.error && isMissingVehicleRequestFuelColumnError(result.error)) {
     result = await client
       .from('vehicle_requests')
+      .insert(stripVehicleRequestQuoteFields(payload))
+      .select('id')
+      .single();
+  }
+
+  if (result.error && isMissingVehicleRequestFuelColumnError(result.error)) {
+    result = await client
+      .from('vehicle_requests')
       .insert(stripVehicleRequestFuelFields(payload))
       .select('id')
       .single();
@@ -611,11 +680,173 @@ async function updateVehicleRequest(client, requestId, payload) {
   if (result.error && isMissingVehicleRequestFuelColumnError(result.error)) {
     result = await client
       .from('vehicle_requests')
+      .update(stripVehicleRequestQuoteFields(payload))
+      .eq('id', requestId);
+  }
+
+  if (result.error && isMissingVehicleRequestFuelColumnError(result.error)) {
+    result = await client
+      .from('vehicle_requests')
       .update(stripVehicleRequestFuelFields(payload))
       .eq('id', requestId);
   }
 
   return result;
+}
+
+function isMissingPanayPricingTableError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    (message.includes('fuel_price_snapshots') || message.includes('fuel_price_sync_runs'))
+    && (message.includes('does not exist') || message.includes('schema cache') || message.includes('relation'))
+  );
+}
+
+function isMissingBranchServiceRegionColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    (message.includes('branches.service_region') || message.includes("'service_region'"))
+    && (message.includes('does not exist') || message.includes('schema cache'))
+  );
+}
+
+function isMissingVehicleOdoDefectiveColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    (message.includes('vehicles.is_odo_defective') || message.includes("'is_odo_defective'"))
+    && (message.includes('does not exist') || message.includes('schema cache'))
+  );
+}
+
+async function selectVehicles(client) {
+  const baseSelect = `
+    id,
+    vehicle_type_id,
+    assigned_branch_id,
+    plate_number,
+    vehicle_name,
+    status,
+    fuel_type,
+    seating_capacity,
+    odometer_current,
+    registration_expiry,
+    insurance_expiry,
+    required_restrictions
+  `;
+
+  const withOdoDefectiveSelect = `${baseSelect}, is_odo_defective`;
+  const { data, error } = await client.from('vehicles').select(withOdoDefectiveSelect);
+
+  if (!error) {
+    return (data ?? []).map((vehicle) => ({
+      ...vehicle,
+      is_odo_defective: Boolean(vehicle.is_odo_defective),
+    }));
+  }
+
+  if (!isMissingVehicleOdoDefectiveColumnError(error)) {
+    throw new Error(`Unable to load vehicles: ${error.message}`);
+  }
+
+  const { data: fallbackData, error: fallbackError } = await client
+    .from('vehicles')
+    .select(baseSelect);
+
+  if (fallbackError) {
+    throw new Error(`Unable to load vehicles: ${fallbackError.message}`);
+  }
+
+  return (fallbackData ?? []).map((vehicle) => ({
+    ...vehicle,
+    is_odo_defective: false,
+  }));
+}
+
+function summarizePanayPricing(snapshotRows, syncRuns) {
+  const normalizedRows = (snapshotRows || []).map((row) => ({
+    province: row.province || '',
+    municipality: row.municipality || '',
+    stationName: row.station_name || '',
+    fuelType: row.fuel_type || '',
+    pricePerLiter: Number(row.price_per_liter || 0),
+    currency: row.currency || 'PHP',
+    observedAt: row.observed_at || '',
+    source: row.source || '',
+    confidence: Number(row.confidence || 0),
+    ingestedAt: row.ingested_at || row.created_at || '',
+  }));
+
+  const latestObservedAt = normalizedRows
+    .map((row) => row.observedAt)
+    .filter(Boolean)
+    .sort()
+    .slice(-1)[0] || '';
+  const uniqueStations = new Set(normalizedRows.map((row) => `${row.province}|${row.municipality}|${row.stationName}`));
+  const topStations = [...normalizedRows]
+    .sort((left, right) => left.pricePerLiter - right.pricePerLiter)
+    .slice(0, 5);
+
+  return {
+    rows: normalizedRows,
+    lastUpdatedAt: latestObservedAt || syncRuns?.[0]?.finished_at || '',
+    latestRun: syncRuns?.[0]
+      ? {
+          provider: syncRuns[0].provider,
+          status: syncRuns[0].status,
+          startedAt: syncRuns[0].started_at,
+          finishedAt: syncRuns[0].finished_at,
+          rowsUpserted: Number(syncRuns[0].rows_upserted || 0),
+          error: syncRuns[0].error || '',
+        }
+      : null,
+    stationCount: uniqueStations.size,
+    topStations,
+  };
+}
+
+async function selectPanayFuelPricing(client) {
+  const [snapshotResult, syncRunResult] = await Promise.all([
+    client
+      .from('fuel_price_snapshots')
+      .select(`
+        province,
+        municipality,
+        station_name,
+        fuel_type,
+        price_per_liter,
+        currency,
+        observed_at,
+        source,
+        confidence,
+        ingested_at,
+        created_at
+      `)
+      .order('observed_at', { ascending: false })
+      .limit(500),
+    client
+      .from('fuel_price_sync_runs')
+      .select('provider, status, started_at, finished_at, rows_upserted, error')
+      .order('started_at', { ascending: false })
+      .limit(1),
+  ]);
+
+  if (snapshotResult.error || syncRunResult.error) {
+    const cause = snapshotResult.error || syncRunResult.error;
+
+    if (isMissingPanayPricingTableError(cause)) {
+      return {
+        rows: [],
+        lastUpdatedAt: '',
+        latestRun: null,
+        stationCount: 0,
+        topStations: [],
+      };
+    }
+
+    throw new Error(cause.message || 'Unable to load Panay fuel pricing.');
+  }
+
+  return summarizePanayPricing(snapshotResult.data || [], syncRunResult.data || []);
 }
 
 async function selectFirst(label, query) {
@@ -875,7 +1106,7 @@ export async function fetchLiveSessionUser(client, authUserId) {
   const branch = await safeSelect(
     client
       .from('branches')
-      .select('id, name')
+      .select('id, name, service_region')
       .eq('id', profile.branch_id)
       .limit(1),
     []
@@ -890,6 +1121,7 @@ export async function fetchLiveSessionUser(client, authUserId) {
     role: titleCaseRole(roleName),
     branch: branch[0]?.name || 'Unassigned',
     branchId: profile.branch_id,
+    serviceRegion: branch[0]?.service_region || 'other',
   };
 }
 
@@ -908,28 +1140,13 @@ export async function fetchLiveAppData(client) {
     notifications,
     incidents,
     auditLogs,
+    panayFuelPricing,
   ] = await Promise.all([
-    requiredSelect('branches', client.from('branches').select('id, code, name, address, is_active, deleted_at').order('name')),
+    requiredSelect('branches', client.from('branches').select('id, code, name, address, service_region, is_active, deleted_at').order('name')),
     requiredSelect('profiles', client.from('profiles').select('id, full_name, email, branch_id, is_active, deleted_at')),
     requiredSelect('role assignments', client.from('user_roles').select('user_id, branch_id, role_id, roles(name)')),
     requiredSelect('vehicle types', client.from('vehicle_types').select('id, name')),
-    requiredSelect(
-      'vehicles',
-      client.from('vehicles').select(`
-        id,
-        vehicle_type_id,
-        assigned_branch_id,
-        plate_number,
-        vehicle_name,
-        status,
-        fuel_type,
-        seating_capacity,
-        odometer_current,
-        registration_expiry,
-        insurance_expiry,
-        required_restrictions
-      `)
-    ),
+    selectVehicles(client),
     requiredSelect('drivers', client.from('drivers').select('id, profile_id, full_name, status, branch_id, license_number, license_restrictions, license_expiry, employee_id, contact_number')),
     selectVehicleRequests(client),
     requiredSelect(
@@ -1009,6 +1226,7 @@ export async function fetchLiveAppData(client) {
         created_at
       `).order('created_at', { ascending: false })
     ),
+    selectPanayFuelPricing(client),
   ]);
 
   const visibleBranches = branches.filter((branch) => !branch.deleted_at);
@@ -1067,6 +1285,15 @@ export async function fetchLiveAppData(client) {
       fuelLiters: Number(request.fuel_liters || 0),
       estimatedKms: Number(request.estimated_kms || 0),
       fuelRemarks: request.fuel_remarks || '',
+      fuelProduct: request.fuel_product || '',
+      fuelQuotePricePerLiter: request.fuel_quote_price_per_liter === null || typeof request.fuel_quote_price_per_liter === 'undefined'
+        ? null
+        : Number(request.fuel_quote_price_per_liter || 0),
+      fuelQuoteSource: request.fuel_quote_source || '',
+      fuelQuoteObservedAt: request.fuel_quote_observed_at || '',
+      fuelQuoteLocation: request.fuel_quote_location || '',
+      fuelQuoteProvince: request.fuel_quote_province || '',
+      fuelQuoteMunicipality: request.fuel_quote_municipality || '',
       status: deriveRequestStatus(request, trip),
       approvedAt: request.approved_at || '',
       rejectionReason: request.rejection_reason || '',
@@ -1160,7 +1387,7 @@ export async function fetchLiveAppData(client) {
       insuranceExpiry: vehicle.insurance_expiry,
       fuelEfficiency: vehicle.fuel_efficiency || 10,
       requiredRestrictions: vehicle.required_restrictions || '',
-      isOdoDefective: false,
+      isOdoDefective: Boolean(vehicle.is_odo_defective),
       assignedDriver: relatedTrip?.driver || 'Unassigned',
     };
   });
@@ -1201,6 +1428,7 @@ export async function fetchLiveAppData(client) {
     role: titleCaseRole(roleByUserId.get(profile.id) || 'requester'),
     branch: branchMap.get(profile.branch_id)?.name || 'Unassigned',
     branchId: profile.branch_id,
+    serviceRegion: branchMap.get(profile.branch_id)?.service_region || 'other',
   }));
 
   const maintenanceRecords = maintenanceLogs.map((entry) => ({
@@ -1268,6 +1496,7 @@ export async function fetchLiveAppData(client) {
     incidentRecords,
     notificationFeed,
     auditRecords,
+    panayFuelPricing,
   };
 }
 
@@ -1300,6 +1529,15 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     fuel_liters: Number(requestForm.fuelLiters || 0),
     estimated_kms: Number(requestForm.estimatedKms || 0),
     fuel_remarks: requestForm.fuelRemarks?.trim() || '',
+    fuel_product: requestForm.fuelProduct?.trim() || null,
+    fuel_quote_price_per_liter: requestForm.fuelQuotePricePerLiter === null || typeof requestForm.fuelQuotePricePerLiter === 'undefined'
+      ? null
+      : Number(requestForm.fuelQuotePricePerLiter || 0),
+    fuel_quote_source: requestForm.fuelQuoteSource?.trim() || null,
+    fuel_quote_observed_at: requestForm.fuelQuoteObservedAt || null,
+    fuel_quote_location: requestForm.fuelQuoteLocation?.trim() || null,
+    fuel_quote_province: requestForm.fuelQuoteProvince?.trim() || null,
+    fuel_quote_municipality: requestForm.fuelQuoteMunicipality?.trim() || null,
     status: 'Pending Approval',
     assigned_vehicle_id: selectedVehicleId,
     assigned_driver_id: selectedDriverId,
@@ -1362,12 +1600,14 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
 }
 
 export async function checkoutLiveTrip(client, trip, checkoutForm, odometerOut) {
+  const normalizedOdometerOut = Number(odometerOut);
+  const hasOdometerOut = Number.isFinite(normalizedOdometerOut);
   const tripUpdate = client
     .from('trip_logs')
     .update({
       trip_status: 'Checked Out',
       date_out: checkoutForm.dateOut,
-      odometer_out: odometerOut,
+      odometer_out: hasOdometerOut ? normalizedOdometerOut : null,
       fuel_out: checkoutForm.fuelOut,
       condition_out: checkoutForm.conditionOut,
     })
@@ -1403,24 +1643,31 @@ export async function checkoutLiveTrip(client, trip, checkoutForm, odometerOut) 
 }
 
 export async function checkinLiveTrip(client, trip, checkinForm, odometerIn) {
+  const normalizedOdometerIn = Number(odometerIn);
+  const hasOdometerIn = Number.isFinite(normalizedOdometerIn);
   const tripUpdate = client
     .from('trip_logs')
     .update({
       trip_status: 'Returned',
       actual_return_datetime: checkinForm.dateIn,
       date_in: checkinForm.dateIn,
-      odometer_in: odometerIn,
+      odometer_in: hasOdometerIn ? normalizedOdometerIn : null,
       fuel_in: checkinForm.fuelIn,
       remarks: checkinForm.remarks,
     })
     .eq('id', trip.dbId);
 
+  const vehiclePayload = {
+    status: 'available',
+  };
+
+  if (hasOdometerIn) {
+    vehiclePayload.odometer_current = normalizedOdometerIn;
+  }
+
   const vehicleUpdate = client
     .from('vehicles')
-    .update({
-      status: 'available',
-      odometer_current: odometerIn,
-    })
+    .update(vehiclePayload)
     .eq('id', trip.vehicleId);
 
   const driverUpdate = client
@@ -1467,6 +1714,15 @@ export async function reviewLiveRequest(client, request, sessionUser, nextStatus
     updatePayload.fuel_liters = Number(approvalDetails.fuelLiters || 0);
     updatePayload.estimated_kms = Number(approvalDetails.estimatedKms || 0);
     updatePayload.fuel_remarks = approvalDetails.fuelRemarks?.trim() || '';
+    updatePayload.fuel_product = approvalDetails.fuelProduct?.trim() || null;
+    updatePayload.fuel_quote_price_per_liter = approvalDetails.fuelQuotePricePerLiter === null || typeof approvalDetails.fuelQuotePricePerLiter === 'undefined'
+      ? null
+      : Number(approvalDetails.fuelQuotePricePerLiter || 0);
+    updatePayload.fuel_quote_source = approvalDetails.fuelQuoteSource?.trim() || null;
+    updatePayload.fuel_quote_observed_at = approvalDetails.fuelQuoteObservedAt || null;
+    updatePayload.fuel_quote_location = approvalDetails.fuelQuoteLocation?.trim() || null;
+    updatePayload.fuel_quote_province = approvalDetails.fuelQuoteProvince?.trim() || null;
+    updatePayload.fuel_quote_municipality = approvalDetails.fuelQuoteMunicipality?.trim() || null;
   }
 
   if (nextStatus === 'Approved') {
@@ -1553,6 +1809,52 @@ export async function reviewLiveRequest(client, request, sessionUser, nextStatus
         throw releaseError;
       }
     }
+  }
+}
+
+export async function updateLiveRequestFuelValues(client, request, fuelDetails) {
+  const requestId = request.dbId || request.requestId || request.id;
+  const liters = Number(fuelDetails?.fuelLiters || 0);
+  const amount = Number(fuelDetails?.fuelAmount || 0);
+  const estimatedKms = Number(fuelDetails?.estimatedKms || 0);
+  const fuelRemarks = String(fuelDetails?.fuelRemarks || '').trim();
+
+  let result = await client
+    .from('vehicle_requests')
+    .update({
+      fuel_liters: liters,
+      fuel_amount: amount,
+      estimated_kms: estimatedKms,
+      fuel_remarks: fuelRemarks,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', requestId)
+    .eq('status', 'Pending Approval')
+    .select('id')
+    .maybeSingle();
+
+  if (result.error && isMissingVehicleRequestFuelColumnError(result.error)) {
+    result = await client
+      .from('vehicle_requests')
+      .update(stripVehicleRequestFuelFields({
+        fuel_liters: liters,
+        fuel_amount: amount,
+        estimated_kms: estimatedKms,
+        fuel_remarks: fuelRemarks,
+        updated_at: new Date().toISOString(),
+      }))
+      .eq('id', requestId)
+      .eq('status', 'Pending Approval')
+      .select('id')
+      .maybeSingle();
+  }
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (!result.data) {
+    throw new Error('This request is no longer pending approval and cannot be edited.');
   }
 }
 
@@ -1765,16 +2067,23 @@ export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
     registration_expiry: vehicleForm.registrationExpiry,
     insurance_expiry: vehicleForm.insuranceExpiry,
     required_restrictions: vehicleForm.requiredRestrictions?.trim() || null,
+    is_odo_defective: Boolean(vehicleForm.isOdoDefective),
   };
+  const queryBuilder = (nextPayload) => (
+    vehicleForm.id
+      ? client.from('vehicles').update(nextPayload).eq('id', vehicleForm.id)
+      : client.from('vehicles').insert(nextPayload)
+  );
 
-  const query = vehicleForm.id
-    ? client.from('vehicles').update(payload).eq('id', vehicleForm.id)
-    : client.from('vehicles').insert(payload);
+  let result = await queryBuilder(payload);
 
-  const { error } = await query;
+  if (result.error && isMissingVehicleOdoDefectiveColumnError(result.error)) {
+    const { is_odo_defective, ...legacyPayload } = payload;
+    result = await queryBuilder(legacyPayload);
+  }
 
-  if (error) {
-    throw error;
+  if (result.error) {
+    throw result.error;
   }
 }
 
@@ -1790,21 +2099,32 @@ export async function deleteLiveVehicle(client, vehicle) {
 }
 
 export async function saveLiveBranch(client, branchForm) {
+  const normalizedServiceRegion = branchForm.serviceRegion === 'panay' ? 'panay' : 'other';
   const payload = {
     code: branchForm.code.trim().toUpperCase(),
     name: branchForm.name.trim(),
     address: branchForm.address.trim(),
+    service_region: normalizedServiceRegion,
     is_active: branchForm.isActive,
   };
 
-  const query = branchForm.id
+  let result = await (
+    branchForm.id
     ? client.from('branches').update(payload).eq('id', branchForm.id)
-    : client.from('branches').insert(payload);
+    : client.from('branches').insert(payload)
+  );
 
-  const { error } = await query;
+  if (result.error && isMissingBranchServiceRegionColumnError(result.error)) {
+    const { service_region, ...legacyPayload } = payload;
+    result = await (
+      branchForm.id
+        ? client.from('branches').update(legacyPayload).eq('id', branchForm.id)
+        : client.from('branches').insert(legacyPayload)
+    );
+  }
 
-  if (error) {
-    throw error;
+  if (result.error) {
+    throw result.error;
   }
 }
 

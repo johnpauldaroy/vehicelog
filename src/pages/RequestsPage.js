@@ -42,6 +42,7 @@ export default function RequestsPage({
   onOpenAssignmentModal,
   onAssignmentSubmit,
   onApproveRequest,
+  onSaveRequestFuelEdits,
   onPrintRequest,
   onRejectSubmit,
 }) {
@@ -68,6 +69,50 @@ export default function RequestsPage({
   const approvalDriverValidation = getDriverAssignmentValidation(selectedApprovalDriver, selectedApprovalVehicle);
   const canPrintSelectedRequest = showsAssignmentActions && canPrintRequestStatus(selectedRequestDetails?.status);
   const isRequestSubmissionBlocked = Boolean(requestForm.assignedDriverId && !requestDriverValidation.isValid);
+  const showsUserFuelEditActions = !showsAssignmentActions;
+  const showsActionColumn = showsAssignmentActions || showsUserFuelEditActions;
+
+  function isOwnedByCurrentUser(request) {
+    if (!request) {
+      return false;
+    }
+
+    if (request.requestedById && currentUser?.id) {
+      return request.requestedById === currentUser.id;
+    }
+
+    return String(request.requestedBy || '').trim() === String(currentUser?.name || '').trim();
+  }
+
+  function isAssignedToCurrentUser(request) {
+    if (!request || !currentUser?.name) {
+      return false;
+    }
+
+    return String(request.assignedDriver || '').trim() === String(currentUser.name || '').trim();
+  }
+
+  function canUserUpdateFuel(request) {
+    if (!request || !request.fuelRequested) {
+      return false;
+    }
+
+    const isPending = request.status === 'Pending Approval';
+    const isReady = request.status === 'Ready for Release';
+
+    if (!isPending && !isReady) {
+      return false;
+    }
+
+    if (showsAssignmentActions) {
+      return true;
+    }
+
+    return isOwnedByCurrentUser(request) || isAssignedToCurrentUser(request);
+  }
+
+  const canEditFuelInDetails = canUserUpdateFuel(selectedRequestDetails);
+  const canOpenRequestDetailsModal = Boolean(selectedRequestDetails);
 
   function renderDriverValidationNotice(validation) {
     if (validation.isValid) {
@@ -202,6 +247,14 @@ export default function RequestsPage({
     }
   }
 
+  async function handleSaveFuelFromDetails() {
+    if (!selectedRequestDetails || !canEditFuelInDetails || !onSaveRequestFuelEdits) {
+      return;
+    }
+
+    await onSaveRequestFuelEdits(selectedRequestDetails, requestApprovalForm);
+  }
+
   function handleRejectFromDetails() {
     if (!selectedRequestDetails) {
       return;
@@ -278,7 +331,7 @@ export default function RequestsPage({
           </div>
 
           <div className="table-wrap request-table-wrap">
-            <table className="data-table">
+            <table className="data-table request-data-table">
               <thead>
                 <tr>
                   <th>Status</th>
@@ -287,114 +340,152 @@ export default function RequestsPage({
                   <th>Destination</th>
                   <th>Schedule</th>
                   <th>Assignment</th>
-                  {showsAssignmentActions && <th>Actions</th>}
+                  {showsActionColumn && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {dateFilteredRequests.length === 0 && (
                   <tr>
-                    <td colSpan={showsQueue ? (showsAssignmentActions ? 7 : 6) : 5} className="empty-state">
+                    <td colSpan={5 + (showsQueue ? 1 : 0) + (showsActionColumn ? 1 : 0)} className="empty-state">
                       {showsQueue ? 'No requests match the current search or date filter.' : isDriver ? 'No submitted or assigned requests match your search or date filter.' : 'No requests match your search or date filter.'}
                     </td>
                   </tr>
                 )}
                 {paginatedRequests.map((request, index) => (
                   <tr key={request.id}>
-                    <td>
+                    <td data-label="Status" className="request-status-cell">
                       <StatusBadge status={request.status} />
                       {request.rejectionReason && (
                         <span className="cell-subtle">Reason: {request.rejectionReason}</span>
                       )}
                       {request.fuelRequested && (
-                        <div className="fuel-indicator" style={{ marginTop: '4px', fontSize: '0.75rem', color: '#5b7ee3', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button
+                          type="button"
+                          className="fuel-indicator-button request-fuel-link"
+                          onClick={() => onOpenRequestDetails(request)}
+                          title="View and update fuel details"
+                        >
                           <AppIcon name="release" style={{ width: '12px', height: '12px' }} />
                           <span>{`Fuel requested (\u20B1${request.fuelAmount})`}</span>
-                        </div>
+                        </button>
                       )}
                     </td>
-                    <td>{request.requestNo}</td>
-                    {showsQueue && <td>{request.requestedBy}</td>}
-                    <td>{request.destination}</td>
-                    <td>{formatDate(request.departureDatetime, true)}</td>
-                    <td>
+                    <td data-label="Request no">
+                      <div className="request-no-mobile-head">
+                        <span>{request.requestNo}</span>
+                        <span className="request-mobile-status">
+                          <StatusBadge status={request.status} />
+                        </span>
+                      </div>
+                      {request.rejectionReason && (
+                        <span className="cell-subtle request-mobile-only">Reason: {request.rejectionReason}</span>
+                      )}
+                      {request.fuelRequested && (
+                        <button
+                          type="button"
+                          className="fuel-indicator-button request-fuel-link request-mobile-only"
+                          onClick={() => onOpenRequestDetails(request)}
+                          title="View and update fuel details"
+                        >
+                          <AppIcon name="release" style={{ width: '12px', height: '12px' }} />
+                          <span>{`Fuel requested (\u20B1${request.fuelAmount})`}</span>
+                        </button>
+                      )}
+                    </td>
+                    {showsQueue && <td data-label="Requester">{request.requestedBy}</td>}
+                    <td data-label="Destination">{request.destination}</td>
+                    <td data-label="Schedule">{formatDate(request.departureDatetime, true)}</td>
+                    <td data-label="Assignment">
                       {request.assignedVehicle}
                       <span className="cell-subtle">{request.assignedDriver}</span>
                     </td>
-                    {showsAssignmentActions && (
-                      <td>
-                        {(() => {
-                          const isClosedRequest = String(request.status || '').toLowerCase() === 'closed';
-                          const isPendingApproval = request.status === 'Pending Approval';
-                          const opensUpward = index >= Math.max(paginatedRequests.length - 2, 0);
+                    {showsActionColumn && (
+                      <td data-label="Actions">
+                        {showsAssignmentActions
+                          ? (() => {
+                              const isClosedRequest = String(request.status || '').toLowerCase() === 'closed';
+                              const isPendingApproval = request.status === 'Pending Approval';
+                              const opensUpward = index >= Math.max(paginatedRequests.length - 2, 0);
 
-                          return (
-                            <div className="action-menu-shell" ref={openActionMenuId === request.id ? actionMenuRef : null}>
-                              <button
-                                type="button"
-                                className="button button-secondary action-menu-trigger"
-                                aria-label={`Open actions for ${request.requestNo}`}
-                                aria-expanded={openActionMenuId === request.id}
-                                aria-haspopup="menu"
-                                onClick={() => setOpenActionMenuId((current) => (current === request.id ? '' : request.id))}
-                              >
-                                <span className="action-menu-trigger-label">Actions</span>
-                                <AppIcon name="more" className="button-icon" />
-                              </button>
-                              {openActionMenuId === request.id && (
-                                <div className={`action-menu-popover${opensUpward ? ' action-menu-popover-up' : ''}`} role="menu">
-                                  {(!isApprover || !isPendingApproval) && (
-                                    <button
-                                      type="button"
-                                      className="action-menu-item"
-                                      onClick={() => {
-                                        closeActionMenu();
-                                        onOpenRequestDetails(request);
-                                      }}
-                                    >
-                                      View details
-                                    </button>
-                                  )}
-                                  {!isClosedRequest && isAdmin && (
-                                    <button
-                                      type="button"
-                                      className="action-menu-item"
-                                      onClick={() => {
-                                        closeActionMenu();
-                                        onOpenAssignmentModal(request);
-                                      }}
-                                    >
-                                      {request.assignedVehicleId ? 'Edit vehicle' : 'Assign vehicle'}
-                                    </button>
-                                  )}
-                                  {!isClosedRequest && isApprover && isPendingApproval && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        className="action-menu-item action-menu-item-primary"
-                                        onClick={() => {
-                                          closeActionMenu();
-                                          onOpenRequestDetails(request);
-                                        }}
-                                      >
-                                        Approve
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="action-menu-item action-menu-item-danger"
-                                        onClick={() => {
-                                          closeActionMenu();
-                                          onRejectRequest(request);
-                                        }}
-                                      >
-                                        Reject
-                                      </button>
-                                    </>
+                              return (
+                                <div className="action-menu-shell" ref={openActionMenuId === request.id ? actionMenuRef : null}>
+                                  <button
+                                    type="button"
+                                    className="button button-secondary action-menu-trigger"
+                                    aria-label={`Open actions for ${request.requestNo}`}
+                                    aria-expanded={openActionMenuId === request.id}
+                                    aria-haspopup="menu"
+                                    onClick={() => setOpenActionMenuId((current) => (current === request.id ? '' : request.id))}
+                                  >
+                                    <span className="action-menu-trigger-label">Actions</span>
+                                    <AppIcon name="more" className="button-icon" />
+                                  </button>
+                                  {openActionMenuId === request.id && (
+                                    <div className={`action-menu-popover${opensUpward ? ' action-menu-popover-up' : ''}`} role="menu">
+                                      {(!isApprover || !isPendingApproval) && (
+                                        <button
+                                          type="button"
+                                          className="action-menu-item"
+                                          onClick={() => {
+                                            closeActionMenu();
+                                            onOpenRequestDetails(request);
+                                          }}
+                                        >
+                                          View details
+                                        </button>
+                                      )}
+                                      {!isClosedRequest && isAdmin && (
+                                        <button
+                                          type="button"
+                                          className="action-menu-item"
+                                          onClick={() => {
+                                            closeActionMenu();
+                                            onOpenAssignmentModal(request);
+                                          }}
+                                        >
+                                          {request.assignedVehicleId ? 'Edit vehicle' : 'Assign vehicle'}
+                                        </button>
+                                      )}
+                                      {!isClosedRequest && isApprover && isPendingApproval && (
+                                        <>
+                                          <button
+                                            type="button"
+                                            className="action-menu-item action-menu-item-primary"
+                                            onClick={() => {
+                                              closeActionMenu();
+                                              onOpenRequestDetails(request);
+                                            }}
+                                          >
+                                            Approve
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="action-menu-item action-menu-item-danger"
+                                            onClick={() => {
+                                              closeActionMenu();
+                                              onRejectRequest(request);
+                                            }}
+                                          >
+                                            Reject
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
                                   )}
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                              );
+                            })()
+                          : canUserUpdateFuel(request) ? (
+                              <button
+                                type="button"
+                                className="button button-secondary request-page-button"
+                                onClick={() => onOpenRequestDetails(request)}
+                              >
+                                Edit fuel
+                              </button>
+                            ) : (
+                              <span className="cell-subtle">-</span>
+                            )}
                       </td>
                     )}
                   </tr>
@@ -411,22 +502,25 @@ export default function RequestsPage({
             <div className="request-pagination-actions">
               <button
                 type="button"
-                className="button button-secondary request-page-button"
+                className="button button-secondary request-page-button pagination-nav-button"
                 onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                 disabled={currentPage === 1}
               >
-                Previous
+                <span className="pagination-label-full">Previous</span>
+                <span className="pagination-label-short">Prev</span>
               </button>
               <span className="request-page-indicator">
-                Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+                <span className="request-page-indicator-full">Page {totalPages === 0 ? 0 : currentPage} of {totalPages}</span>
+                <span className="request-page-indicator-short">{totalPages === 0 ? 0 : currentPage}/{totalPages}</span>
               </span>
               <button
                 type="button"
-                className="button button-secondary request-page-button"
+                className="button button-secondary request-page-button pagination-nav-button"
                 onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                 disabled={currentPage >= totalPages}
               >
-                Next
+                <span className="pagination-label-full">Next</span>
+                <span className="pagination-label-short">Next</span>
               </button>
             </div>
           </div>
@@ -545,18 +639,7 @@ export default function RequestsPage({
                   <select
                     className="input"
                     value={requestForm.assignedVehicleId}
-                    onChange={(event) => {
-                      const vehId = event.target.value;
-                      onRequestFormChange('assignedVehicleId', vehId);
-                      
-                      // Auto-calculate KM if fuel liters exist
-                      if (requestForm.fuelRequested && requestForm.fuelLiters > 0) {
-                        const selectedVehicle = vehicleOptions.find(v => v.id === vehId);
-                        const efficiency = selectedVehicle?.fuelEfficiency || 10;
-                        const kms = (Number(requestForm.fuelLiters) || 0) * efficiency;
-                        onRequestFormChange('estimatedKms', kms);
-                      }
-                    }}
+                    onChange={(event) => onRequestFormChange('assignedVehicleId', event.target.value)}
                   >
                     <option value="">No vehicle selected</option>
                     {vehicleOptions.map((vehicle) => (
@@ -585,6 +668,18 @@ export default function RequestsPage({
                   {requestForm.fuelRequested && (
                     <div className="form-grid" style={{ marginTop: '16px', gridTemplateColumns: '1fr 1fr 1fr' }}>
                       <label>
+                        <span className="field-label">Fuel Product</span>
+                        <select
+                          className="input"
+                          value={requestForm.fuelProduct}
+                          onChange={(event) => onRequestFormChange('fuelProduct', event.target.value)}
+                        >
+                          <option value="diesel">Diesel</option>
+                          <option value="gasoline_regular">Gasoline (Regular)</option>
+                          <option value="gasoline_premium">Gasoline (Premium)</option>
+                        </select>
+                      </label>
+                      <label>
                         <span className="field-label">Fuel Amount (PHP)</span>
                         <input
                           className="input"
@@ -600,16 +695,7 @@ export default function RequestsPage({
                           className="input"
                           type="number"
                           value={requestForm.fuelLiters}
-                          onChange={(event) => {
-                            const liters = event.target.value;
-                            onRequestFormChange('fuelLiters', liters);
-                            
-                            // Auto-calculate KM
-                            const selectedVehicle = vehicleOptions.find(v => v.id === requestForm.assignedVehicleId);
-                            const efficiency = selectedVehicle?.fuelEfficiency || 10;
-                            const kms = (Number(liters) || 0) * efficiency;
-                            onRequestFormChange('estimatedKms', kms);
-                          }}
+                          onChange={(event) => onRequestFormChange('fuelLiters', event.target.value)}
                           placeholder="0"
                         />
                       </label>
@@ -661,7 +747,7 @@ export default function RequestsPage({
         </>
       )}
 
-      {requestDetailsModalOpen && selectedRequestDetails && showsAssignmentActions && (
+      {requestDetailsModalOpen && selectedRequestDetails && canOpenRequestDetailsModal && (
         <>
           <button
             type="button"
@@ -773,24 +859,32 @@ export default function RequestsPage({
                   <div className="full-span">
                     <dt>Fuel authorization</dt>
                     <dd>
-                      {isApprover && selectedRequestDetails.status === 'Pending Approval' ? (
+                      {canEditFuelInDetails ? (
                         <div className="form-grid">
                           {requestApprovalForm.fuelRequested ? (
                             <>
                               <span className="cell-subtle full-span">Fuel authorization requested.</span>
                               <label>
-                                <span className="field-label">Fuel amount (PHP)</span>
+                                <span className="field-label">Fuel product</span>
+                                <input
+                                  className="input"
+                                  value={String(requestApprovalForm.fuelProduct || 'diesel').replace(/_/g, ' ')}
+                                  readOnly
+                                  style={{ background: 'rgba(0,0,0,0.05)' }}
+                                />
+                              </label>
+                              <label>
+                                <span className="field-label">{isApprover ? 'Fuel amount (PHP)' : 'Actual fuel amount (PHP)'}</span>
                                 <input
                                   className="input"
                                   type="number"
                                   min="0"
                                   value={requestApprovalForm.fuelAmount}
-                                  readOnly
-                                  style={{ background: 'rgba(0,0,0,0.05)', fontWeight: '600' }}
+                                  onChange={(event) => onRequestApprovalFieldChange('fuelAmount', event.target.value)}
                                 />
                               </label>
                               <label>
-                                <span className="field-label">Approved liters</span>
+                                <span className="field-label">{isApprover ? 'Approved liters' : 'Actual liters'}</span>
                                 <input
                                   className="input"
                                   type="number"
@@ -818,6 +912,17 @@ export default function RequestsPage({
                                   style={{ background: 'rgba(0,0,0,0.05)' }}
                                 />
                               </label>
+                              {(requestApprovalForm.fuelQuotePricePerLiter || requestApprovalForm.fuelQuoteLocation) && (
+                                <div className="full-span" style={{ fontSize: '0.85rem', color: '#475569' }}>
+                                  <strong>Price quote snapshot:</strong>{' '}
+                                  {requestApprovalForm.fuelQuotePricePerLiter
+                                    ? `PHP ${Number(requestApprovalForm.fuelQuotePricePerLiter).toFixed(2)}/L`
+                                    : 'N/A'}
+                                  {requestApprovalForm.fuelQuoteLocation ? ` at ${requestApprovalForm.fuelQuoteLocation}` : ''}
+                                  {requestApprovalForm.fuelQuoteSource ? ` via ${requestApprovalForm.fuelQuoteSource}` : ''}
+                                  {requestApprovalForm.fuelQuoteObservedAt ? ` (${formatDate(requestApprovalForm.fuelQuoteObservedAt, true)})` : ''}
+                                </div>
+                              )}
                             </>
                           ) : (
                             <span className="cell-subtle">No fuel authorization requested for this trip.</span>
@@ -825,12 +930,22 @@ export default function RequestsPage({
                         </div>
                       ) : selectedRequestDetails.fuelRequested ? (
                         <>
+                          <span>{`Fuel product: ${String(selectedRequestDetails.fuelProduct || 'diesel').replace(/_/g, ' ')}`}</span>
                           <span>{`Requested (${selectedRequestDetails.fuelLiters || 0}L / PHP ${selectedRequestDetails.fuelAmount || 0})`}</span>
                           {selectedRequestDetails.estimatedKms ? (
                             <span className="cell-subtle">{`${selectedRequestDetails.estimatedKms} KM estimated range`}</span>
                           ) : null}
                           {selectedRequestDetails.fuelRemarks ? (
                             <span className="cell-subtle">{selectedRequestDetails.fuelRemarks}</span>
+                          ) : null}
+                          {(selectedRequestDetails.fuelQuotePricePerLiter || selectedRequestDetails.fuelQuoteLocation) ? (
+                            <span className="cell-subtle">
+                              Quote: {selectedRequestDetails.fuelQuotePricePerLiter
+                                ? `PHP ${Number(selectedRequestDetails.fuelQuotePricePerLiter).toFixed(2)}/L`
+                                : 'N/A'}
+                              {selectedRequestDetails.fuelQuoteLocation ? ` at ${selectedRequestDetails.fuelQuoteLocation}` : ''}
+                              {selectedRequestDetails.fuelQuoteSource ? ` via ${selectedRequestDetails.fuelQuoteSource}` : ''}
+                            </span>
                           ) : null}
                         </>
                       ) : (
@@ -858,6 +973,17 @@ export default function RequestsPage({
                     onClick={() => onPrintRequest(selectedRequestDetails)}
                   >
                     {selectedRequestDetails.fuelRequested ? 'Open fuel slip PDF' : 'Open approved PDF'}
+                  </button>
+                </div>
+              )}
+              {canEditFuelInDetails && (
+                <div className="form-actions request-detail-actions">
+                  <button
+                    type="button"
+                    className="button button-primary button-solid"
+                    onClick={handleSaveFuelFromDetails}
+                  >
+                    Save fuel changes
                   </button>
                 </div>
               )}

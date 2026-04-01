@@ -1,13 +1,63 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import BranchUtilizationBoard from '../components/BranchUtilizationBoard';
 import SectionCard from '../components/SectionCard';
 import StatBarChart from '../components/StatBarChart';
+import StatLineChart from '../components/StatLineChart';
 import StatusRingChart from '../components/StatusRingChart';
 import StatusBadge from '../components/StatusBadge';
 import SummaryGrid from '../components/SummaryGrid';
 import { ACTIVE_TRIP_STATUSES } from '../constants/appConfig';
 import { formatDate, toStatusClass } from '../utils/appHelpers';
+
+const TREND_METRIC_OPTIONS = [
+  { value: 'request_count', label: 'Requests' },
+  { value: 'fuel_liters', label: 'Fuel liters' },
+  { value: 'fuel_cost', label: 'Fuel cost' },
+];
+const TREND_BUCKET_OPTIONS = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+];
+
+function toBucketDetails(inputValue, bucket) {
+  const date = new Date(inputValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const normalizedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (bucket === 'daily') {
+    return {
+      key: normalizedDate.getTime(),
+      label: normalizedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    };
+  }
+
+  if (bucket === 'weekly') {
+    const dayIndex = normalizedDate.getDay();
+    const mondayOffset = (dayIndex + 6) % 7;
+    const startOfWeek = new Date(normalizedDate);
+    startOfWeek.setDate(startOfWeek.getDate() - mondayOffset);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(endOfWeek.getDate() + 6);
+
+    return {
+      key: startOfWeek.getTime(),
+      label: `${startOfWeek.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${endOfWeek.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
+    };
+  }
+
+  const monthStart = new Date(normalizedDate.getFullYear(), normalizedDate.getMonth(), 1);
+
+  return {
+    key: monthStart.getTime(),
+    label: monthStart.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }),
+  };
+}
 
 function renderNotifications(notificationFeed, emptyMessage, limit = 3) {
   if (!notificationFeed.length) {
@@ -43,6 +93,15 @@ export default function DashboardPage({
   const isDriver = mode === 'driver';
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
+  const [trendMetric, setTrendMetric] = useState('fuel_cost');
+  const [trendBucket, setTrendBucket] = useState('weekly');
+  const [trendStatusFilter, setTrendStatusFilter] = useState('all');
+ 
+   useEffect(() => {
+     if (!isAdmin && currentUser?.branch && currentUser.branch !== 'Unassigned') {
+       setSelectedBranch(currentUser.branch);
+     }
+   }, [isAdmin, currentUser?.branch]);
 
   const filteredRequests = useMemo(() => {
     return requestRecords.filter((request) => {
@@ -74,6 +133,184 @@ export default function DashboardPage({
     return branches;
   }, [branches, selectedBranch]);
 
+  const trendStatusOptions = useMemo(() => (
+    ['all', ...new Set(filteredRequests.map((request) => request.status).filter(Boolean))]
+  ), [filteredRequests]);
+
+  const trendLineItems = useMemo(() => {
+    const bucketedTotals = new Map();
+    const canApplyStatus = trendStatusFilter === 'all' || trendStatusOptions.includes(trendStatusFilter);
+    const statusInScope = canApplyStatus ? trendStatusFilter : 'all';
+
+    filteredRequests.forEach((request) => {
+      const dateSource = request.departureDatetime || request.expectedReturnDatetime || request.createdAt || request.created_at;
+      const bucketDetails = toBucketDetails(dateSource, trendBucket);
+
+      if (!bucketDetails) {
+        return;
+      }
+
+      if (statusInScope !== 'all' && request.status !== statusInScope) {
+        return;
+      }
+
+      let metricValue = 0;
+
+      if (trendMetric === 'request_count') {
+        metricValue = 1;
+      } else if (trendMetric === 'fuel_liters') {
+        metricValue = Number(request.fuelLiters) || 0;
+      } else {
+        metricValue = Number(request.fuelAmount) || 0;
+      }
+
+      if (trendMetric !== 'request_count' && metricValue <= 0) {
+        return;
+      }
+
+      const current = bucketedTotals.get(bucketDetails.key) || { label: bucketDetails.label, value: 0 };
+      current.value += metricValue;
+      bucketedTotals.set(bucketDetails.key, current);
+    });
+
+    return Array.from(bucketedTotals.entries())
+      .sort((left, right) => left[0] - right[0])
+      .map(([, entry]) => {
+        if (trendMetric === 'fuel_cost') {
+          const rounded = Number(entry.value.toFixed(2));
+          return {
+            label: entry.label,
+            value: rounded,
+            valueLabel: `PHP ${rounded.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+          };
+        }
+
+        if (trendMetric === 'fuel_liters') {
+          const rounded = Number(entry.value.toFixed(1));
+          return {
+            label: entry.label,
+            value: rounded,
+            valueLabel: `${rounded.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`,
+          };
+        }
+
+        return {
+          label: entry.label,
+          value: entry.value,
+          valueLabel: `${entry.value.toLocaleString()} request${entry.value === 1 ? '' : 's'}`,
+        };
+      });
+  }, [filteredRequests, trendBucket, trendMetric, trendStatusFilter, trendStatusOptions]);
+
+  const fuelUtilizationByVehicle = useMemo(() => {
+    const byVehicle = new Map();
+
+    filteredRequests.forEach((request) => {
+      const fuelLiters = Number(request.fuelLiters) || 0;
+      const fuelAmount = Number(request.fuelAmount) || 0;
+      const hasFuelData = Boolean(request.fuelRequested) || fuelLiters > 0 || fuelAmount > 0;
+
+      if (!hasFuelData) {
+        return;
+      }
+
+      const vehicleLabel = request.assignedVehicle && request.assignedVehicle !== 'Unassigned'
+        ? request.assignedVehicle
+        : 'Unassigned';
+      const current = byVehicle.get(vehicleLabel) || { liters: 0, amount: 0, requests: 0 };
+
+      current.liters += fuelLiters;
+      current.amount += fuelAmount;
+      current.requests += 1;
+      byVehicle.set(vehicleLabel, current);
+    });
+
+    return Array.from(byVehicle.entries())
+      .map(([label, metrics]) => ({
+        label,
+        liters: metrics.liters,
+        amount: metrics.amount,
+        requests: metrics.requests,
+      }))
+      .sort((left, right) => right.liters - left.liters || right.amount - left.amount || left.label.localeCompare(right.label));
+  }, [filteredRequests]);
+
+  const fuelUtilizationItems = useMemo(() => {
+    const tones = ['blue', 'amber', 'green', 'slate', 'red'];
+
+    return fuelUtilizationByVehicle.slice(0, 6).map((entry, index) => ({
+      label: entry.label,
+      value: Number(entry.liters.toFixed(2)),
+      valueLabel: `${entry.liters.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`,
+      helper: `PHP ${entry.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} across ${entry.requests} request${entry.requests === 1 ? '' : 's'}`,
+      tone: tones[index % tones.length],
+      icon: 'vehicles',
+    }));
+  }, [fuelUtilizationByVehicle]);
+
+  const totalFuelCost = useMemo(
+    () => fuelUtilizationByVehicle.reduce((sum, entry) => sum + entry.amount, 0),
+    [fuelUtilizationByVehicle]
+  );
+
+  const trendMetricLabel = TREND_METRIC_OPTIONS.find((option) => option.value === trendMetric)?.label || 'Trend';
+  const trendTotal = trendLineItems.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  const trendTotalLabel = trendMetric === 'fuel_cost'
+    ? `PHP ${trendTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+    : trendMetric === 'fuel_liters'
+      ? `${trendTotal.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`
+      : trendTotal.toLocaleString();
+
+  const trendChartPanel = (
+    <div className={`dashboard-chart-panel${isAdmin ? ' dashboard-admin-trend-panel' : ''}`}>
+      <div className="dashboard-chart-head">
+        <h4>{trendMetricLabel} trend</h4>
+        <p>Total in scope: {trendTotalLabel}</p>
+      </div>
+
+      <div className="dashboard-chart-filters">
+        <label className="dashboard-chart-filter">
+          <span className="eyebrow">Metric</span>
+          <select className="input" value={trendMetric} onChange={(event) => setTrendMetric(event.target.value)}>
+            {TREND_METRIC_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="dashboard-chart-filter">
+          <span className="eyebrow">Timeframe</span>
+          <select className="input" value={trendBucket} onChange={(event) => setTrendBucket(event.target.value)}>
+            {TREND_BUCKET_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="dashboard-chart-filter">
+          <span className="eyebrow">Status</span>
+          <select className="input" value={trendStatusFilter} onChange={(event) => setTrendStatusFilter(event.target.value)}>
+            {trendStatusOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === 'all' ? 'All statuses' : option}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {trendLineItems.length ? (
+        <StatLineChart
+          items={trendLineItems}
+          metric={trendMetric}
+          ariaLabel={`${trendMetricLabel} trend line`}
+        />
+      ) : (
+        <div className="empty-state-panel">No records match the selected chart filters.</div>
+      )}
+    </div>
+  );
+
   const filterPortalTarget = typeof document !== 'undefined' ? document.getElementById('dashboard-filter-portal') : null;
 
   const filterBar = (
@@ -84,12 +321,19 @@ export default function DashboardPage({
           className="input" 
           value={selectedBranch}
           onChange={(e) => setSelectedBranch(e.target.value)}
-          style={{ width: '100%', background: '#fff' }}
+          style={{ width: '100%', background: isAdmin ? '#fff' : 'rgba(0,0,0,0.05)', cursor: isAdmin ? 'default' : 'not-allowed' }}
+          disabled={!isAdmin}
         >
-          <option value="">All Branches</option>
-          {branches.map(b => (
-            <option key={b.id} value={b.name}>{b.name}</option>
-          ))}
+          {!isAdmin && currentUser?.branch ? (
+            <option value={currentUser.branch}>{currentUser.branch}</option>
+          ) : (
+            <>
+              <option value="">All Branches</option>
+              {branches.map(b => (
+                <option key={b.id} value={b.name}>{b.name}</option>
+              ))}
+            </>
+          )}
         </select>
       </div>
       <div style={{ flex: '1 1 240px', maxWidth: '300px' }}>
@@ -103,11 +347,14 @@ export default function DashboardPage({
         />
       </div>
       <div style={{ alignSelf: 'end' }}>
-        {(selectedBranch || selectedDate) && (
+        {(selectedDate || (isAdmin && selectedBranch)) && (
            <button 
              type="button" 
              className="button button-secondary" 
-             onClick={() => { setSelectedBranch(''); setSelectedDate(''); }}
+             onClick={() => { 
+               if (isAdmin) setSelectedBranch(''); 
+               setSelectedDate(''); 
+             }}
              style={{ height: '46px', padding: '0 20px' }}
            >
              Clear Filters
@@ -118,32 +365,6 @@ export default function DashboardPage({
   );
 
   if (isDriver) {
-    const readyTrips = filteredTrips.filter((trip) => trip.tripStatus === 'Ready for Release');
-    const activeTrips = filteredTrips.filter((trip) => ACTIVE_TRIP_STATUSES.includes(trip.tripStatus));
-    const driverSummaryItems = [
-      {
-        label: 'Assigned',
-        value: filteredRequests.length,
-        helper: 'Requests tied to you',
-        tone: 'green',
-        icon: 'requests',
-      },
-      {
-        label: 'Ready',
-        value: readyTrips.length,
-        helper: 'Waiting for release',
-        tone: 'amber',
-        icon: 'release',
-      },
-      {
-        label: 'Active',
-        value: activeTrips.length,
-        helper: 'Checked out or in transit',
-        tone: 'blue',
-        icon: 'trips',
-      },
-    ];
-
     return (
       <>
         {filterPortalTarget && createPortal(filterBar, filterPortalTarget)}
@@ -191,6 +412,9 @@ export default function DashboardPage({
               ))}
             </div>
           </SectionCard>
+
+
+
 
           <SectionCard title="Updates" subtitle="Latest reminders from operations">
             {renderNotifications(notificationFeed, 'No shared reminders right now.')}
@@ -278,6 +502,9 @@ export default function DashboardPage({
             </div>
           </SectionCard>
 
+
+
+
           <SectionCard title="Updates" subtitle="Latest reminders from operations">
             {renderNotifications(notificationFeed, 'No shared reminders right now.')}
           </SectionCard>
@@ -315,21 +542,21 @@ export default function DashboardPage({
             </div>
           </SectionCard>
 
-          <SectionCard title="Branch overview" subtitle="Load and movement in your coverage area">
-            <div className="stack-list">
-              {branches.filter(b => b.name === currentUser.branch).map((branch) => (
-                <div key={branch.id}>
-                  <div className="between-row">
-                    <strong>{branch.name}</strong>
-                    <span>{branch.utilization}%</span>
-                  </div>
-                  <div className="progress-track">
-                    <div className="progress-fill" style={{ width: `${branch.utilization}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
+          <SectionCard
+            title="Fuel utilization per vehicle"
+            subtitle={`Total fuel cost: PHP ${totalFuelCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+          >
+            {fuelUtilizationItems.length ? (
+              <StatBarChart items={fuelUtilizationItems} ariaLabel="Fuel utilization per vehicle" />
+            ) : (
+              <div className="empty-state-panel">No fuel-authorized requests match the current filters.</div>
+            )}
           </SectionCard>
+
+          {trendChartPanel}
+
+
+
 
           <SectionCard title="Updates" subtitle="Latest reminders from operations">
             {renderNotifications(notificationFeed, 'No shared reminders right now.')}
@@ -423,117 +650,204 @@ export default function DashboardPage({
     icon: 'vehicles',
   }));
 
-  const fuelOverviewItems = [
+  const requestStatusItems = [
     {
-      label: 'Fuel Liters',
-      value: filteredRequests.reduce((sum, req) => sum + (Number(req.fuelLiters) || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 1 }),
-      helper: 'Total liters requested',
+      label: 'Pending',
+      value: filteredRequests.filter((request) => request.status === 'Pending Approval').length,
+      helper: 'Awaiting branch review',
       tone: 'amber',
-      icon: 'vehicles',
     },
     {
-      label: 'Est. Distance',
-      value: filteredRequests.reduce((sum, req) => sum + (Number(req.estimatedKms) || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' km',
-      helper: 'Total kms mapped',
+      label: 'Approved',
+      value: filteredRequests.filter((request) => request.status === 'Approved').length,
+      helper: 'Reviewed and approved',
       tone: 'blue',
+    },
+    {
+      label: 'Ready',
+      value: filteredRequests.filter((request) => request.status === 'Ready for Release').length,
+      helper: 'Ready for dispatch',
+      tone: 'green',
+    },
+    {
+      label: 'Rejected',
+      value: filteredRequests.filter((request) => request.status === 'Rejected').length,
+      helper: 'Denied requests',
+      tone: 'red',
+    },
+  ];
+
+  const hasRequestStatusData = requestStatusItems.some((item) => item.value > 0);
+  const activeTripCount = filteredTrips.filter((trip) => ['Checked Out', 'In Transit'].includes(trip.tripStatus)).length;
+  const overdueTripCount = filteredTrips.filter((trip) => trip.tripStatus === 'Overdue').length;
+  const adminSnapshotItems = [
+    {
+      label: 'Pending approvals',
+      value: filteredRequests.filter((request) => request.status === 'Pending Approval').length,
+      helper: 'Awaiting approver review',
+      tone: 'amber',
+      icon: 'clock',
+    },
+    {
+      label: 'Ready for release',
+      value: filteredRequests.filter((request) => request.status === 'Ready for Release').length,
+      helper: 'Queued for dispatch',
+      tone: 'blue',
+      icon: 'release',
+    },
+    {
+      label: 'Active trips',
+      value: activeTripCount,
+      helper: 'Currently moving vehicles',
+      tone: 'green',
       icon: 'trips',
     },
     {
-      label: 'Fuel Cost',
-      value: 'PHP ' + filteredRequests.reduce((sum, req) => sum + (Number(req.fuelAmount) || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 }),
-      helper: 'Total requested costs',
-      tone: 'green',
-      icon: 'check',
+      label: 'Overdue trips',
+      value: overdueTripCount,
+      helper: 'Need immediate follow-up',
+      tone: 'red',
+      icon: 'warning',
+    },
+    {
+      label: 'Fuel-authorized',
+      value: filteredRequests.filter((request) => request.fuelRequested).length,
+      helper: 'Requests with fuel support',
+      tone: 'slate',
+      icon: 'reports',
     },
   ];
+
   return (
     <>
       {filterPortalTarget && createPortal(filterBar, filterPortalTarget)}
-      <div className="content-grid">
-      <SectionCard title="Priority queue" subtitle="Requests that need attention first">
-        <div className="stack-list">
-          {actionableRequests.length === 0 && (
-            <div className="empty-state-panel">The request queue is clear right now.</div>
-          )}
-          {actionableRequests.slice(0, 6).map((request) => (
-            <div key={request.id} className="list-row">
-              <div>
-                <strong>{request.requestNo}</strong>
-                <p>
-                  {request.requestedBy} to {request.destination}
-                </p>
-              </div>
-              <div className="list-meta">
-                <StatusBadge status={request.status} />
-                <span>{formatDate(request.departureDatetime, true)}</span>
-              </div>
+      <div className="content-grid dashboard-admin-layout">
+        <div className="dashboard-admin-top-zone">
+          <SectionCard
+            className="dashboard-admin-kpi-card"
+            title="Operations snapshot"
+            subtitle="Immediate dispatch health and workload checks."
+          >
+            <div className="dashboard-kpi-strip">
+              <SummaryGrid items={adminSnapshotItems} />
             </div>
-          ))}
-        </div>
-      </SectionCard>
+          </SectionCard>
 
-      <SectionCard title="Live trips" subtitle="Current movement and pending release">
-        <div className="stack-list">
-          {liveTrips.length === 0 && (
-            <div className="empty-state-panel">No trips are active or waiting for release.</div>
-          )}
-          {liveTrips.slice(0, 6).map((trip) => (
-            <div key={trip.id} className="timeline-row">
-              <div className={`timeline-marker ${toStatusClass(trip.tripStatus)}`} />
-              <div className="timeline-copy">
-                <strong>{trip.vehicle}</strong>
-                <p>
-                  {trip.driver} from {trip.origin} to {trip.destination}
-                </p>
-                <span>
-                  {trip.tripStatus} | Return {formatDate(trip.expectedReturn, true)}
-                </span>
-              </div>
+          <SectionCard
+            className="dashboard-admin-compact-card"
+            title="Priority queue"
+            subtitle="Pending approvals and release-ready requests."
+          >
+            <div className="stack-list dashboard-compact-list">
+              {actionableRequests.length === 0 && (
+                <div className="empty-state-panel">The request queue is clear right now.</div>
+              )}
+              {actionableRequests.slice(0, 4).map((request) => (
+                <div key={request.id} className="list-row">
+                  <div>
+                    <strong>{request.requestNo}</strong>
+                    <p>
+                      {request.requestedBy} to {request.destination}
+                    </p>
+                  </div>
+                  <div className="list-meta">
+                    <StatusBadge status={request.status} />
+                    <span>{formatDate(request.departureDatetime, true)}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          </SectionCard>
+
+          <SectionCard
+            className="dashboard-admin-compact-card"
+            title="Live trips"
+            subtitle="Ready, active, and overdue trip movement."
+          >
+            <div className="stack-list dashboard-compact-list">
+              {liveTrips.length === 0 && (
+                <div className="empty-state-panel">No trips are active or waiting for release.</div>
+              )}
+              {liveTrips.slice(0, 4).map((trip) => (
+                <div key={trip.id} className="timeline-row">
+                  <div className={`timeline-marker ${toStatusClass(trip.tripStatus)}`} />
+                  <div className="timeline-copy">
+                    <strong>{trip.vehicle}</strong>
+                    <p>
+                      {trip.driver} from {trip.origin} to {trip.destination}
+                    </p>
+                    <span>
+                      {trip.tripStatus} | Return {formatDate(trip.expectedReturn, true)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
         </div>
-      </SectionCard>
 
-      <SectionCard title="Fuel Data Overview" subtitle="High-level fuel consumption and costs requested">
-        <SummaryGrid items={fuelOverviewItems} />
-      </SectionCard>
+        <SectionCard
+          className="dashboard-analytics-card dashboard-admin-analytics-card"
+          title="Operations analytics"
+          subtitle="Chart-first monitoring for dispatch, approval flow, fleet readiness, and fuel utilization."
+        >
+          <div className="dashboard-analytics-grid dashboard-admin-analytics-grid">
+            <div className="dashboard-chart-panel dashboard-admin-chart-panel">
+              <div className="dashboard-chart-head">
+                <h4>Trip status mix</h4>
+                <p>Shows where trips are flowing and where follow-up is needed.</p>
+              </div>
+              <StatBarChart items={tripMixItems} ariaLabel="Trip status distribution" />
+            </div>
 
-      <SectionCard
-        className="dashboard-analytics-card"
-        title="Operations analytics"
-        style={{ gridColumn: '1 / -1' }}
-      >
-        <div className="dashboard-analytics-grid dashboard-analytics-grid-balanced">
-          <div className="dashboard-chart-panel">
+            <div className="dashboard-chart-panel dashboard-admin-chart-panel">
+              <div className="dashboard-chart-head">
+                <h4>Request status mix</h4>
+                <p>Tracks approval flow and dispatch readiness for current filters.</p>
+              </div>
+              {hasRequestStatusData ? (
+                <StatBarChart items={requestStatusItems} ariaLabel="Request status distribution" />
+              ) : (
+                <div className="empty-state-panel">No request records match the current filters.</div>
+              )}
+            </div>
+
+            <div className="dashboard-chart-panel dashboard-admin-chart-panel">
+              <div className="dashboard-chart-head">
+                <h4>Fleet readiness</h4>
+                <p>Quick view of assignable vehicles versus constrained fleet.</p>
+              </div>
+              <StatusRingChart
+                items={fleetReadinessItems}
+                ariaLabel="Fleet readiness distribution"
+                centerLabel="vehicles"
+              />
+            </div>
+
+            <div className="dashboard-chart-panel dashboard-admin-chart-panel">
+              <div className="dashboard-chart-head">
+                <h4>Fuel utilization per vehicle</h4>
+                <p>Total fuel cost: PHP {totalFuelCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+              </div>
+              {fuelUtilizationItems.length ? (
+                <StatBarChart items={fuelUtilizationItems} ariaLabel="Fuel utilization by vehicle" />
+              ) : (
+                <div className="empty-state-panel">No fuel-authorized requests match the current filters.</div>
+              )}
+            </div>
+
+            {trendChartPanel}
+          </div>
+
+          <div className="dashboard-chart-panel dashboard-admin-chart-panel dashboard-chart-panel-branch dashboard-chart-panel-stacked">
             <div className="dashboard-chart-head">
-              <h4>Trip status mix</h4>
-              <p>Shows where trips are flowing and where follow-up is needed.</p>
+              <h4>Branch utilization</h4>
+              <p>Compares branch load so dispatch can spot capacity pressure early.</p>
             </div>
-            <StatBarChart items={tripMixItems} ariaLabel="Trip status distribution" />
+            <BranchUtilizationBoard items={branchLoadItems} ariaLabel="Branch utilization ranking" />
           </div>
-
-          <div className="dashboard-chart-panel">
-            <div className="dashboard-chart-head">
-              <h4>Fleet readiness</h4>
-              <p>Quick view of assignable vehicles versus constrained fleet.</p>
-            </div>
-            <StatusRingChart
-              items={fleetReadinessItems}
-              ariaLabel="Fleet readiness distribution"
-              centerLabel="vehicles"
-            />
-          </div>
-        </div>
-
-        <div className="dashboard-chart-panel dashboard-chart-panel-branch dashboard-chart-panel-stacked">
-          <div className="dashboard-chart-head">
-            <h4>Branch utilization</h4>
-            <p>Compares branch load so dispatch can spot capacity pressure early.</p>
-          </div>
-          <BranchUtilizationBoard items={branchLoadItems} ariaLabel="Branch utilization ranking" />
-        </div>
-      </SectionCard>
-    </div>
+        </SectionCard>
+      </div>
     </>
   );
 }

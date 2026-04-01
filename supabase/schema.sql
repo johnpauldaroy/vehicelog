@@ -48,6 +48,7 @@ create table if not exists public.branches (
   code text not null unique,
   name text not null,
   address text,
+  service_region text not null default 'other' check (service_region in ('other', 'panay')),
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -186,7 +187,45 @@ alter table public.vehicle_requests
   add column if not exists fuel_amount numeric(12,2) not null default 0,
   add column if not exists fuel_liters numeric(12,2) not null default 0,
   add column if not exists estimated_kms numeric(12,2) not null default 0,
-  add column if not exists fuel_remarks text;
+  add column if not exists fuel_remarks text,
+  add column if not exists fuel_product text,
+  add column if not exists fuel_quote_price_per_liter numeric(12,4),
+  add column if not exists fuel_quote_source text,
+  add column if not exists fuel_quote_observed_at timestamptz,
+  add column if not exists fuel_quote_location text,
+  add column if not exists fuel_quote_province text,
+  add column if not exists fuel_quote_municipality text;
+
+create table if not exists public.fuel_price_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  province text not null,
+  municipality text not null,
+  station_name text not null,
+  fuel_type text not null check (fuel_type in ('diesel', 'gasoline_regular', 'gasoline_premium')),
+  price_per_liter numeric(12,4) not null check (price_per_liter > 0),
+  currency text not null default 'PHP',
+  observed_at timestamptz not null,
+  source text not null,
+  confidence numeric(5,4) not null default 0.5 check (confidence >= 0 and confidence <= 1),
+  ingested_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid
+);
+
+create table if not exists public.fuel_price_sync_runs (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  status text not null check (status in ('running', 'completed', 'failed', 'skipped')),
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  rows_upserted integer not null default 0,
+  error text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid
+);
 
 create table if not exists public.request_passengers (
   id uuid primary key default gen_random_uuid(),
@@ -256,6 +295,9 @@ create table if not exists public.fuel_logs (
   created_by uuid,
   deleted_at timestamptz
 );
+
+create unique index if not exists idx_fuel_price_snapshots_unique_station_point
+  on public.fuel_price_snapshots(province, municipality, station_name, fuel_type, observed_at);
 
 create table if not exists public.maintenance_logs (
   id uuid primary key default gen_random_uuid(),
@@ -353,8 +395,12 @@ create table if not exists public.audit_logs (
 create index if not exists idx_profiles_branch on public.profiles(branch_id);
 create index if not exists idx_user_roles_user on public.user_roles(user_id);
 create index if not exists idx_vehicles_branch_status on public.vehicles(assigned_branch_id, status);
+create index if not exists idx_branches_service_region on public.branches(service_region);
 create index if not exists idx_vehicle_requests_branch_status_departure on public.vehicle_requests(branch_id, status, departure_datetime);
+create index if not exists idx_vehicle_requests_fuel_quote_observed on public.vehicle_requests(fuel_quote_observed_at desc);
 create index if not exists idx_trip_logs_vehicle_status_return on public.trip_logs(vehicle_id, trip_status, expected_return_datetime);
+create index if not exists idx_fuel_price_snapshots_lookup on public.fuel_price_snapshots(province, municipality, fuel_type, observed_at desc);
+create index if not exists idx_fuel_price_sync_runs_started on public.fuel_price_sync_runs(started_at desc);
 create index if not exists idx_maintenance_logs_vehicle_status_schedule on public.maintenance_logs(vehicle_id, status, schedule_date);
 create index if not exists idx_insurance_policies_vehicle_expiry on public.insurance_policies(vehicle_id, expiry_date);
 create index if not exists idx_registration_records_vehicle_expiry on public.registration_records(vehicle_id, expiry_date);
@@ -407,6 +453,12 @@ create trigger set_trip_checklists_updated_at before update on public.trip_check
 
 drop trigger if exists set_fuel_logs_updated_at on public.fuel_logs;
 create trigger set_fuel_logs_updated_at before update on public.fuel_logs for each row execute function public.set_updated_at();
+
+drop trigger if exists set_fuel_price_snapshots_updated_at on public.fuel_price_snapshots;
+create trigger set_fuel_price_snapshots_updated_at before update on public.fuel_price_snapshots for each row execute function public.set_updated_at();
+
+drop trigger if exists set_fuel_price_sync_runs_updated_at on public.fuel_price_sync_runs;
+create trigger set_fuel_price_sync_runs_updated_at before update on public.fuel_price_sync_runs for each row execute function public.set_updated_at();
 
 drop trigger if exists set_maintenance_logs_updated_at on public.maintenance_logs;
 create trigger set_maintenance_logs_updated_at before update on public.maintenance_logs for each row execute function public.set_updated_at();

@@ -23,6 +23,7 @@ import {
   saveLiveMaintenance,
   saveLiveVehicle,
   updateLiveProfile,
+  updateLiveRequestFuelValues,
   updateLiveRequestVehicleAssignment,
   uploadIncidentPhoto,
 } from './lib/liveData';
@@ -65,6 +66,15 @@ const EMPTY_SESSION_USER = {
   role: 'Requester',
   branch: 'Unassigned',
   branchId: '',
+  serviceRegion: 'other',
+};
+
+const EMPTY_PANAY_FUEL_PRICING = {
+  rows: [],
+  lastUpdatedAt: '',
+  latestRun: null,
+  stationCount: 0,
+  topStations: [],
 };
 
 const DEFAULT_VEHICLE_TYPE_RECORDS = [
@@ -158,6 +168,7 @@ function createBranchSettingsForm() {
     code: '',
     name: '',
     address: '',
+    serviceRegion: 'other',
     isActive: true,
   };
 }
@@ -220,6 +231,13 @@ function createRequestApprovalForm(request = null) {
     fuelLiters: String(request?.fuelLiters ?? 0),
     estimatedKms: String(request?.estimatedKms ?? 0),
     fuelRemarks: request?.fuelRemarks || '',
+    fuelProduct: request?.fuelProduct || 'diesel',
+    fuelQuotePricePerLiter: request?.fuelQuotePricePerLiter ?? null,
+    fuelQuoteSource: request?.fuelQuoteSource || '',
+    fuelQuoteObservedAt: request?.fuelQuoteObservedAt || '',
+    fuelQuoteLocation: request?.fuelQuoteLocation || '',
+    fuelQuoteProvince: request?.fuelQuoteProvince || '',
+    fuelQuoteMunicipality: request?.fuelQuoteMunicipality || '',
   };
 }
 
@@ -281,6 +299,7 @@ function writeCachedSessionUser(sessionUser) {
         role: sessionUser.role,
         branch: sessionUser.branch,
         branchId: sessionUser.branchId,
+        serviceRegion: sessionUser.serviceRegion || 'other',
       })
     );
   } catch (_error) {
@@ -334,6 +353,10 @@ function App() {
   const [rejectionRemarks, setRejectionRemarks] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('all');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileOverflowNavOpen, setMobileOverflowNavOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  );
   const [branchRecords, setBranchRecords] = useState([]);
   const [userRecords, setUserRecords] = useState([]);
   const [requestRecords, setRequestRecords] = useState([]);
@@ -345,6 +368,7 @@ function App() {
   const [incidentRecords, setIncidentRecords] = useState([]);
   const [notificationFeed, setNotificationFeed] = useState([]);
   const [auditRecords, setAuditRecords] = useState([]);
+  const [panayFuelPricing, setPanayFuelPricing] = useState(EMPTY_PANAY_FUEL_PRICING);
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [loginForm, setLoginForm] = useState(createLoginForm);
   const [passwordForm, setPasswordForm] = useState(createPasswordForm);
@@ -476,13 +500,33 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setIsMobileViewport(window.innerWidth <= 768);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const applySessionUser = useCallback((liveUser) => {
-    expectedSessionUserIdRef.current = liveUser.id;
-    cachedSessionUserRef.current = liveUser;
-    writeCachedSessionUser(liveUser);
-    setCurrentSessionUser(liveUser);
+    const normalizedSessionUser = {
+      ...liveUser,
+      serviceRegion: liveUser?.serviceRegion || 'other',
+    };
+
+    expectedSessionUserIdRef.current = normalizedSessionUser.id;
+    cachedSessionUserRef.current = normalizedSessionUser;
+    writeCachedSessionUser(normalizedSessionUser);
+    setCurrentSessionUser(normalizedSessionUser);
     setLoginForm({
-      email: liveUser.email,
+      email: normalizedSessionUser.email,
       password: '',
     });
     setIsPasswordVisible(false);
@@ -501,6 +545,7 @@ function App() {
     setMaintenanceRecords([]);
     setIncidentRecords([]);
     setNotificationFeed([]);
+    setPanayFuelPricing(EMPTY_PANAY_FUEL_PRICING);
   }, []);
 
   const refreshLiveData = useCallback(async (sessionUser) => {
@@ -536,12 +581,14 @@ function App() {
             role: authoritativeSessionUser.role,
             branch: authoritativeSessionUser.branch,
             branchId: authoritativeSessionUser.branchId,
+            serviceRegion: authoritativeSessionUser.serviceRegion || 'other',
           };
           const roleChanged = nextSessionUser.role !== sessionUser.role;
           const branchChanged = nextSessionUser.branchId !== sessionUser.branchId;
+          const serviceRegionChanged = nextSessionUser.serviceRegion !== (sessionUser.serviceRegion || 'other');
           const nameChanged = nextSessionUser.name !== sessionUser.name;
 
-          if (roleChanged || branchChanged || nameChanged) {
+          if (roleChanged || branchChanged || serviceRegionChanged || nameChanged) {
             applySessionUser(nextSessionUser);
           }
         }
@@ -557,6 +604,7 @@ function App() {
         setIncidentRecords(liveData.incidentRecords);
         setNotificationFeed(liveData.notificationFeed);
         setAuditRecords(liveData.auditRecords || []);
+        setPanayFuelPricing(liveData.panayFuelPricing || EMPTY_PANAY_FUEL_PRICING);
         setLiveDataError('');
         return liveData;
       })
@@ -1016,6 +1064,47 @@ function App() {
     () => vehicleRecords.find((vehicle) => vehicle.id === selectedRequestDetails?.assignedVehicleId) || null,
     [selectedRequestDetails?.assignedVehicleId, vehicleRecords]
   );
+  const selectedRequestVehicle = useMemo(
+    () => vehicleRecords.find((vehicle) => vehicle.id === requestForm.assignedVehicleId) || null,
+    [requestForm.assignedVehicleId, vehicleRecords]
+  );
+
+  useEffect(() => {
+    setRequestForm((current) => {
+      const efficiency = Number(selectedRequestVehicle?.fuelEfficiency || 10);
+      const liters = Number(current.fuelLiters || 0);
+      const nextEstimatedKms = String(liters * efficiency);
+      let changed = false;
+      const nextForm = { ...current };
+
+      if (current.estimatedKms !== nextEstimatedKms) {
+        nextForm.estimatedKms = nextEstimatedKms;
+        changed = true;
+      }
+
+      if (current.fuelQuotePricePerLiter !== null) {
+        nextForm.fuelQuotePricePerLiter = null;
+        changed = true;
+      }
+      if (current.fuelQuoteSource) {
+        nextForm.fuelQuoteSource = '';
+        changed = true;
+      }
+      if (current.fuelQuoteObservedAt) {
+        nextForm.fuelQuoteObservedAt = '';
+        changed = true;
+      }
+      if (current.fuelQuoteLocation) {
+        nextForm.fuelQuoteLocation = '';
+        changed = true;
+      }
+
+      return changed ? nextForm : current;
+    });
+  }, [
+    requestForm.fuelLiters,
+    selectedRequestVehicle?.fuelEfficiency,
+  ]);
 
   const requestStatusSummary = useMemo(
     () => ({
@@ -1087,8 +1176,53 @@ function App() {
     [userMode]
   );
 
+  const isAdminMobileNavMode = userMode === 'admin' && isMobileViewport;
+
+  const mobileNavPrimaryItems = useMemo(() => {
+    if (!isAdminMobileNavMode) {
+      return [];
+    }
+
+    const primaryOrder = ['dashboard', 'requests', 'trips', 'vehicles'];
+    return primaryOrder
+      .map((id) => availableNavItems.find((item) => item.id === id))
+      .filter(Boolean);
+  }, [availableNavItems, isAdminMobileNavMode]);
+
+  const mobileNavSecondaryItems = useMemo(() => {
+    if (!isAdminMobileNavMode) {
+      return [];
+    }
+
+    const secondaryOrder = ['calendar', 'compliance', 'reports', 'settings'];
+    return secondaryOrder
+      .map((id) => availableNavItems.find((item) => item.id === id))
+      .filter(Boolean);
+  }, [availableNavItems, isAdminMobileNavMode]);
+
+  const navItemsForRender = useMemo(() => {
+    if (!isAdminMobileNavMode) {
+      return availableNavItems;
+    }
+
+    if (!mobileNavSecondaryItems.length) {
+      return mobileNavPrimaryItems;
+    }
+
+    return [
+      ...mobileNavPrimaryItems,
+      { id: '__mobile_more__', label: 'More', icon: 'more', isOverflow: true },
+    ];
+  }, [availableNavItems, isAdminMobileNavMode, mobileNavPrimaryItems, mobileNavSecondaryItems]);
+
   const selectedView = availableNavItems.some((item) => item.id === activeView) ? activeView : 'dashboard';
   const activeNavItem = availableNavItems.find((item) => item.id === selectedView) || availableNavItems[0];
+
+  useEffect(() => {
+    if (!isAdminMobileNavMode) {
+      setMobileOverflowNavOpen(false);
+    }
+  }, [isAdminMobileNavMode]);
 
   const selectedVehicle =
     vehicleRecords.find((vehicle) => vehicle.id === selectedVehicleId) || vehicleRecords[0] || null;
@@ -1595,6 +1729,46 @@ function App() {
         };
       }
 
+      if (field === 'fuelAmount') {
+        return {
+          ...current,
+          fuelAmount: value,
+          fuelAmountManuallyEdited: true,
+        };
+      }
+
+      if (field === 'fuelRequested') {
+        if (!value) {
+          return {
+            ...current,
+            fuelRequested: false,
+            fuelAmountManuallyEdited: false,
+            fuelQuotePricePerLiter: null,
+            fuelQuoteSource: '',
+            fuelQuoteObservedAt: '',
+            fuelQuoteLocation: '',
+          };
+        }
+
+        return {
+          ...current,
+          fuelRequested: true,
+          fuelAmountManuallyEdited: false,
+        };
+      }
+
+      if (
+        ['fuelLiters', 'fuelProduct', 'fuelQuoteProvince', 'fuelQuoteMunicipality', 'assignedVehicleId'].includes(field)
+      ) {
+        const resetMunicipality = field === 'fuelQuoteProvince';
+        return {
+          ...current,
+          [field]: value,
+          ...(resetMunicipality ? { fuelQuoteMunicipality: '' } : {}),
+          fuelAmountManuallyEdited: false,
+        };
+      }
+
       return {
         ...current,
         [field]: value,
@@ -1771,8 +1945,15 @@ function App() {
 
   function handleRequestApprovalFieldChange(field, value) {
     setRequestApprovalForm((current) => {
-      if (field === 'fuelRequested' || field === 'fuelAmount' || field === 'estimatedKms' || field === 'fuelRemarks') {
+      if (field === 'fuelRequested' || field === 'estimatedKms' || field === 'fuelRemarks') {
         return current;
+      }
+
+      if (field === 'fuelAmount') {
+        return {
+          ...current,
+          fuelAmount: value,
+        };
       }
 
       if (field === 'fuelLiters') {
@@ -1792,6 +1973,163 @@ function App() {
         [field]: value,
       };
     });
+  }
+
+  function isRequestOwner(request) {
+    if (!request) {
+      return false;
+    }
+
+    if (request.requestedById && currentSessionUser.id) {
+      return request.requestedById === currentSessionUser.id;
+    }
+
+    return String(request.requestedBy || '').trim() === String(currentSessionUser.name || '').trim();
+  }
+
+  function isAssignedDriver(request) {
+    if (!request || !currentSessionUser.name) {
+      return false;
+    }
+
+    return String(request.assignedDriver || '').trim() === String(currentSessionUser.name || '').trim();
+  }
+
+  function canEditPendingFuelValues(request) {
+    if (!request || !request.fuelRequested) {
+      return false;
+    }
+
+    const isPending = request.status === 'Pending Approval';
+    const isReady = request.status === 'Ready for Release';
+
+    if (!isPending && !isReady) {
+      return false;
+    }
+
+    // Admin/Approver can edit both pending and ready
+    if (userMode === 'approver' || userMode === 'admin') {
+      return true;
+    }
+
+    // Requester and Assigned Driver can edit both if allowed
+    return isRequestOwner(request) || isAssignedDriver(request);
+  }
+
+  async function handleSaveRequestFuelEdits(request, fuelFormValues) {
+    if (!canEditPendingFuelValues(request)) {
+      showToast('Fuel values can only be updated by the requester (if pending) or an admin/approver.', 'warning', 'Update not allowed');
+      return false;
+    }
+
+    const liters = Number(fuelFormValues?.fuelLiters);
+    const amount = Number(fuelFormValues?.fuelAmount);
+
+    if (!Number.isFinite(liters) || liters < 0) {
+      showToast('Enter a valid fuel liters value (0 or higher).', 'warning', 'Invalid liters');
+      return false;
+    }
+
+    if (!Number.isFinite(amount) || amount < 0) {
+      showToast('Enter a valid fuel amount value (0 or higher).', 'warning', 'Invalid amount');
+      return false;
+    }
+
+    const selectedVehicle = vehicleRecords.find(
+      (vehicle) => vehicle.id === request.assignedVehicleId || vehicle.vehicleName === request.assignedVehicle
+    );
+    const efficiency = Number(selectedVehicle?.fuelEfficiency || 10);
+    const estimatedKms = Number((liters * efficiency).toFixed(2));
+    const nextFuelDetails = {
+      fuelLiters: liters,
+      fuelAmount: Number(amount.toFixed(2)),
+      estimatedKms,
+      fuelRemarks: fuelFormValues?.fuelRemarks || request.fuelRemarks || '',
+    };
+    const beforeFuelSnapshot = `PHP ${Number(request.fuelAmount || 0).toFixed(2)} / ${Number(request.fuelLiters || 0).toFixed(2)} L`;
+    const afterFuelSnapshot = `PHP ${nextFuelDetails.fuelAmount.toFixed(2)} / ${nextFuelDetails.fuelLiters.toFixed(2)} L`;
+    const isReady = request.status === 'Ready for Release';
+    const requiresReapproval = isReady && userMode !== 'approver' && userMode !== 'admin';
+
+    const updatedRequest = {
+      ...request,
+      fuelLiters: nextFuelDetails.fuelLiters,
+      fuelAmount: nextFuelDetails.fuelAmount,
+      estimatedKms: nextFuelDetails.estimatedKms,
+      fuelRemarks: nextFuelDetails.fuelRemarks,
+      status: requiresReapproval ? 'Pending Approval' : request.status,
+    };
+
+    if (supabase) {
+      try {
+        await updateLiveRequestFuelValues(supabase, request, nextFuelDetails);
+        
+        if (requiresReapproval) {
+          await reviewLiveRequest(supabase, request, currentSessionUser, 'Pending Approval');
+        }
+
+        const liveData = await refreshLiveData(currentSessionUser);
+        const refreshedRequest = liveData?.requestRecords?.find((entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id);
+
+        if (refreshedRequest) {
+          setSelectedRequestDetails(refreshedRequest);
+          setRequestApprovalForm(createRequestApprovalForm(refreshedRequest));
+        }
+
+        appendAuditEntry({
+          category: 'request',
+          action: requiresReapproval ? 'Updated fuel (triggered re-approval)' : 'Edited pending fuel values',
+          target: request.requestNo,
+          branch: request.branch,
+          details: `${currentSessionUser.name} updated fuel values from ${beforeFuelSnapshot} to ${afterFuelSnapshot}.${requiresReapproval ? ' Request sent back for re-approval.' : ''}`,
+        });
+        
+        showToast(
+          requiresReapproval 
+            ? `${request.requestNo} updated and sent back for re-approval.`
+            : `${request.requestNo} fuel values updated.`, 
+          'success', 
+          'Fuel updated'
+        );
+        return true;
+      } catch (error) {
+        try {
+          const liveData = await refreshLiveData(currentSessionUser);
+          const refreshedRequest = liveData?.requestRecords?.find((entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id);
+
+          if (refreshedRequest) {
+            setSelectedRequestDetails(refreshedRequest);
+            setRequestApprovalForm(createRequestApprovalForm(refreshedRequest));
+          }
+        } catch (_refreshError) {
+          // Keep the original save error as the primary feedback.
+        }
+
+        showToast(error.message || 'Unable to save fuel edits.', 'danger', 'Update failed');
+        return false;
+      }
+    }
+
+    setRequestRecords((current) =>
+      current.map((entry) => (entry.id === request.id ? updatedRequest : entry))
+    );
+    setSelectedRequestDetails(updatedRequest);
+    setRequestApprovalForm(createRequestApprovalForm(updatedRequest));
+    appendAuditEntry({
+      category: 'request',
+      action: requiresReapproval ? 'Updated fuel (triggered re-approval)' : 'Edited pending fuel values',
+      target: request.requestNo,
+      branch: request.branch,
+      details: `${currentSessionUser.name} updated fuel values from ${beforeFuelSnapshot} to ${afterFuelSnapshot}.${requiresReapproval ? ' Request sent back for re-approval.' : ''}`,
+    });
+    showToast(
+      requiresReapproval 
+        ? `${request.requestNo} updated and sent back for re-approval.`
+        : `${request.requestNo} fuel values updated.`, 
+      'success', 
+      'Fuel updated'
+    );
+    return true;
   }
 
   function getDriverAssignmentValidationMessage(validation) {
@@ -1912,6 +2250,13 @@ function App() {
             fuelLiters: Number(approvalDetails?.fuelLiters ?? request.fuelLiters ?? 0),
             estimatedKms: Number(approvalDetails?.estimatedKms ?? request.estimatedKms ?? 0),
             fuelRemarks: approvalDetails?.fuelRemarks ?? request.fuelRemarks ?? '',
+            fuelProduct: approvalDetails?.fuelProduct ?? request.fuelProduct ?? 'diesel',
+            fuelQuotePricePerLiter: approvalDetails?.fuelQuotePricePerLiter ?? request.fuelQuotePricePerLiter ?? null,
+            fuelQuoteSource: approvalDetails?.fuelQuoteSource ?? request.fuelQuoteSource ?? '',
+            fuelQuoteObservedAt: approvalDetails?.fuelQuoteObservedAt ?? request.fuelQuoteObservedAt ?? '',
+            fuelQuoteLocation: approvalDetails?.fuelQuoteLocation ?? request.fuelQuoteLocation ?? '',
+            fuelQuoteProvince: approvalDetails?.fuelQuoteProvince ?? request.fuelQuoteProvince ?? '',
+            fuelQuoteMunicipality: approvalDetails?.fuelQuoteMunicipality ?? request.fuelQuoteMunicipality ?? '',
             approvedAt: new Date().toISOString(),
           }, previewWindow);
 
@@ -1930,6 +2275,18 @@ function App() {
         showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
         return true;
       } catch (error) {
+        try {
+          const liveData = await refreshLiveData(currentSessionUser);
+          const refreshedRequest = liveData?.requestRecords?.find((entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id);
+
+          if (refreshedRequest) {
+            setSelectedRequestDetails(refreshedRequest);
+            setRequestApprovalForm(createRequestApprovalForm(refreshedRequest));
+          }
+        } catch (_refreshError) {
+          // Keep the original approval error as the primary feedback.
+        }
+
         if (previewWindow && !previewWindow.closed) {
           previewWindow.close();
         }
@@ -1957,6 +2314,13 @@ function App() {
       fuelLiters: Number(approvalDetails?.fuelLiters ?? request.fuelLiters ?? 0),
       estimatedKms: Number(approvalDetails?.estimatedKms ?? request.estimatedKms ?? 0),
       fuelRemarks: approvalDetails?.fuelRemarks ?? request.fuelRemarks ?? '',
+      fuelProduct: approvalDetails?.fuelProduct ?? request.fuelProduct ?? 'diesel',
+      fuelQuotePricePerLiter: approvalDetails?.fuelQuotePricePerLiter ?? request.fuelQuotePricePerLiter ?? null,
+      fuelQuoteSource: approvalDetails?.fuelQuoteSource ?? request.fuelQuoteSource ?? '',
+      fuelQuoteObservedAt: approvalDetails?.fuelQuoteObservedAt ?? request.fuelQuoteObservedAt ?? '',
+      fuelQuoteLocation: approvalDetails?.fuelQuoteLocation ?? request.fuelQuoteLocation ?? '',
+      fuelQuoteProvince: approvalDetails?.fuelQuoteProvince ?? request.fuelQuoteProvince ?? '',
+      fuelQuoteMunicipality: approvalDetails?.fuelQuoteMunicipality ?? request.fuelQuoteMunicipality ?? '',
       approvedAt,
     };
 
@@ -2320,6 +2684,7 @@ function App() {
             code: branch.code || '',
             name: branch.name,
             address: branch.address || '',
+            serviceRegion: branch.serviceRegion || 'other',
             isActive: branch.isActive !== false,
           }
         : createBranchSettingsForm()
@@ -2370,6 +2735,7 @@ function App() {
       code: branchSettingsForm.code.trim().toUpperCase(),
       name: branchSettingsForm.name.trim(),
       address: branchSettingsForm.address.trim(),
+      serviceRegion: branchSettingsForm.serviceRegion === 'panay' ? 'panay' : 'other',
       isActive: branchSettingsForm.isActive,
       utilization: branchSettingsForm.id
         ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.utilization || 0
@@ -3007,6 +3373,18 @@ function App() {
       return;
     }
 
+    if (requestForm.fuelRequested) {
+      if (!requestForm.fuelProduct) {
+        showToast('Select a fuel product for the requested fuel authorization.', 'warning', 'Fuel product required');
+        return;
+      }
+
+      if (Number(requestForm.fuelLiters || 0) <= 0) {
+        showToast('Enter a valid number of liters for fuel authorization.', 'warning', 'Fuel liters required');
+        return;
+      }
+    }
+
     const selectedVehicle = vehicleRecords.find((vehicle) => vehicle.id === requestForm.assignedVehicleId);
     const selectedDriver = driverRecords.find((driver) => driver.id === requestForm.assignedDriverId);
     const driverAssignmentValidation = getDriverAssignmentValidation(selectedDriver, selectedVehicle);
@@ -3096,6 +3474,13 @@ function App() {
       fuelLiters: Number(requestForm.fuelLiters || 0),
       estimatedKms: Number(requestForm.estimatedKms || 0),
       fuelRemarks: requestForm.fuelRemarks.trim(),
+      fuelProduct: requestForm.fuelProduct || 'diesel',
+      fuelQuotePricePerLiter: requestForm.fuelQuotePricePerLiter,
+      fuelQuoteSource: requestForm.fuelQuoteSource || '',
+      fuelQuoteObservedAt: requestForm.fuelQuoteObservedAt || '',
+      fuelQuoteLocation: requestForm.fuelQuoteLocation || '',
+      fuelQuoteProvince: requestForm.fuelQuoteProvince || '',
+      fuelQuoteMunicipality: requestForm.fuelQuoteMunicipality || '',
     };
 
     setRequestRecords((current) => [nextRequest, ...current]);
@@ -3146,8 +3531,14 @@ function App() {
 
     const tripToRelease = visibleTripRecords.find((trip) => trip.id === checkoutForm.tripId);
     const odometerOut = Number(checkoutForm.odometerOut);
-    const releaseVehicle = vehicleRecords.find((v) => v.id === tripToRelease?.vehicleId);
-    const isOdoDefective = releaseVehicle?.isOdoDefective || false;
+    const releaseVehicle = vehicleRecords.find(
+      (vehicle) => vehicle.id === tripToRelease?.vehicleId || vehicle.vehicleName === tripToRelease?.vehicle
+    );
+    const isOdoDefective = Boolean(releaseVehicle?.isOdoDefective);
+    const resolvedOdometerOut = isOdoDefective ? null : odometerOut;
+    const odometerOutLabel = isOdoDefective
+      ? 'N/A (odometer disabled)'
+      : String(resolvedOdometerOut);
 
     if (!tripToRelease) {
       showToast('Select a trip that is ready for release.', 'warning', 'Trip required');
@@ -3161,14 +3552,14 @@ function App() {
 
     if (supabase) {
       try {
-        await checkoutLiveTrip(supabase, tripToRelease, checkoutForm, odometerOut);
+        await checkoutLiveTrip(supabase, tripToRelease, checkoutForm, resolvedOdometerOut);
         await refreshLiveData(currentSessionUser);
         appendAuditEntry({
           category: 'trip',
           action: 'Released trip',
           target: tripToRelease.requestNo,
           branch: tripToRelease.origin,
-          details: `Released ${tripToRelease.vehicle} with odometer out ${odometerOut}.`,
+          details: `Released ${tripToRelease.vehicle} with odometer out ${odometerOutLabel}.`,
         });
         showToast(`${tripToRelease.vehicle} checked out successfully.`, 'success', 'Vehicle released');
         setActiveView('trips');
@@ -3186,7 +3577,7 @@ function App() {
               ...trip,
               tripStatus: 'Checked Out',
               dateOut: checkoutForm.dateOut,
-              odometerOut,
+              odometerOut: resolvedOdometerOut,
               fuelOut: checkoutForm.fuelOut,
               conditionOut: checkoutForm.conditionOut,
             }
@@ -3233,7 +3624,7 @@ function App() {
       action: 'Released trip',
       target: tripToRelease.requestNo,
       branch: tripToRelease.origin,
-      details: `Released ${tripToRelease.vehicle} with odometer out ${odometerOut}.`,
+      details: `Released ${tripToRelease.vehicle} with odometer out ${odometerOutLabel}.`,
     });
     pushNotification(
       'Vehicle released',
@@ -3259,8 +3650,11 @@ function App() {
 
     const tripToClose = visibleTripRecords.find((trip) => trip.id === checkinForm.tripId);
     const odometerIn = Number(checkinForm.odometerIn);
-    const returnVehicle = vehicleRecords.find((v) => v.id === tripToClose?.vehicleId);
-    const isOdoDefective = returnVehicle?.isOdoDefective || false;
+    const returnVehicle = vehicleRecords.find(
+      (vehicle) => vehicle.id === tripToClose?.vehicleId || vehicle.vehicleName === tripToClose?.vehicle
+    );
+    const isOdoDefective = Boolean(returnVehicle?.isOdoDefective);
+    const resolvedOdometerIn = isOdoDefective ? null : odometerIn;
 
     if (!tripToClose) {
       showToast('Select an active trip before checking a vehicle in.', 'warning', 'Trip required');
@@ -3273,17 +3667,20 @@ function App() {
     }
 
     const mileageComputed = isOdoDefective ? 0 : odometerIn - Number(tripToClose.odometerOut || 0);
+    const mileageSummary = isOdoDefective
+      ? 'Returned with odometer disabled (mileage skipped).'
+      : `Returned ${tripToClose.vehicle} with ${mileageComputed} km traveled.`;
 
     if (supabase) {
       try {
-        await checkinLiveTrip(supabase, tripToClose, checkinForm, odometerIn);
+        await checkinLiveTrip(supabase, tripToClose, checkinForm, resolvedOdometerIn);
         await refreshLiveData(currentSessionUser);
         appendAuditEntry({
           category: 'trip',
           action: 'Completed return',
           target: tripToClose.requestNo,
           branch: tripToClose.origin,
-          details: `Returned ${tripToClose.vehicle} with ${mileageComputed} km traveled.`,
+          details: mileageSummary,
         });
         showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
         setActiveView('trips');
@@ -3302,7 +3699,7 @@ function App() {
               tripStatus: 'Returned',
               actualReturnDatetime: checkinForm.dateIn,
               dateIn: checkinForm.dateIn,
-              odometerIn,
+              odometerIn: resolvedOdometerIn,
               fuelIn: checkinForm.fuelIn,
               remarks: checkinForm.remarks,
               mileageComputed,
@@ -3328,7 +3725,9 @@ function App() {
           ? {
               ...vehicle,
               status: 'available',
-              odometerCurrent: odometerIn,
+              odometerCurrent: isOdoDefective
+                ? vehicle.odometerCurrent
+                : odometerIn,
               assignedDriver: tripToClose.driver,
             }
           : vehicle
@@ -3351,7 +3750,7 @@ function App() {
       action: 'Completed return',
       target: tripToClose.requestNo,
       branch: tripToClose.origin,
-      details: `Returned ${tripToClose.vehicle} with ${mileageComputed} km traveled.`,
+      details: mileageSummary,
     });
     pushNotification(
       'Vehicle returned',
@@ -3676,14 +4075,24 @@ function App() {
         <div className="sidebar-section">
           <p className="sidebar-section-title">Menu</p>
           <nav className="nav-list">
-            {availableNavItems.map((item) => (
+            {navItemsForRender.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className={`nav-item ${selectedView === item.id ? 'nav-item-active' : ''}`}
+                className={`nav-item ${(item.isOverflow
+                  ? mobileOverflowNavOpen || mobileNavSecondaryItems.some((entry) => entry.id === selectedView)
+                  : selectedView === item.id)
+                  ? 'nav-item-active'
+                  : ''}`}
                 onClick={() => {
+                  if (item.isOverflow) {
+                    setMobileOverflowNavOpen((open) => !open);
+                    return;
+                  }
+
                   setActiveView(item.id);
                   setMobileNavOpen(false);
+                  setMobileOverflowNavOpen(false);
                 }}
               >
                 <span className="nav-item-icon">
@@ -3730,19 +4139,31 @@ function App() {
           </div>
 
           <div className="topbar-right">
-            <button type="button" className="button button-secondary topbar-profile" onClick={handleOpenProfileModal}>
+            <button
+              type="button"
+              className="button button-secondary topbar-profile"
+              aria-label="Open profile"
+              onClick={handleOpenProfileModal}
+            >
               <AppIcon name="user" className="button-icon" />
-              Profile
+              <span className="topbar-button-label">Profile</span>
             </button>
-            <button type="button" className="button button-secondary topbar-logout" onClick={handleLogout}>
+            <button
+              type="button"
+              className="button button-secondary topbar-logout"
+              aria-label="Log out"
+              onClick={handleLogout}
+            >
               <AppIcon name="logout" className="button-icon" />
-              Log out
+              <span className="topbar-button-label">Log out</span>
             </button>
           </div>
         </header>
 
         <div id="dashboard-filter-portal"></div>
-        {selectedView !== 'reports' && <PageHero heroContent={heroContent} onAction={handleHeroAction} />}
+        {selectedView !== 'reports' && !(selectedView === 'dashboard' && userMode === 'admin') && (
+          <PageHero heroContent={heroContent} onAction={handleHeroAction} />
+        )}
 
         {toast && (
           <section className={`toast-notification toast-${toast.tone}`} key={toast.id} role="status" aria-live="polite">
@@ -3773,6 +4194,7 @@ function App() {
             tripRecords={visibleTripRecords}
             vehicleRecords={vehicleRecords}
             notificationFeed={notificationFeed}
+            panayFuelPricing={panayFuelPricing}
           />
         )}
         {selectedView === 'requests' && (
@@ -3808,6 +4230,7 @@ function App() {
             onCloseAssignmentModal={handleCloseAssignmentModal}
             onOpenRequestDetails={handleOpenRequestDetails}
             onCloseRequestDetails={handleCloseRequestDetails}
+            onSaveRequestFuelEdits={handleSaveRequestFuelEdits}
             onAssignmentVehicleChange={setAssignmentVehicleId}
             onRejectionRemarksChange={setRejectionRemarks}
             onRejectRequest={handleRejectRequest}
@@ -3851,6 +4274,7 @@ function App() {
             vehicleRecords={vehicleRecords}
             maintenanceRecords={maintenanceRecords}
             incidentRecords={incidentRecords}
+            panayFuelPricing={panayFuelPricing}
           />
         )}
         {selectedView === 'vehicles' && (
@@ -4125,6 +4549,17 @@ function App() {
                       onChange={(event) => handleBranchSettingsFieldChange('address', event.target.value)}
                       placeholder="Branch address"
                     />
+                  </label>
+                  <label>
+                    <span className="field-label">Service region</span>
+                    <select
+                      className="input"
+                      value={branchSettingsForm.serviceRegion || 'other'}
+                      onChange={(event) => handleBranchSettingsFieldChange('serviceRegion', event.target.value)}
+                    >
+                      <option value="other">Other</option>
+                      <option value="panay">Panay</option>
+                    </select>
                   </label>
                   <label>
                     <span className="field-label">Status</span>
@@ -4560,7 +4995,48 @@ function App() {
             </div>
           </>
         )}
-       </main>
+      </main>
+
+      {isAdminMobileNavMode && mobileOverflowNavOpen && (
+        <>
+          <button
+            type="button"
+            className="app-backdrop mobile-overflow-backdrop"
+            aria-label="Close more menu"
+            onClick={() => setMobileOverflowNavOpen(false)}
+          />
+          <section className="mobile-overflow-menu" role="dialog" aria-modal="true" aria-label="More menu">
+            <div className="mobile-overflow-menu-head">
+              <p className="eyebrow">More</p>
+              <button
+                type="button"
+                className="button button-secondary mobile-overflow-close"
+                onClick={() => setMobileOverflowNavOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="mobile-overflow-menu-list">
+              {mobileNavSecondaryItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`mobile-overflow-item ${selectedView === item.id ? 'mobile-overflow-item-active' : ''}`}
+                  onClick={() => {
+                    setActiveView(item.id);
+                    setMobileOverflowNavOpen(false);
+                  }}
+                >
+                  <span className="mobile-overflow-item-icon">
+                    <AppIcon name={item.icon} />
+                  </span>
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }

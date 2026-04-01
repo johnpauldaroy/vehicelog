@@ -133,12 +133,14 @@ export default function TripsCalendarPage({ tripRecords }) {
           <div className="calendar-tile-counts">
             {dayCounts.booked > 0 && (
               <span className="calendar-count-tag calendar-count-tag-booked">
-                {dayCounts.booked} booked
+                <span className="calendar-count-value">{dayCounts.booked}</span>
+                <span className="calendar-count-label"> booked</span>
               </span>
             )}
             {dayCounts.ongoing > 0 && (
               <span className="calendar-count-tag calendar-count-tag-ongoing">
-                {dayCounts.ongoing} ongoing
+                <span className="calendar-count-value">{dayCounts.ongoing}</span>
+                <span className="calendar-count-label"> ongoing</span>
               </span>
             )}
           </div>

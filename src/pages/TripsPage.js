@@ -28,6 +28,24 @@ export default function TripsPage({
     () => tripRecords.find((trip) => trip.id === detailTripId) || null,
     [detailTripId, tripRecords]
   );
+  const selectedCheckoutVehicle = useMemo(() => {
+    if (!selectedCheckoutTrip) {
+      return null;
+    }
+
+    return vehicleRecords?.find(
+      (vehicle) => vehicle.id === selectedCheckoutTrip.vehicleId || vehicle.vehicleName === selectedCheckoutTrip.vehicle
+    ) || null;
+  }, [selectedCheckoutTrip, vehicleRecords]);
+  const selectedCheckinVehicle = useMemo(() => {
+    if (!selectedCheckinTrip) {
+      return null;
+    }
+
+    return vehicleRecords?.find(
+      (vehicle) => vehicle.id === selectedCheckinTrip.vehicleId || vehicle.vehicleName === selectedCheckinTrip.vehicle
+    ) || null;
+  }, [selectedCheckinTrip, vehicleRecords]);
 
   useEffect(() => {
     if (!detailTripId) {
@@ -175,16 +193,17 @@ export default function TripsPage({
                     <label>
                       <span className="field-label">
                         Odometer out
-                        {selectedCheckoutTrip && vehicleRecords?.find(v => v.id === selectedCheckoutTrip.vehicleId)?.isOdoDefective && (
-                          <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--brand-amber, #f59e0b)', fontWeight: '700', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: '99px' }}>DEFECTIVE — OPTIONAL</span>
+                        {selectedCheckoutVehicle?.isOdoDefective && (
+                          <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--brand-amber, #f59e0b)', fontWeight: '700', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: '99px' }}>DISABLED - NOT REQUIRED</span>
                         )}
                       </span>
                       <input
                         className="input"
                         type="number"
-                        value={checkoutForm.odometerOut}
+                        value={selectedCheckoutVehicle?.isOdoDefective ? '' : checkoutForm.odometerOut}
                         onChange={(event) => onCheckoutFieldChange('odometerOut', event.target.value)}
-                        placeholder={selectedCheckoutTrip && vehicleRecords?.find(v => v.id === selectedCheckoutTrip.vehicleId)?.isOdoDefective ? 'Odometer defective — skip if needed' : 'Current odometer'}
+                        disabled={selectedCheckoutVehicle?.isOdoDefective}
+                        placeholder={selectedCheckoutVehicle?.isOdoDefective ? 'Odometer disabled for this vehicle' : 'Current odometer'}
                       />
                     </label>
                     <label>
@@ -239,16 +258,17 @@ export default function TripsPage({
                     <label>
                       <span className="field-label">
                         Odometer in
-                        {selectedCheckinTrip && vehicleRecords?.find(v => v.id === selectedCheckinTrip.vehicleId)?.isOdoDefective && (
-                          <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--brand-amber, #f59e0b)', fontWeight: '700', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: '99px' }}>DEFECTIVE — OPTIONAL</span>
+                        {selectedCheckinVehicle?.isOdoDefective && (
+                          <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--brand-amber, #f59e0b)', fontWeight: '700', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: '99px' }}>DISABLED - NOT REQUIRED</span>
                         )}
                       </span>
                       <input
                         className="input"
                         type="number"
-                        value={checkinForm.odometerIn}
+                        value={selectedCheckinVehicle?.isOdoDefective ? '' : checkinForm.odometerIn}
                         onChange={(event) => onCheckinFieldChange('odometerIn', event.target.value)}
-                        placeholder={selectedCheckinTrip && vehicleRecords?.find(v => v.id === selectedCheckinTrip.vehicleId)?.isOdoDefective ? 'Odometer defective — skip if needed' : (selectedCheckinTrip?.odometerOut ? `Above ${selectedCheckinTrip.odometerOut}` : 'Final odometer')}
+                        disabled={selectedCheckinVehicle?.isOdoDefective}
+                        placeholder={selectedCheckinVehicle?.isOdoDefective ? 'Odometer disabled for this vehicle' : (selectedCheckinTrip?.odometerOut ? `Above ${selectedCheckinTrip.odometerOut}` : 'Final odometer')}
                       />
                     </label>
                     <label>
@@ -268,7 +288,7 @@ export default function TripsPage({
                       <span className="field-label">Mileage</span>
                       <input
                         className="input"
-                        value={computedCheckinMileage !== null ? `${computedCheckinMileage} km` : 'Pending'}
+                        value={selectedCheckinVehicle?.isOdoDefective ? 'Skipped (odometer disabled)' : computedCheckinMileage !== null ? `${computedCheckinMileage} km` : 'Pending'}
                         readOnly
                       />
                     </label>
@@ -329,8 +349,8 @@ export default function TripsPage({
             Open any trip from the table to review details. Release and return fields only appear
             inside the detail view for actionable trips.
           </div>
-          <div className="table-wrap">
-            <table className="data-table">
+          <div className="table-wrap trip-operations-table-wrap">
+            <table className="data-table trip-operations-table">
               <thead>
                 <tr>
                   <th>Request</th>
@@ -354,33 +374,38 @@ export default function TripsPage({
 
                   return (
                     <tr key={trip.id}>
-                      <td>
-                        <strong>{trip.requestNo}</strong>
+                      <td data-label="Request">
+                        <div className="trip-request-head">
+                          <strong>{trip.requestNo}</strong>
+                          <span className="trip-request-mobile-status">
+                            <StatusBadge status={trip.tripStatus} />
+                          </span>
+                        </div>
                         <span className="cell-subtle">
                           {trip.origin} to {trip.destination}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="Vehicle and driver">
                         {trip.vehicle}
                         <span className="cell-subtle">{trip.driver}</span>
                       </td>
-                      <td>
+                      <td data-label="Status" className="trip-status-cell">
                         <StatusBadge status={trip.tripStatus} />
                       </td>
-                      <td>
+                      <td data-label="Timing">
                         <strong>{trip.dateOut ? `Out ${formatDate(trip.dateOut, true)}` : 'Not released yet'}</strong>
                         <span className="cell-subtle">Due {formatDate(trip.expectedReturn, true)}</span>
                         {trip.actualReturnDatetime && (
                           <span className="cell-subtle">Returned {formatDate(trip.actualReturnDatetime, true)}</span>
                         )}
                       </td>
-                      <td>
+                      <td data-label="Mileage">
                         {trip.mileageComputed ? `${trip.mileageComputed} km` : 'Pending'}
                         <span className="cell-subtle">
                           {trip.odometerOut ? `Out ${trip.odometerOut}` : 'No check-out reading'}
                         </span>
                       </td>
-                      <td className="vehicle-actions-cell">
+                      <td data-label="Action" className="vehicle-actions-cell">
                         <div className="row-actions">
                           <button
                             type="button"

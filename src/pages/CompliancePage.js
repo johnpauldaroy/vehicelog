@@ -27,8 +27,6 @@ export default function CompliancePage({
   const visibleVehicles = isAdmin ? vehicleRecords : vehicleRecords.filter(v => v.branch === currentUser.branch);
   const insuranceWatch = visibleVehicles.filter((vehicle) => daysUntil(vehicle.insuranceExpiry) <= 30);
   const registrationWatch = visibleVehicles.filter((vehicle) => daysUntil(vehicle.registrationExpiry) <= 30);
-  const visibleIncidents = isAdmin ? incidentRecords : incidentRecords.filter(i => i.branch === currentUser.branch);
-  
   // Pending items for Watchlist
   const rawPendingMaintenance = maintenanceRecords.filter(m => m.status === 'Pending');
   const pendingMaintenance = isAdmin ? rawPendingMaintenance : rawPendingMaintenance.filter(m => m.branch === currentUser.branch);
@@ -150,20 +148,18 @@ export default function CompliancePage({
       )}
 
       {/* Tab Navigation */}
-      <div className="chip-row" style={{ marginBottom: '-8px' }}>
+      <div className="chip-row compliance-tab-row">
         <button
           type="button"
-          className={`chip-button ${activeTab === 'watchlist' ? 'chip-button-active' : ''}`}
+          className={`chip-button compliance-tab-button ${activeTab === 'watchlist' ? 'chip-button-active' : ''}`}
           onClick={() => setActiveTab('watchlist')}
-          style={{ padding: '12px 24px', fontSize: '0.9rem' }}
         >
           Watchlist Dashboard
         </button>
         <button
           type="button"
-          className={`chip-button ${activeTab === 'history' ? 'chip-button-active' : ''}`}
+          className={`chip-button compliance-tab-button ${activeTab === 'history' ? 'chip-button-active' : ''}`}
           onClick={() => setActiveTab('history')}
-          style={{ padding: '12px 24px', fontSize: '0.9rem' }}
         >
           Service History Hub
         </button>
@@ -177,7 +173,7 @@ export default function CompliancePage({
               <p className="muted" style={{ marginBottom: '16px' }}>Showing high-priority alerts across all categories.</p>
 
               <div className="table-wrap">
-                <table className="data-table">
+                <table className="data-table compliance-watchlist-table">
                   <thead>
                     <tr>
                       <th>Vehicle</th>
@@ -201,7 +197,7 @@ export default function CompliancePage({
                           <td><strong>{entry.vehicle}</strong></td>
                           <td><span style={{ fontWeight: 600 }}>{entry.maintenanceType}</span></td>
                           <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div className="compliance-watchlist-schedule">
                               <StatusBadge status="Pending" />
                               <span>{formatDate(entry.scheduleDate)}</span>
                             </div>
@@ -315,8 +311,8 @@ export default function CompliancePage({
         /* History & Management Hub View (Full-Width) */
         <div className="content-grid-tight">
           <SectionCard title="Service History Hub" subtitle="Full historical records and service management for the fleet.">
-            <div className="toolbar toolbar-split">
-              <div className="toolbar-left">
+            <div className="toolbar toolbar-split compliance-history-toolbar">
+              <div className="toolbar-left compliance-history-toolbar-left">
                 <div className="toolbar-search-wrap">
                   <input 
                     type="text"
@@ -329,25 +325,23 @@ export default function CompliancePage({
                   <AppIcon name="requests" className="toolbar-search-icon" />
                 </div>
                 
-                <div className="toolbar-controls">
+                <div className="toolbar-controls compliance-history-date-controls">
                   <div className="toolbar-control-group">
                     <span className="toolbar-label">From</span>
                     <input 
                       type="date" 
-                      className="input input-compact" 
+                      className="input input-compact compliance-date-input" 
                       value={startDate} 
                       onChange={(e) => setStartDate(e.target.value)}
-                      style={{ width: '130px' }}
                     />
                   </div>
                   <div className="toolbar-control-group">
                     <span className="toolbar-label">To</span>
                     <input 
                       type="date" 
-                      className="input input-compact" 
+                      className="input input-compact compliance-date-input" 
                       value={endDate} 
                       onChange={(e) => setEndDate(e.target.value)}
-                      style={{ width: '130px' }}
                     />
                   </div>
                   {(startDate || endDate) && (
@@ -361,7 +355,7 @@ export default function CompliancePage({
                   )}
                 </div>
                 
-                <div className="chip-row">
+                <div className="chip-row compliance-status-chip-row">
                   {['All', 'Pending', 'Completed'].map((status) => (
                     <button
                       key={status}
@@ -374,7 +368,7 @@ export default function CompliancePage({
                   ))}
                 </div>
               </div>
-              <div className="toolbar-right" style={{ display: 'flex', gap: '8px' }}>
+              <div className="toolbar-right compliance-history-toolbar-right">
                 <button 
                   type="button" 
                   className="button button-secondary"
@@ -397,8 +391,8 @@ export default function CompliancePage({
               </div>
             </div>
 
-            <div className="table-wrap">
-              <table className="data-table">
+            <div className="table-wrap compliance-history-table-wrap">
+              <table className="data-table compliance-history-table">
                 <thead>
                   <tr>
                     <th>Vehicle</th>
@@ -419,20 +413,20 @@ export default function CompliancePage({
                         className={canManageMaintenance ? 'interactive-row' : ''}
                         onClick={canManageMaintenance ? () => onOpenMaintenanceModal(entry) : undefined}
                       >
-                        <td>
+                        <td data-label="Vehicle">
                           <strong>{entry.vehicle}</strong>
                           {isAdmin && <span className="cell-subtle" style={{ fontSize: '0.7rem' }}>{entry.branch}</span>}
                         </td>
-                        <td>{entry.maintenanceType}</td>
-                        <td>
+                        <td data-label="Type">{entry.maintenanceType}</td>
+                        <td data-label="Date">
                           <span>{formatDate(entry.scheduleDate)}</span>
                           {entry.completedDate && <span className="cell-subtle" style={{ color: 'var(--success-text)', fontSize: '0.75rem' }}>Done: {formatDate(entry.completedDate)}</span>}
                         </td>
-                        <td>{entry.provider || '—'}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                          {entry.amount ? `PHP ${entry.amount.toLocaleString()}` : '—'}
+                        <td data-label="Provider">{entry.provider || '-'}</td>
+                        <td data-label="Amount" style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {entry.amount ? `PHP ${entry.amount.toLocaleString()}` : '-'}
                         </td>
-                        <td><StatusBadge status={entry.status} /></td>
+                        <td data-label="Status"><StatusBadge status={entry.status} /></td>
                       </tr>
                     ))
                   )}
@@ -445,3 +439,4 @@ export default function CompliancePage({
     </div>
   );
 }
+

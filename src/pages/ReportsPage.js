@@ -64,6 +64,7 @@ export default function ReportsPage({
   vehicleRecords,
   maintenanceRecords,
   incidentRecords,
+  panayFuelPricing,
 }) {
   const isAdmin = mode === 'admin';
   const [activeReport, setActiveReport] = useState('requests');
@@ -76,6 +77,7 @@ export default function ReportsPage({
   const [requesterFilter, setRequesterFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 8;
+  const isPanayBranchUser = currentUser?.serviceRegion === 'panay';
 
   const vehicleById = useMemo(
     () => new Map(vehicleRecords.map((vehicle) => [vehicle.id, vehicle])),
@@ -406,6 +408,11 @@ export default function ReportsPage({
             fuel_liters: Number(request.fuelLiters || 0),
             estimated_kms: Number(request.estimatedKms || 0),
             fuel_remarks: request.fuelRemarks || '',
+            fuel_product: request.fuelProduct || '',
+            fuel_quote_price_per_liter: request.fuelQuotePricePerLiter ?? '',
+            fuel_quote_source: request.fuelQuoteSource || '',
+            fuel_quote_observed_at: request.fuelQuoteObservedAt || '',
+            fuel_quote_location: request.fuelQuoteLocation || '',
           })),
           exportName: 'Fuel_Authorization_Report',
           emptyMessage: 'No fuel-authorized requests match the active filters.',
@@ -694,6 +701,28 @@ export default function ReportsPage({
 
       <SummaryGrid items={reportModel.summaryItems} />
 
+      {activeReport === 'fuel' && isPanayBranchUser && (
+        <SectionCard title="Panay market snapshot" subtitle={`Last sync: ${formatDate(panayFuelPricing?.lastUpdatedAt, true)}`}>
+          <div className="stack-list">
+            {(panayFuelPricing?.topStations || []).slice(0, 5).map((station, index) => (
+              <div key={`${station.stationName || station.station_name}-${index}`} className="list-row">
+                <div>
+                  <strong>{station.stationName || station.station_name}</strong>
+                  <p>{station.municipality}, {station.province}</p>
+                </div>
+                <div className="list-meta">
+                  <span>{station.fuelType || station.fuel_type}</span>
+                  <strong>PHP {Number(station.pricePerLiter || station.price_per_liter || 0).toFixed(2)}/L</strong>
+                </div>
+              </div>
+            ))}
+            {!(panayFuelPricing?.topStations || []).length && (
+              <div className="empty-state-panel">No Panay fuel snapshot rows are available yet.</div>
+            )}
+          </div>
+        </SectionCard>
+      )}
+
       <div className="content-grid">
         <SectionCard title={reportModel.chartTitle} subtitle={reportModel.chartCopy}>
           {reportModel.chartItems.length ? (
@@ -722,26 +751,31 @@ export default function ReportsPage({
           <div className="request-pagination-actions">
             <button
               type="button"
-              className="button button-secondary request-page-button"
+              className="button button-secondary request-page-button pagination-nav-button"
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
               disabled={currentPage === 1}
             >
-              Previous
+              <span className="pagination-label-full">Previous</span>
+              <span className="pagination-label-short">Prev</span>
             </button>
-            <span className="request-page-indicator">Page {currentPage} of {totalPages}</span>
+            <span className="request-page-indicator">
+              <span className="request-page-indicator-full">Page {currentPage} of {totalPages}</span>
+              <span className="request-page-indicator-short">{currentPage}/{totalPages}</span>
+            </span>
             <button
               type="button"
-              className="button button-secondary request-page-button"
+              className="button button-secondary request-page-button pagination-nav-button"
               onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
               disabled={currentPage >= totalPages}
             >
-              Next
+              <span className="pagination-label-full">Next</span>
+              <span className="pagination-label-short">Next</span>
             </button>
           </div>
         </div>
 
-        <div className="table-wrap">
-          <table className="data-table">
+        <div className="table-wrap reports-table-wrap">
+          <table className="data-table reports-data-table">
             <thead>
               <tr>
                 {reportModel.tableColumns.map((column) => (
@@ -758,7 +792,7 @@ export default function ReportsPage({
                 paginatedRows.map((row) => (
                   <tr key={row.key}>
                     {row.cells.map((cell, index) => (
-                      <td key={`${row.key}-${index}`}>
+                      <td key={`${row.key}-${index}`} data-label={reportModel.tableColumns[index]}>
                         {cell && typeof cell === 'object' && cell.type === 'status'
                           ? <StatusBadge status={cell.value} />
                           : cell}

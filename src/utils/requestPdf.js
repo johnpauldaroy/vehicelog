@@ -1,10 +1,12 @@
+import { COOP_LOGO_PDF_ASSET } from './coopLogoPdfAsset';
+
 const PAGE_WIDTH = 420;
-const PAGE_HEIGHT = 595;
+const PAGE_HEIGHT = 420;
 const PAGE_MARGIN_X = 20;
 const PAGE_MARGIN_TOP = 20;
 const PAGE_MARGIN_BOTTOM = 24;
 const CONTENT_WIDTH = PAGE_WIDTH - (PAGE_MARGIN_X * 2);
-const HEADER_HEIGHT = 56;
+const HEADER_HEIGHT = 52;
 const BODY_FONT_SIZE = 8;
 const SMALL_FONT_SIZE = 7;
 const TITLE_FONT_SIZE = 11;
@@ -133,16 +135,25 @@ function ensurePageSpace(pages, requiredHeight) {
   return currentPage;
 }
 
-function addHeader(pages, request, title, subtitle) {
+function addHeader(pages, request, title) {
   const currentPage = ensurePageSpace(pages, HEADER_HEIGHT);
   const boxBottom = currentPage.y - HEADER_HEIGHT;
+  const logoWidth = 36;
+  const logoHeight = 28;
+  const logoLeft = PAGE_MARGIN_X + 8;
+  const logoBottom = currentPage.y - 39;
+  const titleLeft = logoLeft + logoWidth + 10;
+  const rightColumnX = PAGE_MARGIN_X + CONTENT_WIDTH - 108;
 
   currentPage.commands.push(buildRectCommand(PAGE_MARGIN_X, boxBottom, CONTENT_WIDTH, HEADER_HEIGHT));
-  currentPage.commands.push(buildTextCommand('BMPC VEHICLE MANAGEMENT SYSTEM', PAGE_MARGIN_X + 8, currentPage.y - 12, 'F2', SMALL_FONT_SIZE));
-  currentPage.commands.push(buildTextCommand(title, PAGE_MARGIN_X + 8, currentPage.y - 25, 'F2', TITLE_FONT_SIZE));
-  currentPage.commands.push(buildTextCommand(subtitle, PAGE_MARGIN_X + 8, currentPage.y - 38, 'F1', SMALL_FONT_SIZE));
-  currentPage.commands.push(buildTextCommand(request?.requestNo || '-', PAGE_MARGIN_X + CONTENT_WIDTH - 108, currentPage.y - 18, 'F2', SMALL_FONT_SIZE));
-  currentPage.commands.push(buildTextCommand(String(request?.status || 'Approved'), PAGE_MARGIN_X + CONTENT_WIDTH - 108, currentPage.y - 32, 'F1', SMALL_FONT_SIZE));
+  currentPage.commands.push('q');
+  currentPage.commands.push(`${logoWidth} 0 0 ${logoHeight} ${logoLeft} ${logoBottom} cm`);
+  currentPage.commands.push('/Im1 Do');
+  currentPage.commands.push('Q');
+  currentPage.commands.push(buildTextCommand('BMPC VEHICLE MANAGEMENT SYSTEM', titleLeft, currentPage.y - 13, 'F2', SMALL_FONT_SIZE));
+  currentPage.commands.push(buildTextCommand(title, titleLeft, currentPage.y - 30, 'F2', TITLE_FONT_SIZE));
+  currentPage.commands.push(buildTextCommand(request?.requestNo || '-', rightColumnX, currentPage.y - 18, 'F2', SMALL_FONT_SIZE));
+  currentPage.commands.push(buildTextCommand(String(request?.status || 'Approved'), rightColumnX, currentPage.y - 34, 'F1', SMALL_FONT_SIZE));
 
   currentPage.y = boxBottom - SECTION_GAP;
 }
@@ -198,21 +209,31 @@ function addTable(pages, rows, columnWidths, options = {}) {
 }
 
 function buildPdfObjects(pageStreams) {
+  const hasLogoAsset = Boolean(COOP_LOGO_PDF_ASSET?.hex && COOP_LOGO_PDF_ASSET?.width && COOP_LOGO_PDF_ASSET?.height);
+  const imageObjectNumber = hasLogoAsset ? 5 : null;
+  const firstPageObjectNumber = hasLogoAsset ? 6 : 5;
   const objects = [
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
     `2 0 obj\n<< /Type /Pages /Count ${pageStreams.length} /Kids [${pageStreams
-      .map((_, index) => `${5 + (index * 2)} 0 R`)
+      .map((_, index) => `${firstPageObjectNumber + (index * 2)} 0 R`)
       .join(' ')}] >>\nendobj\n`,
     '3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
     '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n',
   ];
 
+  if (hasLogoAsset) {
+    const imageHexStream = `${COOP_LOGO_PDF_ASSET.hex}>`;
+    const imageObject = `${imageObjectNumber} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${COOP_LOGO_PDF_ASSET.width} /Height ${COOP_LOGO_PDF_ASSET.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${imageHexStream.length} >>\nstream\n${imageHexStream}\nendstream\nendobj\n`;
+    objects.push(imageObject);
+  }
+
   pageStreams.forEach((stream, index) => {
-    const pageObjectNumber = 5 + (index * 2);
+    const pageObjectNumber = firstPageObjectNumber + (index * 2);
     const contentObjectNumber = pageObjectNumber + 1;
+    const xObjectSegment = hasLogoAsset ? ` /XObject << /Im1 ${imageObjectNumber} 0 R >>` : '';
 
     objects.push(
-      `${pageObjectNumber} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjectNumber} 0 R >>\nendobj\n`
+      `${pageObjectNumber} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xObjectSegment} >> /Contents ${contentObjectNumber} 0 R >>\nendobj\n`
     );
     objects.push(
       `${contentObjectNumber} 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\n`
@@ -245,59 +266,91 @@ function assemblePdfDocument(objects) {
 function buildPageStreams(request) {
   const pages = [];
   const isFuelSlip = Boolean(request?.fuelRequested);
+  const trimmedNotes = String(request?.notes || '').trim();
   const passengerNames = Array.isArray(request?.passengerNames) ? request.passengerNames.filter(Boolean) : [];
   const passengerSummary = Number(request?.passengerCount || 0) <= 1
     ? 'Driver only'
     : (passengerNames.length ? passengerNames.join(', ') : 'No passenger names provided.');
   const approvedAt = request?.approvedAt || request?.approved_at || request?.updatedAt || request?.createdAt || new Date().toISOString();
   const title = isFuelSlip ? 'Approved Ticket and Fuel Slip' : 'Approved Ticket';
-  const subtitle = isFuelSlip
-    ? 'Half-sheet printable release and fuel authorization.'
-    : 'Half-sheet printable vehicle release authorization.';
   const signatureName = '________________________________';
 
   startNewPage(pages);
-  addHeader(pages, request, title, subtitle);
+  addHeader(pages, request, title);
 
-  addSectionLabel(pages, 'REQUEST SUMMARY');
-  addTable(
-    pages,
-    [
-      ['Request No', request?.requestNo || '-', 'Status', String(request?.status || 'Approved')],
-      ['Requester', request?.requestedBy || '-', 'Branch', request?.branch || '-'],
-      ['Approved By', request?.approver || 'Pending', 'Approved At', formatPdfDateTime(approvedAt)],
-    ],
-    [0.18, 0.32, 0.18, 0.32],
-    { labelColumns: [0, 2] }
-  );
-
-  addSectionLabel(pages, 'TRIP DETAILS');
-  addTable(
-    pages,
-    [
-      ['Purpose', request?.purpose || '-', 'Destination', request?.destination || '-'],
-      ['Departure', formatPdfDateTime(request?.departureDatetime), 'Expected Return', formatPdfDateTime(request?.expectedReturnDatetime)],
-      ['Passenger Count', String(request?.passengerCount || 0), 'Passenger Manifest', passengerSummary],
-      ['Assigned Vehicle', request?.assignedVehicle || 'Unassigned', 'Assigned Driver', request?.assignedDriver || 'Unassigned'],
-    ],
-    [0.18, 0.32, 0.18, 0.32],
-    { labelColumns: [0, 2] }
-  );
-
-  addSectionLabel(pages, 'FUEL SLIP');
   if (isFuelSlip) {
+    addSectionLabel(pages, 'REQUEST SNAPSHOT');
     addTable(
       pages,
       [
-        ['Authorized Amount', `PHP ${formatPdfNumber(request?.fuelAmount, 2)}`, 'Approved Liters', `${formatPdfNumber(request?.fuelLiters, 2)} L`],
-        ['Estimated Range', `${formatPdfNumber(request?.estimatedKms, 2)} KM`, 'Fuel Remarks', request?.fuelRemarks || 'No fuel remarks provided.'],
-        ['Pump Station', '________________________', 'Fuel Issued By', '________________________'],
-        ['Received By', request?.assignedDriver || '________________________', 'Date Issued', '________________________'],
+        ['Request No', request?.requestNo || '-', 'Branch', request?.branch || '-'],
+        ['Requester', request?.requestedBy || '-', 'Approved By', request?.approver || 'Pending'],
+        ['Status', String(request?.status || 'Approved'), 'Approved At', formatPdfDateTime(approvedAt)],
       ],
       [0.18, 0.32, 0.18, 0.32],
       { labelColumns: [0, 2] }
     );
+
+    addSectionLabel(pages, 'TRIP RELEASE');
+    addTable(
+      pages,
+      [
+        ['Destination', request?.destination || '-', 'Departure', formatPdfDateTime(request?.departureDatetime)],
+        ['Assigned Vehicle', request?.assignedVehicle || 'Unassigned', 'Assigned Driver', request?.assignedDriver || 'Unassigned'],
+      ],
+      [0.18, 0.32, 0.18, 0.32],
+      { labelColumns: [0, 2] }
+    );
+
+    addSectionLabel(pages, 'FUEL AUTHORIZATION');
+    addTable(
+      pages,
+      [
+        ['Fuel Product', String(request?.fuelProduct || 'diesel').replace(/_/g, ' '), 'Expected Return', formatPdfDateTime(request?.expectedReturnDatetime)],
+        ['Authorized Amount', `PHP ${formatPdfNumber(request?.fuelAmount, 2)}`, 'Approved Liters', `${formatPdfNumber(request?.fuelLiters, 2)} L`],
+        ['Estimated Range', `${formatPdfNumber(request?.estimatedKms, 2)} KM`, 'Fuel Remarks', request?.fuelRemarks || '-'],
+      ],
+      [0.18, 0.32, 0.18, 0.32],
+      { labelColumns: [0, 2] }
+    );
+
+    addSectionLabel(pages, 'ISSUANCE ACKNOWLEDGEMENT');
+    addTable(
+      pages,
+      [
+        ['Pump Station', '________________________', 'Date Issued', '________________________'],
+        ['Issued By', '________________________', 'Received By', request?.assignedDriver || request?.requestedBy || '________________________'],
+      ],
+      [0.18, 0.32, 0.18, 0.32],
+      { labelColumns: [0, 2], gapAfter: 4 }
+    );
   } else {
+    addSectionLabel(pages, 'REQUEST SUMMARY');
+    addTable(
+      pages,
+      [
+        ['Request No', request?.requestNo || '-', 'Status', String(request?.status || 'Approved')],
+        ['Requester', request?.requestedBy || '-', 'Branch', request?.branch || '-'],
+        ['Approved By', request?.approver || 'Pending', 'Approved At', formatPdfDateTime(approvedAt)],
+      ],
+      [0.18, 0.32, 0.18, 0.32],
+      { labelColumns: [0, 2] }
+    );
+
+    addSectionLabel(pages, 'TRIP DETAILS');
+    addTable(
+      pages,
+      [
+        ['Purpose', request?.purpose || '-', 'Destination', request?.destination || '-'],
+        ['Departure', formatPdfDateTime(request?.departureDatetime), 'Expected Return', formatPdfDateTime(request?.expectedReturnDatetime)],
+        ['Passenger Count', String(request?.passengerCount || 0), 'Passenger Manifest', passengerSummary],
+        ['Assigned Vehicle', request?.assignedVehicle || 'Unassigned', 'Assigned Driver', request?.assignedDriver || 'Unassigned'],
+      ],
+      [0.18, 0.32, 0.18, 0.32],
+      { labelColumns: [0, 2] }
+    );
+
+    addSectionLabel(pages, 'FUEL SLIP');
     addTable(
       pages,
       [
@@ -306,32 +359,34 @@ function buildPageStreams(request) {
       [0.22, 0.78],
       { labelColumns: [0] }
     );
-  }
 
-  addSectionLabel(pages, 'NOTES');
-  addTable(
-    pages,
-    [
-      ['Request Notes', request?.notes || 'No notes provided.'],
-    ],
-    [0.22, 0.78],
-    { labelColumns: [0] }
-  );
+    if (trimmedNotes) {
+      addSectionLabel(pages, 'NOTES');
+      addTable(
+        pages,
+        [
+          ['Request Notes', trimmedNotes],
+        ],
+        [0.22, 0.78],
+        { labelColumns: [0] }
+      );
+    }
 
-  addSectionLabel(pages, 'SIGNATORIES');
-  addTable(
-    pages,
-    [
-      ['Requested By', 'Approved By', 'Driver'],
+    addSectionLabel(pages, 'SIGNATORIES');
+    addTable(
+      pages,
       [
-        request?.requestedBy || signatureName,
-        request?.approver || signatureName,
-        request?.assignedDriver || signatureName,
+        ['Requested By', 'Approved By', 'Driver'],
+        [
+          request?.requestedBy || signatureName,
+          request?.approver || signatureName,
+          request?.assignedDriver || signatureName,
+        ],
       ],
-    ],
-    [0.3334, 0.3333, 0.3333],
-    { headerRows: 1, gapAfter: 4 }
-  );
+      [0.3334, 0.3333, 0.3333],
+      { headerRows: 1, gapAfter: 4 }
+    );
+  }
 
   return pages.map((page, index) => {
     const commands = [...page.commands];

@@ -196,7 +196,7 @@ export default function AdminSettingsPage({
         ),
         table: (
           <div className="table-wrap">
-            <table className="data-table">
+            <table className="data-table users-data-table">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -214,11 +214,18 @@ export default function AdminSettingsPage({
                 )}
                 {userRecords.map((user) => (
                   <tr key={user.id}>
-                    <td>{user.name}</td>
-                    <td>{user.email}</td>
-                    <td><StatusBadge status={user.role} /></td>
-                    <td>{user.branch}</td>
-                    <td>
+                    <td data-label="Name">
+                      <div className="user-mobile-head">
+                        <span>{user.name}</span>
+                        <span className="user-mobile-role">
+                          <StatusBadge status={user.role} />
+                        </span>
+                      </div>
+                    </td>
+                    <td data-label="Email">{user.email}</td>
+                    <td data-label="Role" className="user-role-cell"><StatusBadge status={user.role} /></td>
+                    <td data-label="Branch">{user.branch}</td>
+                    <td data-label="Action">
                       <div className="row-actions">
                         <button type="button" className="button button-secondary row-action-button" onClick={() => onEditUser(user)}>
                           Edit

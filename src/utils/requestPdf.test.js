@@ -33,3 +33,31 @@ test('creates a PDF blob for an approved fuel slip', async () => {
   expect(pdfText).toContain('Fuel Slip');
   expect(getApprovedRequestPdfFilename(request)).toBe('VR-2026-0311-002-fuel-slip.pdf');
 });
+
+test('keeps approved ticket without fuel on a single page when notes are empty', async () => {
+  const request = {
+    requestNo: 'VR-2026-0401-014',
+    status: 'Ready for Release',
+    requestedBy: 'Pael Langka',
+    approver: 'admin',
+    branch: 'Barbaza Main',
+    purpose: 'fsd',
+    destination: 'fsdf',
+    departureDatetime: '2026-04-01T23:02:00',
+    expectedReturnDatetime: '2026-04-02T07:02:00',
+    passengerCount: 3,
+    passengerNames: ['fsdf', 'fsdf'],
+    assignedVehicle: 'Ford Ranger',
+    assignedDriver: 'Joel Ramirez',
+    fuelRequested: false,
+    notes: '',
+    approvedAt: '2026-04-01T15:08:00',
+  };
+
+  const pdfBlob = createApprovedRequestPdfBlob(request);
+  const pdfText = await new Response(pdfBlob).text();
+
+  expect(pdfText).toContain('/Count 1');
+  expect(pdfText).not.toContain('No notes provided.');
+  expect(pdfText).toContain('SIGNATORIES');
+});

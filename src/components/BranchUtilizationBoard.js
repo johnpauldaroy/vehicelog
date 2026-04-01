@@ -1,24 +1,31 @@
+import {
+  ArcElement,
+  BarElement,
+  CategoryScale,
+  Chart as ChartJS,
+  DoughnutController,
+  Legend,
+  LinearScale,
+  Tooltip,
+} from 'chart.js';
+import { Bar, Doughnut } from 'react-chartjs-2';
 import AppIcon from './AppIcon';
 
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, DoughnutController, Tooltip, Legend);
+
 function getPressureLabel(value) {
-  if (value >= 80) {
-    return 'High';
-  }
-
-  if (value >= 60) {
-    return 'Elevated';
-  }
-
-  if (value >= 35) {
-    return 'Steady';
-  }
-
+  if (value >= 80) return 'High';
+  if (value >= 60) return 'Elevated';
+  if (value >= 35) return 'Steady';
   return 'Light';
 }
 
-function clampUtilization(value) {
-  const normalizedValue = Math.min(Number(value) || 0, 100);
-  return normalizedValue > 0 ? Math.max(8, normalizedValue) : 0;
+function toneToColor(tone) {
+  if (tone === 'red') return '#bf5653';
+  if (tone === 'amber') return '#bd8420';
+  if (tone === 'green') return '#3d9f72';
+  if (tone === 'slate') return '#6a768e';
+  return '#4f72d6';
 }
 
 export default function BranchUtilizationBoard({ items, ariaLabel }) {
@@ -32,6 +39,125 @@ export default function BranchUtilizationBoard({ items, ariaLabel }) {
   const averageUtilization = Math.round(
     rankedItems.reduce((sum, item) => sum + (Number(item.value) || 0), 0) / rankedItems.length
   );
+
+  const barData = {
+    labels: rankedItems.map((item) => item.label),
+    datasets: [
+      {
+        label: 'Utilization',
+        data: rankedItems.map((item) => Math.max(0, Number(item.value) || 0)),
+        borderRadius: 999,
+        borderSkipped: false,
+        borderWidth: 0,
+        backgroundColor: rankedItems.map((item) => toneToColor(item.tone || 'blue')),
+        maxBarThickness: 24,
+      },
+    ],
+  };
+
+  const barOptions = {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: {
+      duration: 450,
+    },
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        backgroundColor: 'rgba(18, 27, 66, 0.96)',
+        padding: 12,
+        displayColors: false,
+        callbacks: {
+          label: (context) => `${context.label}: ${Number(context.parsed.x || 0).toFixed(1)}%`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        min: 0,
+        max: 100,
+        ticks: {
+          color: '#7a879f',
+          callback: (value) => `${value}%`,
+          font: {
+            size: 11,
+          },
+        },
+        grid: {
+          color: 'rgba(114, 131, 168, 0.12)',
+        },
+        border: {
+          display: false,
+        },
+      },
+      y: {
+        ticks: {
+          color: '#3b4a6b',
+          font: {
+            size: 12,
+            weight: '700',
+          },
+        },
+        grid: {
+          display: false,
+        },
+        border: {
+          display: false,
+        },
+      },
+    },
+  };
+
+  const pressureCounts = rankedItems.reduce(
+    (accumulator, item) => {
+      const label = getPressureLabel(item.value);
+      accumulator[label] += 1;
+      return accumulator;
+    },
+    { High: 0, Elevated: 0, Steady: 0, Light: 0 }
+  );
+
+  const pressureEntries = [
+    { label: 'High', value: pressureCounts.High, color: '#bf5653' },
+    { label: 'Elevated', value: pressureCounts.Elevated, color: '#bd8420' },
+    { label: 'Steady', value: pressureCounts.Steady, color: '#4f72d6' },
+    { label: 'Light', value: pressureCounts.Light, color: '#6a768e' },
+  ].filter((entry) => entry.value > 0);
+
+  const ringData = {
+    labels: pressureEntries.map((entry) => entry.label),
+    datasets: [
+      {
+        data: pressureEntries.map((entry) => entry.value),
+        backgroundColor: pressureEntries.map((entry) => entry.color),
+        borderColor: '#ffffff',
+        borderWidth: 3,
+        hoverOffset: 4,
+      },
+    ],
+  };
+
+  const ringOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '66%',
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        backgroundColor: 'rgba(18, 27, 66, 0.96)',
+        padding: 12,
+        displayColors: false,
+        callbacks: {
+          label: (context) => `${context.label}: ${context.parsed} branch${context.parsed === 1 ? '' : 'es'}`,
+        },
+      },
+    },
+  };
 
   return (
     <div className="utilization-board" role="img" aria-label={ariaLabel}>
@@ -52,40 +178,35 @@ export default function BranchUtilizationBoard({ items, ariaLabel }) {
         </div>
       </div>
 
-      <div className="utilization-list">
-        {rankedItems.map((item, index) => {
-          const tone = item.tone || 'blue';
-          const pressureLabel = getPressureLabel(item.value);
+      <div className="utilization-chart-grid">
+        <article className="utilization-chart-card">
+          <div className="utilization-chart-head">
+            <h5>Branch load ranking</h5>
+            <p>Utilization percentage by branch.</p>
+          </div>
+          <div className="utilization-chart-canvas">
+            <Bar data={barData} options={barOptions} />
+          </div>
+        </article>
 
-          return (
-            <article key={item.label} className={`utilization-row utilization-row-${tone}`}>
-              <div className="utilization-row-main">
-                <div className="utilization-row-label">
-                  <span className="utilization-rank">{String(index + 1).padStart(2, '0')}</span>
-                  <span className={`utilization-dot utilization-dot-${tone}`} />
-                  <div>
-                    <strong>{item.label}</strong>
-                    <p>{item.helper || 'Fleet committed'}</p>
-                  </div>
-                </div>
-
-                <div className="utilization-row-metrics">
-                  <span className={`utilization-badge utilization-badge-${tone}`}>
-                    {item.valueLabel || `${item.value}%`}
-                  </span>
-                  <span className="utilization-pressure">{pressureLabel}</span>
-                </div>
+        <article className="utilization-chart-card">
+          <div className="utilization-chart-head">
+            <h5>Pressure distribution</h5>
+            <p>How branches are grouped by load pressure.</p>
+          </div>
+          <div className="utilization-ring-canvas">
+            <Doughnut data={ringData} options={ringOptions} />
+          </div>
+          <div className="utilization-pressure-legend">
+            {pressureEntries.map((entry) => (
+              <div key={entry.label} className="utilization-pressure-item">
+                <span className="utilization-pressure-dot" style={{ backgroundColor: entry.color }} />
+                <span>{entry.label}</span>
+                <strong>{entry.value}</strong>
               </div>
-
-              <div className="utilization-track" aria-hidden="true">
-                <div
-                  className={`utilization-fill utilization-fill-${tone}`}
-                  style={{ width: `${clampUtilization(item.value)}%` }}
-                />
-              </div>
-            </article>
-          );
-        })}
+            ))}
+          </div>
+        </article>
       </div>
     </div>
   );

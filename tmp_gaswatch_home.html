@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en-PH">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="color-scheme" content="light dark" />
+  <script>(function(){var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);})();</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+  <title>GasWatch PH - Real-Time Fuel Prices in Metro Manila</title>
+  <meta name="description" content="Check gas prices across Metro Manila, Philippines. Compare Shell, Petron, Caltex &amp; more. DOE advisories + real pump prices from the community. No app needed." />
+  <meta name="keywords" content="gas prices Philippines, fuel prices Metro Manila, diesel price today, gasoline price Philippines, Shell price, Petron price, Caltex price, Phoenix price, cheapest gas station near me, DOE fuel advisory, gas price comparison Manila" />
+  <meta name="author" content="GasWatch PH" />
+  <meta name="google-site-verification" content="HMofiGKyDp_-iWACPEmFAzaM7w6Yv3XKgunavUM5elo" />
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="https://gaswatchph.com/" />
+  <link rel="alternate" hreflang="en-PH" href="https://gaswatchph.com/" />
+  <link rel="alternate" hreflang="x-default" href="https://gaswatchph.com/" />
+
+  <!-- Geo Targeting -->
+  <meta name="geo.region" content="PH-00" />
+  <meta name="geo.placename" content="Metro Manila, Philippines" />
+  <meta name="geo.position" content="14.5995;120.9842" />
+  <meta name="ICBM" content="14.5995, 120.9842" />
+  <meta name="language" content="English" />
+  <meta name="robots" content="index, follow" />
+  <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+
+  <!-- Open Graph (Facebook / Messenger / LinkedIn) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://gaswatchph.com/" />
+  <meta property="og:title" content="GasWatch PH - Real-Time Fuel Prices in Metro Manila" />
+  <meta property="og:description" content="Track 1,043 gas stations across Metro Manila. Compare Shell, Petron, Caltex, Phoenix and more. DOE advisories & community reports. No app needed." />
+  <meta property="og:image" content="https://gaswatchph.com/og-image-v4.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="en_PH" />
+  <meta property="og:site_name" content="GasWatch PH" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="GasWatch PH - Real-Time Fuel Prices in Metro Manila" />
+  <meta name="twitter:description" content="Track 1,043 gas stations across Metro Manila. Compare Shell, Petron, Caltex, Phoenix and more. DOE advisories & community reports." />
+  <meta name="twitter:image" content="https://gaswatchph.com/og-image-v4.png" />
+
+  <!-- Favicon -->
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/favicon.png" />
+  <meta name="theme-color" content="#3d71e1" />
+  <meta name="apple-mobile-web-app-title" content="GasWatch PH" />
+
+  <!-- Structured Data (JSON-LD) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "GasWatch PH",
+    "url": "https://gaswatchph.com",
+    "description": "Compare fuel prices from Shell, Petron, Caltex, Phoenix, and more gas stations across Metro Manila. Prices from DOE advisories & community reports.",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Web",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "PHP"
+    },
+    "areaServed": {
+      "@type": "City",
+      "name": "Metro Manila",
+      "containedInPlace": {
+        "@type": "Country",
+        "name": "Philippines"
+      }
+    },
+    "creator": {
+      "@type": "Organization",
+      "name": "GasWatch PH",
+      "url": "https://gaswatchph.com"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Where do GasWatch PH prices come from?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Prices come from the DOE (Department of Energy) weekly price advisory released every Tuesday, and community-reported pump prices submitted by drivers on the site."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How often are prices updated?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "DOE official prices are updated every Tuesday. Community pump prices are updated in real time — anyone can submit the price they see at a station near them."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What does community price mean?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "A community price is the price reported by someone who visited that station. These are often more accurate than official advisories because prices can vary per station."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Are the prices official?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "DOE prices are official government advisories. Community prices are real pump prices reported by drivers. They reflect what you will actually pay at the station, which may differ from the DOE rate."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I report a price or send a message?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Tap any gas station on the map or in the price list, then tap Update Price on the station card. Fill in the price you paid and hit Submit. No account needed. For concerns, corrections, or anything else, use the Contact form at the bottom of the page. We read every message."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet CSS — lazy-loaded so it doesn't block first paint -->
+  <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /></noscript>
+
+  <!-- Custom CSS — preload hint so download starts immediately -->
+  <link rel="preload" href="css/styles.css?v=20260329d" as="style" />
+  <link rel="stylesheet" href="css/styles.css?v=20260329d" />
+</head>
+<body>
+
+  <!-- --- Navbar ------------------------------------------------ -->
+  <nav class="navbar" id="navbar">
+    <div class="container navbar-inner">
+      <a href="#" class="logo">
+        <img src="/logo/logo-main.png"  alt="GasWatch PH" class="logo-img logo-light" />
+        <img src="/logo/logo-white.png" alt="GasWatch PH" class="logo-img logo-dark" />
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="#prices-section">Prices</a>
+        <a href="#map-section">Map</a>
+        <a href="#gasul-section">Gasul / LPG</a>
+      </div>
+      <div class="nav-updated">
+        <span class="update-dot"></span>
+        Prices updated <span id="navDate"></span>
+      </div>
+      <div class="nav-right-actions">
+        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
+          <svg class="icon-moon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun"  width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- --- Advisory Ticker ------------------------------------ -->
+  <div class="advisory-ticker" id="advisoryTicker" onclick="openAdvisoryPopup()" role="button" tabindex="0" style="cursor:pointer">
+    <div class="container advisory-ticker-inner">
+      <span class="advisory-ticker-badge" id="tickerBadge"></span>
+      <span class="advisory-ticker-text" id="tickerText">Loading...</span>
+      <svg class="advisory-ticker-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>
+
+  <!-- --- Advisory Popup (What's New) ----------------------- -->
+  <div class="advisory-popup-overlay" id="advisoryOverlay" onclick="closeAdvisoryPopup()"></div>
+  <div class="advisory-popup" id="advisoryPopup">
+    <div style="padding:12px 20px 0;flex-shrink:0;">
+      <div class="fab-handle"></div>
+      <div class="advisory-popup-header">
+        <h3 class="advisory-popup-title">What's New</h3>
+        <button class="advisory-popup-close" onclick="closeAdvisoryPopup()" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="advisory-popup-scroll" id="advisoryPopupBody">
+      <!-- Cards rendered by JS -->
+    </div>
+  </div>
+
+  <!-- --- Hero Section ------------------------------------------ -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-top-row">
+      <div class="hero-content">
+        <p class="hero-tag">Fuel Price Tracker</p>
+        <h1 class="hero-title">
+          Track Fuel Prices<br />Across Metro Manila
+        </h1>
+        <p class="hero-desc">
+          Compare prices from Shell, Petron, Caltex, and 8 more brands.
+          Prices from DOE advisories & community reports.
+        </p>
+        <span class="hero-highlight">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          No app download needed. Works right in your browser
+        </span>
+        <button class="btn btn-nearest" id="nearestBtn" onclick="findNearestCheapest()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+          Find Cheapest Near Me
+        </button>
+        <div class="hero-actions">
+          <button class="btn btn-secondary" onclick="openCalcSheet()">Calculate Cost</button>
+          <a href="#map-section" class="btn btn-secondary" onclick="setTimeout(()=>{ if(window._map) window._map.setView([14.58,121.02],12); },300)">View Map</a>
+        </div>
+
+        <!-- Nearest Station Result -->
+        <div class="nearest-result" id="nearestResult" style="display:none;">
+          <div id="nearestCards"></div>
+        </div>
+      </div>
+
+      <!-- Hero image — desktop only, right column -->
+      <div class="hero-image-wrap" aria-hidden="true">
+        <img src="images/hero-image.webp" alt="Gas station fuel pump" class="hero-img" loading="eager" width="480" height="420" />
+      </div>
+      </div><!-- end hero-top-row -->
+
+      <div class="hero-stats">
+        <div class="stat-card">
+          <span class="stat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22V8l9-6 9 6v14"/><path d="M9 22V12h6v10"/></svg></span>
+          <div class="stat-content">
+            <span class="stat-label">Avg. Diesel</span>
+            <span class="stat-value skeleton-block" id="statDiesel"></span>
+            <span class="stat-unit">PHP / liter</span>
+            <span class="stat-change" id="statDieselChg"></span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v18"/><path d="M6 3h6a6 6 0 0 1 0 12H6"/><line x1="3" y1="8" x2="15" y2="8"/><line x1="3" y1="11" x2="15" y2="11"/></svg></span>
+          <div class="stat-content">
+            <span class="stat-label">Avg. Unleaded 91</span>
+            <span class="stat-value skeleton-block" id="statUnleaded"></span>
+            <span class="stat-unit">PHP / liter</span>
+            <span class="stat-change" id="statUnleadedChg"></span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+          <div class="stat-content">
+            <span class="stat-label">Stations</span>
+            <span class="stat-value skeleton-block" id="statStations"></span>
+            <span class="stat-unit">tracked</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <span class="stat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
+          <div class="stat-content">
+            <span class="stat-label">Areas</span>
+            <span class="stat-value skeleton-block" id="statAreas"></span>
+            <span class="stat-unit">cities</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- Fuel Update Bar ---------------------------------------- -->
+  <div class="update-bar">
+    <div class="container update-bar-inner">
+      <div class="update-bar-left">
+        <span class="update-bar-dot"></span>
+        <span class="update-bar-week">Week of <span id="updateWeek"></span></span>
+        <span class="update-bar-sep"></span>
+        <span class="change-tag change-up">Diesel +&#8369;15–18/L</span>
+        <span class="change-tag change-up">Gasoline +&#8369;8–12/L</span>
+        <span class="change-tag change-up">Kerosene +&#8369;12–22/L</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- --- Browse by City Strip --------------------------------- -->
+  <div class="city-strip">
+    <div class="container city-strip-inner">
+      <span class="city-strip-label">Browse by City</span>
+      <div class="city-strip-scroll" id="cityStripScroll">
+        <a href="quezon-city" class="city-strip-link">Quezon City</a>
+        <a href="pasig" class="city-strip-link">Pasig</a>
+        <a href="manila" class="city-strip-link">Manila</a>
+        <a href="caloocan" class="city-strip-link">Caloocan</a>
+        <a href="makati" class="city-strip-link">Makati</a>
+        <a href="paranaque" class="city-strip-link">Parañaque</a>
+        <a href="las-pinas" class="city-strip-link">Las Piñas</a>
+        <a href="valenzuela" class="city-strip-link">Valenzuela</a>
+        <a href="marikina" class="city-strip-link">Marikina</a>
+        <a href="san-juan" class="city-strip-link">San Juan</a>
+        <a href="mandaluyong" class="city-strip-link">Mandaluyong</a>
+        <a href="muntinlupa" class="city-strip-link">Muntinlupa</a>
+        <a href="malabon" class="city-strip-link">Malabon</a>
+        <a href="pasay" class="city-strip-link">Pasay</a>
+        <a href="taguig" class="city-strip-link">Taguig</a>
+        <a href="navotas" class="city-strip-link">Navotas</a>
+        <a href="pateros" class="city-strip-link">Pateros</a>
+      </div>
+      <div class="city-strip-fade"></div>
+      <div class="city-strip-arrow" onclick="document.getElementById('cityStripScroll').scrollBy({left:200,behavior:'smooth'})">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- --- Price Table Section ----------------------------------- -->
+  <section class="section section-alt" id="prices-section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Price Comparison</h2>
+        <p class="section-desc">All prices in PHP per liter. Sort by any column. Click a row for details.</p>
+      </div>
+
+      <!-- Brand Summary -->
+      <div class="brand-summary-wrap">
+        <div class="brand-summary-label">Brand Overview <span style="font-weight:400;font-size:0.78em;opacity:0.6;margin-left:6px;">avg. price per brand</span></div>
+        <div class="table-scroll-wrap">
+          <div class="table-wrapper" id="brandTableScroller">
+            <table class="price-table brand-summary-table">
+              <thead>
+                <tr>
+                  <th>Brand</th>
+                  <th class="stations-col">Stations</th>
+                  <th class="price-col">Diesel</th>
+                  <th class="price-col">Prem Diesel</th>
+                  <th class="price-col">Unleaded 91</th>
+                  <th class="price-col">E-Gas</th>
+                  <th class="price-col">Prem 95</th>
+                  <th class="price-col">Prem 97</th>
+                  <th class="price-col">Kerosene</th>
+                </tr>
+              </thead>
+              <tbody id="brandSummaryBody">
+                <tr class="skeleton-row"><td><span class="skeleton-block" style="width:72px"></span></td><td><span class="skeleton-block" style="width:24px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td></tr>
+                <tr class="skeleton-row"><td><span class="skeleton-block" style="width:56px"></span></td><td><span class="skeleton-block" style="width:24px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td></tr>
+                <tr class="skeleton-row"><td><span class="skeleton-block" style="width:88px"></span></td><td><span class="skeleton-block" style="width:24px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td></tr>
+                <tr class="skeleton-row"><td><span class="skeleton-block" style="width:64px"></span></td><td><span class="skeleton-block" style="width:24px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td></tr>
+                <tr class="skeleton-row"><td><span class="skeleton-block" style="width:80px"></span></td><td><span class="skeleton-block" style="width:24px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td><td><span class="skeleton-block" style="width:42px"></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="swipe-hint" id="swipeHint">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            Swipe for more
+          </div>
+        </div>
+        <div id="brandShowMore" style="display:none; text-align:center; padding: 4px 0 0;">
+          <button id="brandShowMoreBtn" onclick="expandBrandTable()">See all <span id="brandShowMoreCount"></span> brands ?</button>
+        </div>
+        <div id="brandShowLess" style="display:none; text-align:center; padding: 4px 0 0;">
+          <button id="brandShowLessBtn" onclick="collapseBrandTable()">? Show less</button>
+        </div>
+      </div>
+
+      <!-- Community Reporting Callout -->
+      <div class="community-callout" id="communityCallout">
+        <div class="community-callout-left">
+          <span class="community-callout-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </span>
+          <div class="community-callout-text">
+            <strong>Help fellow drivers — report the price you see at the pump!</strong>
+            Tap any station row or map pin and hit <em>Update</em>. Anonymous &amp; free. The more reports, the more accurate the data.
+          </div>
+        </div>
+        <button class="community-callout-dismiss" onclick="this.closest('.community-callout').remove()" aria-label="Dismiss">&#10005;</button>
+      </div>
+
+      <!-- Table Filters -->
+      <div class="table-controls">
+        <div class="search-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="searchInput" placeholder="Search by station, brand, or area..." />
+        </div>
+        <div class="table-filter-chips">
+          <select id="areaFilter" class="select-filter">
+            <option value="all">All Areas</option>
+          </select>
+          <select id="tableFuelFilter" class="select-filter">
+            <option value="all">Fuel Type</option>
+            <option value="diesel">Diesel</option>
+            <option value="premiumDiesel">Prem. Diesel</option>
+            <option value="unleaded">Unleaded 91</option>
+            <option value="egasoline">E-Gasoline</option>
+            <option value="premium95">Premium 95</option>
+            <option value="premium97">Premium 97</option>
+            <option value="kerosene">Kerosene</option>
+          </select>
+          <select id="sortFilter" class="select-filter">
+            <option value="price-asc">Low ? High</option>
+            <option value="price-desc">High ? Low</option>
+            <option value="brand">Brand A–Z</option>
+            <option value="area">Area A–Z</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Mobile: Fuel type chip filter (hidden on desktop) -->
+      <div class="mobile-chip-row" id="mobileFuelChips"></div>
+
+      <!-- Price Table (desktop) -->
+      <div class="table-wrapper" id="priceTableWrap">
+        <table class="price-table" id="priceTable">
+          <thead>
+            <tr>
+              <th>Brand</th>
+              <th>Station</th>
+              <th class="price-col" data-fuel="diesel">Diesel</th>
+              <th class="price-col" data-fuel="premiumDiesel">Prem Diesel</th>
+              <th class="price-col" data-fuel="unleaded">Unleaded 91</th>
+              <th class="price-col" data-fuel="egasoline">E-Gas</th>
+              <th class="price-col" data-fuel="premium95">Prem 95</th>
+              <th class="price-col" data-fuel="premium97">Prem 97</th>
+              <th class="price-col" data-fuel="kerosene">Kerosene</th>
+              <th>Area</th>
+            </tr>
+          </thead>
+          <tbody id="priceTableBody">
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:56px"></span></td><td><span class="skeleton-block" style="width:120px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:64px"></span></td></tr>
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:72px"></span></td><td><span class="skeleton-block" style="width:100px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:72px"></span></td></tr>
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:48px"></span></td><td><span class="skeleton-block" style="width:140px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:56px"></span></td></tr>
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:64px"></span></td><td><span class="skeleton-block" style="width:110px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:80px"></span></td></tr>
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:80px"></span></td><td><span class="skeleton-block" style="width:90px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:68px"></span></td></tr>
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:56px"></span></td><td><span class="skeleton-block" style="width:130px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:72px"></span></td></tr>
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:88px"></span></td><td><span class="skeleton-block" style="width:105px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:60px"></span></td></tr>
+            <tr class="skeleton-row"><td><span class="skeleton-block" style="width:64px"></span></td><td><span class="skeleton-block" style="width:115px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:40px"></span></td><td><span class="skeleton-block" style="width:76px"></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="tableShowMore" style="display:none; text-align:center; padding: 12px 0 4px;">
+        <button id="showMoreBtn" onclick="expandTable()">See all <span id="showMoreCount"></span> stations ?</button>
+      </div>
+      <div id="tableShowLess" style="display:none; text-align:center; padding: 12px 0 4px;">
+        <button id="showLessBtn" onclick="collapseTable()">? Show less</button>
+      </div>
+
+      <!-- Mobile: Compact price cards (hidden on desktop) -->
+      <div id="mobileCards"></div>
+      <div id="mobileShowMore" style="display:none; text-align:center; padding: 12px 0 4px;">
+        <button id="mobileShowMoreBtn" onclick="expandMobileCards()">See all <span id="mobileShowMoreCount"></span> stations ?</button>
+      </div>
+      <div id="mobileShowLess" style="display:none; text-align:center; padding: 12px 0 4px;">
+        <button id="mobileShowLessBtn" onclick="collapseMobileCards()">? Show less</button>
+      </div>
+      <p class="table-note">Prices based on DOE weekly retail price advisory. Actual pump prices may vary.</p>
+    </div>
+  </section>
+
+  <!-- --- Map Section ------------------------------------------- -->
+  <section class="section" id="map-section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-title-row">
+          <h2 class="section-title">Fuel Price Map</h2>
+          <span id="livePriceIndicator" class="live-indicator" style="display:none;"></span>
+        </div>
+        <p class="section-desc">Explore stations across Metro Manila. Pins are color-coded by price level.</p>
+      </div>
+
+      <!-- Price Level Legend -->
+      <div class="price-legend-bar">
+        <div class="legend-card legend-card-low">
+          <span class="legend-card-dot"></span>
+          <div class="legend-card-info">
+            <span class="legend-card-label">Best Deal</span>
+            <span class="legend-card-hint">Lowest prices</span>
+          </div>
+        </div>
+        <div class="legend-card legend-card-mid">
+          <span class="legend-card-dot"></span>
+          <div class="legend-card-info">
+            <span class="legend-card-label">Average</span>
+            <span class="legend-card-hint">Typical price</span>
+          </div>
+        </div>
+        <div class="legend-card legend-card-high">
+          <span class="legend-card-dot"></span>
+          <div class="legend-card-info">
+            <span class="legend-card-label">Expensive</span>
+            <span class="legend-card-hint">Higher than usual</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map Filters -->
+      <div class="map-controls">
+        <div class="filter-group">
+          <label class="filter-label">Fuel Type</label>
+          <div class="chip-group" id="fuelTypeFilter">
+            <button class="chip active" data-fuel="diesel">Diesel</button>
+            <button class="chip" data-fuel="premiumDiesel">Prem. Diesel</button>
+            <button class="chip" data-fuel="unleaded">Unleaded 91</button>
+            <button class="chip" data-fuel="egasoline">E-Gasoline</button>
+            <button class="chip" data-fuel="premium95">Premium 95</button>
+            <button class="chip" data-fuel="premium97">Premium 97</button>
+            <button class="chip" data-fuel="kerosene">Kerosene</button>
+          </div>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Brand</label>
+          <div class="chip-group" id="brandFilter">
+            <button class="chip active" data-brand="all">All Brands</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map -->
+      <div class="map-wrapper">
+        <div id="map"></div>
+        <button class="map-exit-btn" id="mapExitBtn" onclick="toggleMapFullscreen()" title="Exit fullscreen">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="map-overlay-controls">
+          <select class="map-area-select" id="mapAreaSelect" title="Jump to city/area">
+            <option value="">?? Jump to area</option>
+          </select>
+          <button class="fullscreen-map-btn" id="fullscreenMapBtn" onclick="toggleMapFullscreen()" title="Fullscreen map">
+            <svg id="fullscreenIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          </button>
+          <button class="locate-me-btn" id="locateMeMapBtn" title="Go to my location">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v4M12 19v4M1 12h4M19 12h4"/>
+              <circle cx="12" cy="12" r="9" stroke-width="1.2" stroke-dasharray="0"/>
+            </svg>
+            <span>Find my location</span>
+          </button>
+        </div>
+      </div>
+      <p class="map-tap-hint">Tap any colored pin to view prices or<br>report what you see at the pump.</p>
+    </div>
+  </section>
+
+  <!-- --- Gasul / LPG Section ----------------------------------- -->
+  <section class="section" id="gasul-section">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Gasul / LPG Prices</h2>
+        <p class="section-desc">Compare cooking gas prices across major brands. Prices in PHP per tank.</p>
+      </div>
+
+      <!-- Tank Size Tabs -->
+      <div class="gasul-tabs">
+        <button class="gasul-tab active" data-size="11kg">11 kg</button>
+        <button class="gasul-tab" data-size="22kg">22 kg</button>
+        <button class="gasul-tab" data-size="50kg">50 kg</button>
+      </div>
+
+      <!-- Gasul Cards -->
+      <div class="gasul-grid" id="gasulGrid">
+        <div class="gasul-card skeleton-card"><span class="skeleton-block" style="height:16px"></span><span class="skeleton-block" style="height:28px;margin-top:4px"></span><span class="skeleton-block" style="height:12px;width:60%;margin-top:4px"></span></div>
+        <div class="gasul-card skeleton-card"><span class="skeleton-block" style="height:16px"></span><span class="skeleton-block" style="height:28px;margin-top:4px"></span><span class="skeleton-block" style="height:12px;width:60%;margin-top:4px"></span></div>
+        <div class="gasul-card skeleton-card"><span class="skeleton-block" style="height:16px"></span><span class="skeleton-block" style="height:28px;margin-top:4px"></span><span class="skeleton-block" style="height:12px;width:60%;margin-top:4px"></span></div>
+        <div class="gasul-card skeleton-card"><span class="skeleton-block" style="height:16px"></span><span class="skeleton-block" style="height:28px;margin-top:4px"></span><span class="skeleton-block" style="height:12px;width:60%;margin-top:4px"></span></div>
+        <div class="gasul-card skeleton-card"><span class="skeleton-block" style="height:16px"></span><span class="skeleton-block" style="height:28px;margin-top:4px"></span><span class="skeleton-block" style="height:12px;width:60%;margin-top:4px"></span></div>
+        <div class="gasul-card skeleton-card"><span class="skeleton-block" style="height:16px"></span><span class="skeleton-block" style="height:28px;margin-top:4px"></span><span class="skeleton-block" style="height:12px;width:60%;margin-top:4px"></span></div>
+      </div>
+
+      <p class="table-note">*Prices are estimates based on DOE-reported hike amounts (Jan–Mar 2026). Actual retail SRP varies per distributor and location. Verify with your local dealer.</p>
+    </div>
+  </section>
+
+  <!-- --- How It Works ------------------------------------------ -->
+  <section class="section section-alt">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">How We Track Prices</h2>
+        <p class="section-desc">Our data comes directly from the DOE weekly price monitoring, made sharper by live updates from fellow Filipinos.</p>
+      </div>
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-num">01</div>
+          <h3>DOE Publishes</h3>
+          <p>The Department of Energy releases weekly retail petroleum price advisories every Tuesday.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">02</div>
+          <h3>We Update</h3>
+          <p>Our team updates the database with the latest prices from the DOE advisory within 24 hours.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">03</div>
+          <h3>Filipinos Report</h3>
+          <p>Fellow drivers submit real pump prices from their area, keeping data accurate between DOE updates.</p>
+        </div>
+        <div class="step-card">
+          <div class="step-num">04</div>
+          <h3>You Compare</h3>
+          <p>View the map, compare prices by brand and area, and find the cheapest station near you.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- Help Us / Contact Section ---------------------------- -->
+  <section class="section" id="help-section">
+    <div class="container">
+      <div class="help-block">
+        <div class="help-content">
+          <span class="help-badge">Community Powered</span>
+          <h2 class="help-title">Help Us Track Prices</h2>
+          <p class="help-desc">
+            GasWatch PH is built on live updates from fellow Filipinos like you. See a wrong price at the pump? Know a station we haven't added yet? Your report goes straight into the database and helps every driver in your area save money.
+          </p>
+          <div class="help-features">
+            <div class="help-feature">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              <span>Report prices at your local station</span>
+            </div>
+            <div class="help-feature">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span>Flag incorrect or outdated prices</span>
+            </div>
+            <div class="help-feature">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>Suggest missing gas stations</span>
+            </div>
+          </div>
+        </div>
+        <div class="help-form-wrapper">
+          <form class="help-form" id="helpForm">
+            <div class="form-group">
+              <label for="helpEmail">Your Email</label>
+              <input type="email" id="helpEmail" name="email" placeholder="you@email.com" required />
+            </div>
+            <div class="form-group">
+              <label for="helpArea">Your Area</label>
+              <select id="helpArea" name="area">
+                <option value="">Select your city...</option>
+                <option value="Makati">Makati</option>
+                <option value="Quezon City">Quezon City</option>
+                <option value="Manila">Manila</option>
+                <option value="Taguig">Taguig</option>
+                <option value="Pasig">Pasig</option>
+                <option value="Mandaluyong">Mandaluyong</option>
+                <option value="Parañaque">Parañaque</option>
+                <option value="Pasay">Pasay</option>
+                <option value="Marikina">Marikina</option>
+                <option value="Caloocan">Caloocan</option>
+                <option value="Muntinlupa">Muntinlupa</option>
+                <option value="Las Piñas">Las Piñas</option>
+                <option value="Valenzuela">Valenzuela</option>
+                <option value="San Juan">San Juan</option>
+                <option value="Malabon">Malabon</option>
+                <option value="Navotas">Navotas</option>
+                <option value="Pateros">Pateros</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="helpMessage">Message</label>
+              <textarea id="helpMessage" name="message" rows="3" placeholder="e.g. Diesel at Shell EDSA-Magallanes is ?62.50 today..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-form">Send</button>
+            <p class="form-note">We'll never spam you. Your info helps keep prices accurate.</p>
+          </form>
+          <div class="form-success" id="formSuccess" style="display:none;">
+            <div class="success-icon">&#10003;</div>
+            <h3>Thank you!</h3>
+            <p>We'll be in touch. Every report helps fellow Filipino drivers save money.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- Mission Banner --------------------------------------- -->
+  <section class="mission-strip">
+    <div class="container mission-strip-inner">
+      <span class="mission-flag">&#127477;&#127469;</span>
+      <div class="mission-strip-text">
+        <h2 class="mission-strip-title">Para Sa Mga Kababayan Natin</h2>
+        <p class="mission-strip-desc">
+          With fuel prices rising worldwide, every peso saved at the pump matters.
+          <strong>GasWatch PH was built to help ordinary Filipinos make smarter choices.</strong>
+          No one should have to guess where to find the best price.
+          This is our small way of looking out for each other.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- About Section ---------------------------------------- -->
+  <section class="about-section">
+    <div class="container">
+      <div class="about-inner">
+        <div class="about-text-col">
+          <h2 class="section-title">About GasWatch PH</h2>
+          <p class="about-text">GasWatch PH is a free fuel price tracker built for Filipino drivers. We track gas stations across all 17 cities of Metro Manila, combining DOE official advisories with real prices reported by the community. No app needed — just open the site and find the cheapest fuel near you.</p>
+        </div>
+        <div class="about-stats-col">
+          <div class="about-stat-card">
+            <svg class="about-stat-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v15"/><path d="M3 13h12"/><path d="M7 22v-5h4v5"/><path d="M15 9h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><path d="M17 15v4"/></svg>
+            <div class="about-stat-number">1,043</div>
+            <div class="about-stat-label">Verified gas stations across Metro Manila</div>
+          </div>
+          <div class="about-stat-card">
+            <svg class="about-stat-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            <div class="about-stat-number">17</div>
+            <div class="about-stat-label">Cities covered in Metro Manila</div>
+          </div>
+          <div class="about-stat-card">
+            <svg class="about-stat-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+            <div class="about-stat-number">Free</div>
+            <div class="about-stat-label">No app, no account, no hassle</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- FAQ --------------------------------------------------- -->
+  <section class="faq-section" id="faq">
+    <div class="container">
+      <h2 class="section-title">Frequently Asked Questions</h2>
+      <div class="faq-list">
+
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            Where do GasWatch PH prices come from?
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-answer">Prices come from the <strong>DOE (Department of Energy) weekly price advisory</strong> released every Tuesday, and <strong>community-reported pump prices</strong> submitted by drivers on the site.</div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            How often are prices updated?
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-answer">DOE official prices are updated every Tuesday. Community pump prices are updated in real time — anyone can submit the price they see at a station near them.</div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            What does "community price" mean?
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-answer">A community price is the price reported by someone who visited that station. These are often more accurate than official advisories because prices can vary per station.</div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            Are the prices official?
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-answer">DOE prices are official government advisories. Community prices are real pump prices reported by drivers. They reflect what you will actually pay at the station, which may differ from the DOE rate.</div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            How do I report a price or send a message?
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-answer">Tap any gas station on the map or in the price list, then tap <strong>"Update Price"</strong> on the station card. Fill in the price you paid and hit Submit. No account needed. For concerns, corrections, or anything else, use the <strong>Contact form</strong> at the bottom of the page. We read every message.</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- --- Share Section ---------------------------------------- -->
+  <section class="share-section">
+    <div class="container share-inner">
+      <div class="share-text">
+        <h3 class="share-title">Know someone who drives?</h3>
+        <p class="share-desc">Share GasWatch PH and help fellow Filipinos save on fuel.</p>
+      </div>
+      <div class="share-actions">
+        <button class="btn btn-share btn-share-native" id="shareNativeBtn" onclick="shareNative()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          Share
+        </button>
+        <button class="btn btn-share btn-share-copy" onclick="copyLink()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy Link
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- City Directory --------------------------------------- -->
+  <section class="city-dir-section">
+    <div class="container">
+      <div class="city-dir-header">
+        <h2 class="city-dir-title">Gas Prices by City</h2>
+        <p class="city-dir-desc">Metro Manila · 17 cities · 1,043 stations tracked</p>
+      </div>
+      <div class="city-dir-grid">
+        <a href="quezon-city" class="city-dir-item">
+          <span class="city-dir-name">Quezon City</span>
+          <span class="city-dir-count">239 stations</span>
+        </a>
+        <a href="pasig" class="city-dir-item">
+          <span class="city-dir-name">Pasig</span>
+          <span class="city-dir-count">149 stations</span>
+        </a>
+        <a href="manila" class="city-dir-item">
+          <span class="city-dir-name">Manila</span>
+          <span class="city-dir-count">108 stations</span>
+        </a>
+        <a href="caloocan" class="city-dir-item">
+          <span class="city-dir-name">Caloocan</span>
+          <span class="city-dir-count">92 stations</span>
+        </a>
+        <a href="makati" class="city-dir-item">
+          <span class="city-dir-name">Makati</span>
+          <span class="city-dir-count">79 stations</span>
+        </a>
+        <a href="paranaque" class="city-dir-item">
+          <span class="city-dir-name">Parañaque</span>
+          <span class="city-dir-count">67 stations</span>
+        </a>
+        <a href="las-pinas" class="city-dir-item">
+          <span class="city-dir-name">Las Piñas</span>
+          <span class="city-dir-count">62 stations</span>
+        </a>
+        <a href="valenzuela" class="city-dir-item">
+          <span class="city-dir-name">Valenzuela</span>
+          <span class="city-dir-count">40 stations</span>
+        </a>
+        <a href="marikina" class="city-dir-item">
+          <span class="city-dir-name">Marikina</span>
+          <span class="city-dir-count">36 stations</span>
+        </a>
+        <a href="san-juan" class="city-dir-item">
+          <span class="city-dir-name">San Juan</span>
+          <span class="city-dir-count">32 stations</span>
+        </a>
+        <a href="mandaluyong" class="city-dir-item">
+          <span class="city-dir-name">Mandaluyong</span>
+          <span class="city-dir-count">29 stations</span>
+        </a>
+        <a href="muntinlupa" class="city-dir-item">
+          <span class="city-dir-name">Muntinlupa</span>
+          <span class="city-dir-count">28 stations</span>
+        </a>
+        <a href="malabon" class="city-dir-item">
+          <span class="city-dir-name">Malabon</span>
+          <span class="city-dir-count">24 stations</span>
+        </a>
+        <a href="pasay" class="city-dir-item">
+          <span class="city-dir-name">Pasay</span>
+          <span class="city-dir-count">23 stations</span>
+        </a>
+        <a href="taguig" class="city-dir-item">
+          <span class="city-dir-name">Taguig</span>
+          <span class="city-dir-count">21 stations</span>
+        </a>
+        <a href="navotas" class="city-dir-item">
+          <span class="city-dir-name">Navotas</span>
+          <span class="city-dir-count">9 stations</span>
+        </a>
+        <a href="pateros" class="city-dir-item">
+          <span class="city-dir-name">Pateros</span>
+          <span class="city-dir-count">5 stations</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- Footer ------------------------------------------------ -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="logo">
+            <img src="/logo/logo-white.png" alt="GasWatch PH" class="logo-img footer-logo-img" />
+          </span>
+          <p class="footer-tagline">Helping Filipino drivers find the best fuel prices.</p>
+        </div>
+        <div class="footer-links">
+          <a href="#map-section">Map</a>
+          <a href="#prices-section">Prices</a>
+          <a href="#gasul-section">Gasul</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>Data sourced from DOE Philippines. Prices are indicative and may vary at the pump.</p>
+        <p>GasWatch PH &copy; 2026</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Station Detail Sheet -->
+  <div class="station-sheet-overlay" id="stationSheetOverlay" onclick="closeStationSheet()"></div>
+  <div class="station-sheet" id="stationSheet">
+    <div class="sheet-scroll-body">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-brand-row">
+          <span class="sheet-brand-dot" id="sheetBrandDot"></span>
+          <div>
+            <div class="sheet-brand-name" id="sheetBrandName"></div>
+            <div class="sheet-station-name" id="sheetStationName"></div>
+            <div class="sheet-area" id="sheetArea"></div>
+            <div id="sheetStationId" style="font-size:10px;color:#bbb;margin-top:2px"></div>
+          </div>
+        </div>
+        <button class="sheet-close" onclick="closeStationSheet()" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="sheet-nav-btns">
+        <a id="sheetMapsBtn" href="#" target="_blank" rel="noopener" class="sheet-nav-btn sheet-nav-maps">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+          Google Maps
+        </a>
+        <a id="sheetWazeBtn" href="#" target="_blank" rel="noopener" class="sheet-nav-btn sheet-nav-waze">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+          Waze
+        </a>
+      </div>
+      <div class="sheet-prices-label">Current Prices</div>
+      <div class="sheet-prices" id="sheetPrices">
+        <div class="sheet-loading">Loading prices…</div>
+      </div>
+    </div>
+
+    <!-- OOS Confirm Form (hidden by default) -->
+    <div class="sheet-oos-form" id="sheetOosForm" style="display:none">
+      <div class="report-form-header">
+        <span id="oosFormFuelLabel"></span>
+        <button class="report-form-cancel" onclick="closeOosForm()">Cancel</button>
+      </div>
+      <div class="report-form-body">
+        <p style="font-size:14px;color:#444;line-height:1.5">Is <strong id="oosFormFuelName"></strong> really unavailable at this station right now?</p>
+        <div style="background:#f7f7f7;border-radius:8px;padding:10px 12px;margin-top:12px;font-size:12px;color:#999;line-height:1.6">
+          ? This flag auto-clears after <strong>24 hours</strong>. If still out of stock, another driver can re-flag it.
+        </div>
+      </div>
+      <div class="report-form-footer" style="display:flex;gap:8px;">
+        <button onclick="closeOosForm()" style="flex:1;background:#f0f0f0;color:#666;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;">Cancel</button>
+        <button id="oosConfirmBtn" onclick="confirmOosFlag()" style="flex:2;background:#dc2626;color:#fff;border:none;border-radius:12px;padding:13px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;">Yes, No Stock</button>
+      </div>
+    </div>
+
+    <!-- Report Price Form (hidden by default, sits outside scroll body) -->
+    <div class="sheet-report-form" id="sheetReportForm" style="display:none">
+      <div class="report-form-header">
+        <span id="reportFuelLabel"></span>
+        <button class="report-form-cancel" onclick="closeReportForm()">Cancel</button>
+      </div>
+      <div class="report-form-body">
+        <label class="report-label">What's the actual pump price?</label>
+        <div class="report-price-input-wrap">
+          <span class="report-peso">?</span>
+          <input type="number" id="reportPriceInput" class="report-price-input" placeholder="0.00" step="0.01" min="1" max="200" />
+          <span class="report-per-liter">/L</span>
+        </div>
+        <label class="report-label">Note <span class="report-optional">(optional)</span></label>
+        <input type="text" id="reportNoteInput" class="report-note-input" placeholder="e.g. cash price, with loyalty card…" maxlength="80" />
+      </div>
+      <div class="report-form-footer">
+        <button class="btn btn-report-submit" id="reportSubmitBtn" onclick="submitReport()">
+          Submit Price
+        </button>
+        <p class="report-disclaimer">Prices are anonymous and community-verified.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Firebase (compat SDK for plain HTML sites) -->
+  <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script defer src="js/data.js?v=20260331d"></script>
+  <script defer src="js/station-overrides.js?v=20260331b"></script>
+  <script defer src="js/firebase-reports.js?v=20260327a"></script>
+  <script defer src="js/app.js?v=20260329b"></script>
+  <!-- Vercel Analytics -->
+  <script defer src="/_vercel/insights/script.js"></script>
+  <!-- Vercel Speed Insights disabled — exceeded free data point limit -->
+
+  <!-- City strip swipe detection -->
+  <script>
+  (function() {
+    var inner = document.querySelector('.city-strip-inner');
+    var scroll = document.getElementById('cityStripScroll');
+    if (!inner || !scroll) return;
+    function checkScroll() {
+      var atEnd = scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 8;
+      if (atEnd) inner.classList.add('scrolled-end');
+      else inner.classList.remove('scrolled-end');
+    }
+    scroll.addEventListener('scroll', checkScroll, { passive: true });
+    checkScroll();
+  })();
+  </script>
+
+  <!-- Back to top button -->
+  <button id="backToTopBtn" onclick="handleBackToTop()" aria-label="Back to top">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+  </button>
+  <!-- Floating collapse button — shown only when table is fully expanded -->
+  <button id="floatingCollapseBtn" onclick="handleBackToTop()" style="display:none">? Show less</button>
+
+  <!-- FAB: Hero pill — mobile only, visible before scroll -->
+  <button class="fab-hero-pill" id="fabHeroPill" onclick="openFabModal()" aria-label="Report a price">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    Report a Price
+  </button>
+
+  <!-- Speed Dial FAB — appears on scroll, replaces hero pills -->
+  <div class="fab-speed-dial" id="fabSpeedDial">
+    <div class="fab-sd-action fab-sd-calc" id="fabSdCalc" onclick="openCalcSheet()">
+      <span class="fab-sd-label">Calculate Cost</span>
+      <button class="fab-sd-btn fab-sd-btn-calc" aria-label="Calculate fuel cost">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10.01"/><line x1="12" y1="10" x2="12" y2="10.01"/><line x1="16" y1="10" x2="16" y2="10.01"/><line x1="8" y1="14" x2="8" y2="14.01"/><line x1="12" y1="14" x2="12" y2="14.01"/></svg>
+      </button>
+    </div>
+    <div class="fab-sd-action fab-sd-report" id="fabSdReport" onclick="openFabModal(); closeSpeedDial();">
+      <span class="fab-sd-label">Report a Price</span>
+      <button class="fab-sd-btn fab-sd-btn-report" aria-label="Report a price">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
+    </div>
+    <button class="fab-sd-main" id="fabSdMain" onclick="toggleSpeedDial()" aria-label="Quick actions">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    </button>
+  </div>
+  <div class="fab-sd-backdrop" id="fabSdBackdrop" onclick="closeSpeedDial()"></div>
+
+  <!-- FAB Modal Overlay -->
+  <div class="fab-overlay" id="fabOverlay" onclick="closeFabModal()"></div>
+
+  <!-- FAB Guided Modal -->
+  <div class="fab-modal" id="fabModal">
+    <!-- Handle + dots stay fixed at top, don't scroll -->
+    <div style="padding: 12px 20px 0; flex-shrink: 0;">
+      <div class="fab-handle"></div>
+      <div class="fab-dot-row" id="fabDotRow">
+        <div class="fab-dot active"></div>
+        <div class="fab-dot"></div>
+        <div class="fab-dot"></div>
+      </div>
+    </div>
+
+    <!-- Scrollable content -->
+    <div class="fab-modal-scroll">
+
+      <!-- Step 1: Search station -->
+      <div class="fab-step active" id="fabStep1">
+        <div class="fab-modal-title">Which station?</div>
+        <div class="fab-modal-sub">Type the name, brand, or city</div>
+        <button class="fab-locate-btn" id="fabLocateBtn" onclick="fabLocateMe()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="9" stroke-dasharray="2 4"/></svg>
+          Stations near me
+        </button>
+        <div class="fab-divider">or search</div>
+        <div class="fab-search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="fabSearchInput" class="fab-search-input" placeholder="e.g. Shell Katipunan…" oninput="fabSearch(this.value)" autocomplete="off" />
+        </div>
+        <div id="fabSearchResults"></div>
+      </div>
+
+      <!-- Step 2: Fuel type -->
+      <div class="fab-step" id="fabStep2">
+        <div class="fab-modal-title" id="fabFuelStationName"></div>
+        <div class="fab-modal-sub">Which fuel are you reporting?</div>
+        <div class="fab-fuel-grid" id="fabFuelOptions"></div>
+        <button class="fab-back-btn" onclick="fabGoBack(1)">? Back</button>
+      </div>
+
+      <!-- Step 3: Price input -->
+      <div class="fab-step" id="fabStep3">
+        <div class="fab-modal-title" id="fabPriceTitle"></div>
+        <div class="fab-modal-sub">What's the actual pump price?</div>
+        <div class="fab-price-wrap">
+          <span class="fab-peso">?</span>
+          <input type="number" id="fabPriceInput" class="fab-price-input" placeholder="0.00" step="0.01" inputmode="decimal" />
+          <span class="fab-per-liter">/L</span>
+        </div>
+        <input type="text" id="fabNoteInput" class="fab-note-input" placeholder="Note (optional) — e.g. cash price, loyalty card…" maxlength="80" />
+        <button class="fab-submit-btn" id="fabSubmitBtn" onclick="fabSubmit()">Submit Price</button>
+        <button class="fab-back-btn" onclick="fabGoBack(2)">? Back</button>
+      </div>
+
+      <!-- Step 4: Success -->
+      <div class="fab-step" id="fabStep4">
+        <div class="fab-success">
+          <div class="fab-success-icon">?</div>
+          <div class="fab-success-title">Price submitted!</div>
+          <div class="fab-success-sub" id="fabSuccessSub">Thank you for helping fellow Filipino drivers save money.</div>
+        </div>
+        <button class="fab-submit-btn" id="fabReportAnotherBtn" onclick="fabReportAnother()" style="margin-top:16px;">
+          Report another fuel at this station
+        </button>
+        <button class="fab-back-btn" onclick="closeFabModal()" style="margin-top:8px;">Done</button>
+      </div>
+
+    </div><!-- /fab-modal-scroll -->
+  </div>
+
+  <!-- Calculator Overlay -->
+  <div class="calc-overlay" id="calcOverlay" onclick="closeCalcSheet()"></div>
+
+  <!-- Calculator Bottom Sheet -->
+  <div class="calc-sheet" id="calcSheet">
+    <div class="calc-header">
+      <div class="calc-handle"></div>
+      <button class="calc-close" onclick="closeCalcSheet()" aria-label="Close calculator">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="calc-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F05A22" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10.01"/><line x1="12" y1="10" x2="12" y2="10.01"/><line x1="16" y1="10" x2="16" y2="10.01"/><line x1="8" y1="14" x2="8" y2="14.01"/><line x1="12" y1="14" x2="12" y2="14.01"/></svg>
+        Fuel Cost Calculator
+      </div>
+      <div class="calc-subtitle">How much will your fill-up cost?</div>
+    </div>
+    <div class="calc-body">
+      <div class="calc-section-label">Fuel Type</div>
+      <div class="calc-fuel-pills" id="calcFuelPills"></div>
+
+      <div class="calc-section-label">Brand</div>
+      <div class="calc-brand-select" id="calcBrandSelect" onclick="calcToggleBrandDropdown()">
+        <div class="calc-brand-left">
+          <div class="calc-brand-dot" id="calcBrandDot" style="background:#888"></div>
+          <span class="calc-brand-name" id="calcBrandName">Average (all brands)</span>
+        </div>
+        <div class="calc-brand-right">
+          <span class="calc-brand-price" id="calcBrandPrice">---</span>
+          <span class="calc-brand-arrow">&#9660;</span>
+        </div>
+      </div>
+      <div class="calc-brand-dropdown" id="calcBrandDropdown"></div>
+
+      <div class="calc-section-label">Liters to Fill</div>
+      <div class="calc-liters-wrap">
+        <span class="calc-liters-prefix">L</span>
+        <input type="number" class="calc-liters-input" id="calcLitersInput" placeholder="0" inputmode="decimal" min="0" max="999" step="any" oninput="calcOnLitersChange()" />
+        <span class="calc-liters-suffix">liters</span>
+      </div>
+      <div class="calc-presets">
+        <button class="calc-preset" onclick="calcSetPreset(10)">10L</button>
+        <button class="calc-preset" onclick="calcSetPreset(20)">20L</button>
+        <button class="calc-preset" onclick="calcSetPreset(30)">30L</button>
+        <button class="calc-preset" onclick="calcSetPreset(40)">Full (40L)</button>
+      </div>
+
+      <div class="calc-result" id="calcResult">
+        <div class="calc-result-label">Estimated Total</div>
+        <div class="calc-result-amount"><span class="calc-peso">&#8369;</span><span id="calcResultTotal">0</span></div>
+        <div class="calc-result-breakdown" id="calcResultBreakdown"></div>
+        <div class="calc-result-compare" id="calcResultCompare"></div>
+      </div>
+
+      <button class="calc-cta" onclick="closeCalcSheet(); document.getElementById('priceTable')?.scrollIntoView({behavior:'smooth'});">See Cheapest Station Near Me &#8594;</button>
+      <div class="calc-note" id="calcNote"></div>
+    </div>
+  </div>
+</body>
+</html>
+

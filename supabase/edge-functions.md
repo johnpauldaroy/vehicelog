@@ -30,3 +30,32 @@
 ## Suggested Provider
 - Resend for email delivery.
 - Supabase cron plus Edge Functions for scheduled jobs.
+
+## `sync-panay-fuel-prices`
+- Scheduled hourly job for Panay station pricing snapshots.
+- Uses a provider adapter flow:
+  - `fetchStationsAndPrices()`
+  - `normalizeToSnapshotRows()`
+  - `upsertSnapshots()`
+- Writes station-level snapshots to `fuel_price_snapshots` and run diagnostics to `fuel_price_sync_runs`.
+- If provider requirements are missing, it records a `skipped` run and keeps the last good snapshot.
+
+### Required runtime secrets for `sync-panay-fuel-prices`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `PANAY_FUEL_PROVIDER` (`gaswatch`, `metrofueltracker`, `mock`, or your private provider key)
+- `PANAY_FUEL_API_BASE_URL` (optional for `gaswatch`; defaults to `https://gaswatchph.com`)
+- `PANAY_FUEL_API_KEY` (required for private provider adapters; not used by `gaswatch` or `mock`)
+- `PANAY_FUEL_SYNC_TOKEN` (optional shared secret for manual/scheduled trigger auth)
+
+Notes:
+- `PANAY_FUEL_PROVIDER` is required. If unset, the function records a `skipped` run and does not mutate snapshots.
+- `mock` is for local/testing only and should not be used for production price displays.
+- `gaswatch` reads from public `data.js` + `station-overrides.js` and then filters to Panay municipalities.
+- `metrofueltracker` fetches real-time JSON data from `metrofueltracker.com/api/stations` using Panay region coordinates.
+- If a provider returns no Panay stations, the run is marked `skipped` to avoid overwriting with misleading data.
+
+### Suggested schedule
+- Hourly invocation via Supabase cron:
+  - `0 * * * *`
+- SQL helper script: `supabase/schedule_sync_panay_fuel_prices.sql`

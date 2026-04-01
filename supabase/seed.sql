@@ -43,11 +43,15 @@ insert into public.roles (id, name, description) values
   ('00000000-0000-0000-0000-000000000004', 'requester', 'Vehicle requester')
 on conflict (id) do nothing;
 
-insert into public.branches (id, code, name, address) values
-  ('10000000-0000-0000-0000-000000000001', 'MAIN', 'Main Office', 'Calamba, Laguna'),
-  ('10000000-0000-0000-0000-000000000002', 'NORTH', 'North Cluster', 'San Pablo, Laguna'),
-  ('10000000-0000-0000-0000-000000000003', 'SOUTH', 'South Cluster', 'Sta. Rosa, Laguna')
+insert into public.branches (id, code, name, address, service_region) values
+  ('10000000-0000-0000-0000-000000000001', 'MAIN', 'Main Office', 'Calamba, Laguna', 'panay'),
+  ('10000000-0000-0000-0000-000000000002', 'NORTH', 'North Cluster', 'San Pablo, Laguna', 'other'),
+  ('10000000-0000-0000-0000-000000000003', 'SOUTH', 'South Cluster', 'Sta. Rosa, Laguna', 'other')
 on conflict (id) do nothing;
+
+update public.branches
+set service_region = case when code = 'MAIN' then 'panay' else 'other' end
+where code in ('MAIN', 'NORTH', 'SOUTH');
 
 insert into public.vehicle_types (id, name, description) values
   ('20000000-0000-0000-0000-000000000001', 'Pickup', 'Utility pickup'),
@@ -220,6 +224,9 @@ insert into public.trip_logs (
     'Branch audit trip in progress'
   )
 on conflict (id) do nothing;
+
+-- Panay fuel rows are intentionally not seeded.
+-- They should come from a real provider sync (DOE/partner API) via the edge function.
 
 insert into public.maintenance_logs (
   id,

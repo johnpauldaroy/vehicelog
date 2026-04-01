@@ -214,6 +214,14 @@ export function createRequestForm() {
     fuelLiters: '0',
     estimatedKms: '0',
     fuelRemarks: '',
+    fuelProduct: 'diesel',
+    fuelQuotePricePerLiter: null,
+    fuelQuoteSource: '',
+    fuelQuoteObservedAt: '',
+    fuelQuoteLocation: '',
+    fuelQuoteProvince: '',
+    fuelQuoteMunicipality: '',
+    fuelAmountManuallyEdited: false,
   };
 }
 
