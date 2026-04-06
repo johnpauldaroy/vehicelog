@@ -29,12 +29,15 @@
 
 ## `notify-oil-change-reminders`
 - Scheduled job (hourly trigger, daily dedupe).
-- Scans `maintenance_logs` for oil-change items (`maintenance_type` contains `oil`) that are pending/in-progress and due within the configured lead window.
+- Scans `vehicles` with `oil_change_reminder_enabled = true`.
+- Sends reminders when a vehicle is due by:
+  - mileage (`odometer_current >= oil_change_last_odometer + oil_change_interval_km`)
+  - month interval (`today >= oil_change_last_changed_on + oil_change_interval_months`)
 - Creates in-app notifications for:
   - all admins
-  - branch approvers of the maintenance branch
+  - branch approvers of the vehicle branch
 - Uses daily dedupe via notification keys:
-  - `source_key = oil-change:<maintenance_log_id>`
+  - `source_key = oil-change-vehicle:<vehicle_id>`
   - `source_date = <today in configured timezone>`
 - Returns run summary payload:
   - `scanned`, `due`, `recipients`, `inserted`, `skipped_deduped`, `errors`
@@ -43,6 +46,7 @@
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `OIL_CHANGE_REMINDER_TOKEN` (optional shared secret for scheduled/manual trigger auth)
+- `OIL_CHANGE_REMINDER_TIMEZONE` (optional; defaults to `Asia/Manila`)
 
 ### Suggested schedule
 - Hourly invocation via Supabase cron:

@@ -3,61 +3,11 @@ import { createPortal } from 'react-dom';
 import BranchUtilizationBoard from '../components/BranchUtilizationBoard';
 import SectionCard from '../components/SectionCard';
 import StatBarChart from '../components/StatBarChart';
-import StatLineChart from '../components/StatLineChart';
 import StatusRingChart from '../components/StatusRingChart';
 import StatusBadge from '../components/StatusBadge';
 import SummaryGrid from '../components/SummaryGrid';
 import { ACTIVE_TRIP_STATUSES } from '../constants/appConfig';
 import { formatDate, toStatusClass } from '../utils/appHelpers';
-
-const TREND_METRIC_OPTIONS = [
-  { value: 'request_count', label: 'Requests' },
-  { value: 'fuel_liters', label: 'Fuel liters' },
-  { value: 'fuel_cost', label: 'Fuel cost' },
-];
-const TREND_BUCKET_OPTIONS = [
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-];
-
-function toBucketDetails(inputValue, bucket) {
-  const date = new Date(inputValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  const normalizedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-  if (bucket === 'daily') {
-    return {
-      key: normalizedDate.getTime(),
-      label: normalizedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-    };
-  }
-
-  if (bucket === 'weekly') {
-    const dayIndex = normalizedDate.getDay();
-    const mondayOffset = (dayIndex + 6) % 7;
-    const startOfWeek = new Date(normalizedDate);
-    startOfWeek.setDate(startOfWeek.getDate() - mondayOffset);
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(endOfWeek.getDate() + 6);
-
-    return {
-      key: startOfWeek.getTime(),
-      label: `${startOfWeek.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${endOfWeek.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
-    };
-  }
-
-  const monthStart = new Date(normalizedDate.getFullYear(), normalizedDate.getMonth(), 1);
-
-  return {
-    key: monthStart.getTime(),
-    label: monthStart.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }),
-  };
-}
 
 function renderNotifications(notificationFeed, emptyMessage, limit = 3) {
   if (!notificationFeed.length) {
@@ -93,9 +43,8 @@ export default function DashboardPage({
   const isDriver = mode === 'driver';
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [trendMetric, setTrendMetric] = useState('fuel_cost');
-  const [trendBucket, setTrendBucket] = useState('weekly');
-  const [trendStatusFilter, setTrendStatusFilter] = useState('all');
+  const [tripPerformanceStatus, setTripPerformanceStatus] = useState('all');
+  const [tripPerformanceVehicle, setTripPerformanceVehicle] = useState('all');
  
    useEffect(() => {
      if (!isAdmin && currentUser?.branch && currentUser.branch !== 'Unassigned') {
@@ -133,74 +82,89 @@ export default function DashboardPage({
     return branches;
   }, [branches, selectedBranch]);
 
-  const trendStatusOptions = useMemo(() => (
-    ['all', ...new Set(filteredRequests.map((request) => request.status).filter(Boolean))]
-  ), [filteredRequests]);
+  const tripStatusOptions = useMemo(() => (
+    ['all', ...new Set(filteredTrips.map((trip) => trip.tripStatus).filter(Boolean))]
+  ), [filteredTrips]);
 
-  const trendLineItems = useMemo(() => {
-    const bucketedTotals = new Map();
-    const canApplyStatus = trendStatusFilter === 'all' || trendStatusOptions.includes(trendStatusFilter);
-    const statusInScope = canApplyStatus ? trendStatusFilter : 'all';
+  const tripVehicleOptions = useMemo(() => {
+    const optionsByValue = new Map();
 
-    filteredRequests.forEach((request) => {
-      const dateSource = request.departureDatetime || request.expectedReturnDatetime || request.createdAt || request.created_at;
-      const bucketDetails = toBucketDetails(dateSource, trendBucket);
-
-      if (!bucketDetails) {
+    filteredVehicles.forEach((vehicle) => {
+      const vehicleName = String(vehicle.vehicleName || '').trim();
+      if (!vehicleName) {
         return;
       }
 
-      if (statusInScope !== 'all' && request.status !== statusInScope) {
-        return;
+      const vehicleId = String(vehicle.id || '').trim();
+      const optionValue = vehicleId ? `id:${vehicleId}` : `name:${vehicleName.toLowerCase()}`;
+      const plateNumber = String(vehicle.plateNumber || '').trim();
+
+      if (!optionsByValue.has(optionValue)) {
+        optionsByValue.set(optionValue, {
+          value: optionValue,
+          vehicleId,
+          vehicleName,
+          label: plateNumber ? `${vehicleName} (${plateNumber})` : vehicleName,
+        });
       }
-
-      let metricValue = 0;
-
-      if (trendMetric === 'request_count') {
-        metricValue = 1;
-      } else if (trendMetric === 'fuel_liters') {
-        metricValue = Number(request.fuelLiters) || 0;
-      } else {
-        metricValue = Number(request.fuelAmount) || 0;
-      }
-
-      if (trendMetric !== 'request_count' && metricValue <= 0) {
-        return;
-      }
-
-      const current = bucketedTotals.get(bucketDetails.key) || { label: bucketDetails.label, value: 0 };
-      current.value += metricValue;
-      bucketedTotals.set(bucketDetails.key, current);
     });
 
-    return Array.from(bucketedTotals.entries())
-      .sort((left, right) => left[0] - right[0])
-      .map(([, entry]) => {
-        if (trendMetric === 'fuel_cost') {
-          const rounded = Number(entry.value.toFixed(2));
-          return {
-            label: entry.label,
-            value: rounded,
-            valueLabel: `PHP ${rounded.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-          };
-        }
+    return Array.from(optionsByValue.values())
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [filteredVehicles]);
 
-        if (trendMetric === 'fuel_liters') {
-          const rounded = Number(entry.value.toFixed(1));
-          return {
-            label: entry.label,
-            value: rounded,
-            valueLabel: `${rounded.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`,
-          };
-        }
+  const normalizedTripPerformanceStatus = (
+    tripPerformanceStatus === 'all' || tripStatusOptions.includes(tripPerformanceStatus)
+  )
+    ? tripPerformanceStatus
+    : 'all';
 
-        return {
-          label: entry.label,
-          value: entry.value,
-          valueLabel: `${entry.value.toLocaleString()} request${entry.value === 1 ? '' : 's'}`,
-        };
-      });
-  }, [filteredRequests, trendBucket, trendMetric, trendStatusFilter, trendStatusOptions]);
+  const normalizedTripPerformanceVehicle = (
+    tripPerformanceVehicle === 'all'
+    || tripVehicleOptions.some((option) => option.value === tripPerformanceVehicle)
+  )
+    ? tripPerformanceVehicle
+    : 'all';
+
+  const selectedTripVehicleOption = normalizedTripPerformanceVehicle === 'all'
+    ? null
+    : tripVehicleOptions.find((option) => option.value === normalizedTripPerformanceVehicle) || null;
+
+  const tripsInPerformanceScope = useMemo(
+    () => filteredTrips.filter((trip) => (
+      (normalizedTripPerformanceStatus === 'all' || trip.tripStatus === normalizedTripPerformanceStatus)
+      && (
+        !selectedTripVehicleOption
+        || (
+          (selectedTripVehicleOption.vehicleId && String(trip.vehicleId || '') === selectedTripVehicleOption.vehicleId)
+          || String(trip.vehicle || '').trim() === selectedTripVehicleOption.vehicleName
+        )
+      )
+    )),
+    [filteredTrips, normalizedTripPerformanceStatus, selectedTripVehicleOption]
+  );
+
+  const fleetPerformanceItems = useMemo(() => {
+    const tripsByVehicle = new Map();
+
+    tripsInPerformanceScope.forEach((trip) => {
+      const vehicleLabel = String(trip.vehicle || 'Unassigned').trim() || 'Unassigned';
+      tripsByVehicle.set(vehicleLabel, (tripsByVehicle.get(vehicleLabel) || 0) + 1);
+    });
+
+    return Array.from(tripsByVehicle.entries())
+      .map(([label, value]) => ({
+        label,
+        value,
+        valueLabel: `${value.toLocaleString()} trip${value === 1 ? '' : 's'}`,
+        helper: normalizedTripPerformanceStatus === 'all'
+          ? 'All trip statuses'
+          : normalizedTripPerformanceStatus,
+        tone: value >= 10 ? 'blue' : value >= 5 ? 'amber' : 'slate',
+        icon: 'trips',
+      }))
+      .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
+  }, [normalizedTripPerformanceStatus, tripsInPerformanceScope]);
 
   const fuelUtilizationByVehicle = useMemo(() => {
     const byVehicle = new Map();
@@ -253,58 +217,42 @@ export default function DashboardPage({
     [fuelUtilizationByVehicle]
   );
 
-  const trendMetricLabel = TREND_METRIC_OPTIONS.find((option) => option.value === trendMetric)?.label || 'Trend';
-  const trendTotal = trendLineItems.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
-  const trendTotalLabel = trendMetric === 'fuel_cost'
-    ? `PHP ${trendTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-    : trendMetric === 'fuel_liters'
-      ? `${trendTotal.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`
-      : trendTotal.toLocaleString();
-
-  const trendChartPanel = (
+  const fleetPerformancePanel = (
     <div className={`dashboard-chart-panel${isAdmin ? ' dashboard-admin-trend-panel' : ''}`}>
       <div className="dashboard-chart-head">
-        <h4>{trendMetricLabel} trend</h4>
-        <p>Total in scope: {trendTotalLabel}</p>
+        <h4>Fleet performance</h4>
+        <p>Trips in scope: {tripsInPerformanceScope.length.toLocaleString()}</p>
       </div>
 
       <div className="dashboard-chart-filters">
         <label className="dashboard-chart-filter">
-          <span className="eyebrow">Metric</span>
-          <select className="input" value={trendMetric} onChange={(event) => setTrendMetric(event.target.value)}>
-            {TREND_METRIC_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="dashboard-chart-filter">
-          <span className="eyebrow">Timeframe</span>
-          <select className="input" value={trendBucket} onChange={(event) => setTrendBucket(event.target.value)}>
-            {TREND_BUCKET_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="dashboard-chart-filter">
-          <span className="eyebrow">Status</span>
-          <select className="input" value={trendStatusFilter} onChange={(event) => setTrendStatusFilter(event.target.value)}>
-            {trendStatusOptions.map((option) => (
+          <span className="eyebrow">Trip status</span>
+          <select className="input" value={tripPerformanceStatus} onChange={(event) => setTripPerformanceStatus(event.target.value)}>
+            {tripStatusOptions.map((option) => (
               <option key={option} value={option}>
                 {option === 'all' ? 'All statuses' : option}
               </option>
             ))}
           </select>
         </label>
+
+        <label className="dashboard-chart-filter">
+          <span className="eyebrow">Vehicle</span>
+          <select className="input" value={normalizedTripPerformanceVehicle} onChange={(event) => setTripPerformanceVehicle(event.target.value)}>
+            <option value="all">
+              {isAdmin
+                ? (selectedBranch ? 'All branch vehicles' : 'All vehicles')
+                : 'All branch vehicles'}
+            </option>
+            {tripVehicleOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {trendLineItems.length ? (
-        <StatLineChart
-          items={trendLineItems}
-          metric={trendMetric}
-          ariaLabel={`${trendMetricLabel} trend line`}
-        />
+      {fleetPerformanceItems.length ? (
+        <StatBarChart items={fleetPerformanceItems.slice(0, 10)} ariaLabel="Trips per vehicle" />
       ) : (
         <div className="empty-state-panel">No records match the selected chart filters.</div>
       )}
@@ -347,14 +295,16 @@ export default function DashboardPage({
         />
       </div>
       <div style={{ alignSelf: 'end' }}>
-        {(selectedDate || (isAdmin && selectedBranch)) && (
+        {(selectedDate || (isAdmin && selectedBranch) || normalizedTripPerformanceVehicle !== 'all' || normalizedTripPerformanceStatus !== 'all') && (
            <button 
              type="button" 
              className="button button-secondary" 
-             onClick={() => { 
-               if (isAdmin) setSelectedBranch(''); 
-               setSelectedDate(''); 
-             }}
+              onClick={() => { 
+                if (isAdmin) setSelectedBranch(''); 
+                setSelectedDate(''); 
+                setTripPerformanceStatus('all');
+                setTripPerformanceVehicle('all');
+              }}
              style={{ height: '46px', padding: '0 20px' }}
            >
              Clear Filters
@@ -553,7 +503,7 @@ export default function DashboardPage({
             )}
           </SectionCard>
 
-          {trendChartPanel}
+          {fleetPerformancePanel}
 
 
 
@@ -836,7 +786,7 @@ export default function DashboardPage({
               )}
             </div>
 
-            {trendChartPanel}
+            {fleetPerformancePanel}
           </div>
 
           <div className="dashboard-chart-panel dashboard-admin-chart-panel dashboard-chart-panel-branch dashboard-chart-panel-stacked">

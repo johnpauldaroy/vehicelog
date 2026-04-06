@@ -7,22 +7,29 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const DEFAULT_SETTINGS = {
-  enabled: true,
-  oilChangeLeadDays: 7,
-  timezone: 'Asia/Manila',
+const DEFAULT_TIMEZONE = 'Asia/Manila';
+
+type VehicleOilReminderRow = {
+  id: string;
+  assigned_branch_id: string | null;
+  vehicle_name: string | null;
+  plate_number: string | null;
+  odometer_current: number | string | null;
+  oil_change_interval_km: number | string | null;
+  oil_change_interval_months: number | string | null;
+  oil_change_last_odometer: number | string | null;
+  oil_change_last_changed_on: string | null;
 };
 
-type ReminderSettings = typeof DEFAULT_SETTINGS;
-
-type DueMaintenanceRow = {
-  id: string;
-  branch_id: string | null;
-  vehicle_id: string;
-  maintenance_type: string;
-  schedule_date: string;
-  status: string;
-  vehicles?: { vehicle_name?: string | null; plate_number?: string | null } | Array<{ vehicle_name?: string | null; plate_number?: string | null }> | null;
+type DueVehicleEntry = {
+  vehicle: VehicleOilReminderRow;
+  dueByKm: boolean;
+  dueByMonths: boolean;
+  intervalKm: number | null;
+  intervalMonths: number | null;
+  currentOdometer: number | null;
+  lastOilOdometer: number | null;
+  lastOilChangeDate: string;
 };
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
@@ -35,13 +42,14 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function toFiniteNumber(value: unknown, fallback: number) {
+function toFiniteNumber(value: unknown) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function clampLeadDays(value: unknown) {
-  return Math.min(60, Math.max(0, Math.trunc(toFiniteNumber(value, DEFAULT_SETTINGS.oilChangeLeadDays))));
+function toPositiveInteger(value: unknown) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function toDateInTimezone(timezone: string) {
@@ -58,17 +66,25 @@ function toDateInTimezone(timezone: string) {
   return `${year}-${month}-${day}`;
 }
 
-function addDays(dateText: string, days: number) {
+function addMonths(dateText: string, monthsToAdd: number) {
   const [year, month, day] = String(dateText).split('-').map((value) => Number.parseInt(value, 10));
-  const date = new Date(Date.UTC(year, (month || 1) - 1, day || 1));
-  date.setUTCDate(date.getUTCDate() + days);
+  const date = new Date(Date.UTC(year || 1970, (month || 1) - 1, day || 1));
+  date.setUTCMonth(date.getUTCMonth() + monthsToAdd);
   return date.toISOString().slice(0, 10);
 }
 
-function isMissingAutomationSettingsTableError(error: unknown) {
+function isMissingVehicleOilReminderColumnsError(error: unknown) {
   const message = String((error as { message?: string })?.message || '').toLowerCase();
   return (
-    message.includes('maintenance_automation_settings')
+    (
+      message.includes('vehicles.oil_change_')
+      || message.includes("'oil_change_")
+      || message.includes('oil_change_reminder_enabled')
+      || message.includes('oil_change_interval_km')
+      || message.includes('oil_change_interval_months')
+      || message.includes('oil_change_last_odometer')
+      || message.includes('oil_change_last_changed_on')
+    )
     && (message.includes('does not exist') || message.includes('schema cache') || message.includes('relation'))
   );
 }
@@ -85,44 +101,10 @@ function extractRoleName(roleValue: unknown) {
   return '';
 }
 
-function getVehicleDetails(entry: DueMaintenanceRow) {
-  if (Array.isArray(entry.vehicles)) {
-    return entry.vehicles[0] || {};
-  }
-
-  if (entry.vehicles && typeof entry.vehicles === 'object') {
-    return entry.vehicles;
-  }
-
-  return {};
-}
-
-async function loadReminderSettings(serviceClient: ReturnType<typeof createClient>) {
-  const { data, error } = await serviceClient
-    .from('maintenance_automation_settings')
-    .select('enabled, oil_change_lead_days, timezone')
-    .eq('id', 'global')
-    .limit(1);
-
-  if (error) {
-    if (isMissingAutomationSettingsTableError(error)) {
-      return DEFAULT_SETTINGS;
-    }
-
-    throw error;
-  }
-
-  const row = data?.[0];
-
-  if (!row) {
-    return DEFAULT_SETTINGS;
-  }
-
-  return {
-    enabled: Boolean(row.enabled),
-    oilChangeLeadDays: clampLeadDays(row.oil_change_lead_days),
-    timezone: String(row.timezone || DEFAULT_SETTINGS.timezone),
-  };
+function createVehicleLabel(vehicle: VehicleOilReminderRow) {
+  const vehicleName = String(vehicle.vehicle_name || 'Vehicle');
+  const plateNumber = String(vehicle.plate_number || '').trim();
+  return plateNumber ? `${vehicleName} (${plateNumber})` : vehicleName;
 }
 
 serve(async (request) => {
@@ -137,6 +119,7 @@ serve(async (request) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const expectedReminderToken = Deno.env.get('OIL_CHANGE_REMINDER_TOKEN');
+  const reminderTimezone = String(Deno.env.get('OIL_CHANGE_REMINDER_TIMEZONE') || DEFAULT_TIMEZONE);
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     return jsonResponse({ error: 'Supabase edge function secrets are not configured.' }, 500);
@@ -162,80 +145,93 @@ serve(async (request) => {
   });
 
   try {
-    const settings = await loadReminderSettings(serviceClient);
-
-    const today = toDateInTimezone(settings.timezone);
-    const dueWindowEnd = addDays(today, settings.oilChangeLeadDays);
-
-    if (!settings.enabled) {
-      return jsonResponse({
-        ok: true,
-        summary: {
-          scanned: 0,
-          due: 0,
-          recipients: 0,
-          inserted: 0,
-          skipped_deduped: 0,
-          errors: [],
-          reason: 'disabled',
-          settings,
-          today,
-          due_window_end: dueWindowEnd,
-        },
-      });
-    }
-
-    const { count: scannedCount, error: scannedError } = await serviceClient
-      .from('maintenance_logs')
-      .select('id', { count: 'exact', head: true })
-      .ilike('maintenance_type', '%oil%')
-      .in('status', ['Pending', 'In Progress'])
-      .is('completed_date', null)
-      .is('deleted_at', null);
-
-    if (scannedError) {
-      throw scannedError;
-    }
-
-    const { data: dueRows, error: dueError } = await serviceClient
-      .from('maintenance_logs')
+    const today = toDateInTimezone(reminderTimezone);
+    const { data: vehicleRows, error: vehicleError } = await serviceClient
+      .from('vehicles')
       .select(`
         id,
-        branch_id,
-        vehicle_id,
-        maintenance_type,
-        schedule_date,
-        status,
-        vehicles:vehicle_id (
-          vehicle_name,
-          plate_number
-        )
+        assigned_branch_id,
+        vehicle_name,
+        plate_number,
+        odometer_current,
+        oil_change_interval_km,
+        oil_change_interval_months,
+        oil_change_last_odometer,
+        oil_change_last_changed_on
       `)
-      .ilike('maintenance_type', '%oil%')
-      .in('status', ['Pending', 'In Progress'])
-      .is('completed_date', null)
-      .is('deleted_at', null)
-      .lte('schedule_date', dueWindowEnd);
+      .eq('oil_change_reminder_enabled', true)
+      .is('deleted_at', null);
 
-    if (dueError) {
-      throw dueError;
+    if (vehicleError) {
+      if (isMissingVehicleOilReminderColumnsError(vehicleError)) {
+        return jsonResponse({
+          ok: true,
+          summary: {
+            scanned: 0,
+            due: 0,
+            recipients: 0,
+            inserted: 0,
+            skipped_deduped: 0,
+            errors: [],
+            reason: 'vehicle_oil_settings_not_migrated',
+            today,
+            timezone: reminderTimezone,
+          },
+        });
+      }
+
+      throw vehicleError;
     }
 
-    const dueMaintenanceRows = (dueRows || []) as DueMaintenanceRow[];
+    const enabledVehicles = (vehicleRows || []) as VehicleOilReminderRow[];
+    const dueVehicles: DueVehicleEntry[] = enabledVehicles
+      .map((vehicle) => {
+        const intervalKm = toPositiveInteger(vehicle.oil_change_interval_km);
+        const intervalMonths = toPositiveInteger(vehicle.oil_change_interval_months);
+        const currentOdometer = toFiniteNumber(vehicle.odometer_current);
+        const lastOilOdometer = toFiniteNumber(vehicle.oil_change_last_odometer);
+        const lastOilChangeDate = String(vehicle.oil_change_last_changed_on || '').trim();
+        const dueByKm = Boolean(
+          intervalKm
+          && currentOdometer !== null
+          && lastOilOdometer !== null
+          && currentOdometer >= (lastOilOdometer + intervalKm)
+        );
+        const dueByMonths = Boolean(
+          intervalMonths
+          && lastOilChangeDate
+          && addMonths(lastOilChangeDate, intervalMonths) <= today
+        );
 
-    if (!dueMaintenanceRows.length) {
+        if (!dueByKm && !dueByMonths) {
+          return null;
+        }
+
+        return {
+          vehicle,
+          dueByKm,
+          dueByMonths,
+          intervalKm,
+          intervalMonths,
+          currentOdometer,
+          lastOilOdometer,
+          lastOilChangeDate,
+        };
+      })
+      .filter((entry): entry is DueVehicleEntry => Boolean(entry));
+
+    if (!dueVehicles.length) {
       return jsonResponse({
         ok: true,
         summary: {
-          scanned: Number(scannedCount || 0),
+          scanned: enabledVehicles.length,
           due: 0,
           recipients: 0,
           inserted: 0,
           skipped_deduped: 0,
           errors: [],
-          settings,
           today,
-          due_window_end: dueWindowEnd,
+          timezone: reminderTimezone,
         },
       });
     }
@@ -281,26 +277,39 @@ serve(async (request) => {
       source_key: string;
       source_date: string;
     }> = [];
-
     const uniqueRecipients = new Set<string>();
 
-    for (const entry of dueMaintenanceRows) {
-      const scheduleDate = String(entry.schedule_date || '');
-      const isOverdue = Boolean(scheduleDate && scheduleDate < today);
-      const tone: 'warning' | 'danger' = isOverdue ? 'danger' : 'warning';
-      const title = isOverdue ? 'Oil change overdue' : 'Oil change due soon';
-      const vehicleDetails = getVehicleDetails(entry);
-      const vehicleName = String(vehicleDetails.vehicle_name || 'Vehicle');
-      const plateNumber = String(vehicleDetails.plate_number || '').trim();
-      const vehicleLabel = plateNumber ? `${vehicleName} (${plateNumber})` : vehicleName;
-      const message = isOverdue
-        ? `${vehicleLabel} has an overdue oil change scheduled for ${scheduleDate}.`
-        : `${vehicleLabel} has an oil change scheduled for ${scheduleDate}.`;
+    for (const dueEntry of dueVehicles) {
+      const {
+        vehicle,
+        dueByKm,
+        dueByMonths,
+        intervalKm,
+        intervalMonths,
+        currentOdometer,
+        lastOilOdometer,
+        lastOilChangeDate,
+      } = dueEntry;
+      const reasons: string[] = [];
 
+      if (dueByKm && intervalKm && currentOdometer !== null && lastOilOdometer !== null) {
+        const targetOdometer = lastOilOdometer + intervalKm;
+        reasons.push(`Mileage reached ${Math.round(currentOdometer)} km (target ${Math.round(targetOdometer)} km)`);
+      }
+
+      if (dueByMonths && intervalMonths && lastOilChangeDate) {
+        const dueDate = addMonths(lastOilChangeDate, intervalMonths);
+        reasons.push(`Time interval reached on ${dueDate}`);
+      }
+
+      const vehicleLabel = createVehicleLabel(vehicle);
+      const title = 'Oil change due';
+      const message = `${vehicleLabel} needs oil change. ${reasons.join(' | ')}`;
+      const tone: 'warning' | 'danger' = 'warning';
       const recipientIds = new Set<string>(adminIds);
 
-      if (entry.branch_id && approverIdsByBranch.has(entry.branch_id)) {
-        for (const approverId of approverIdsByBranch.get(entry.branch_id) || []) {
+      if (vehicle.assigned_branch_id && approverIdsByBranch.has(vehicle.assigned_branch_id)) {
+        for (const approverId of approverIdsByBranch.get(vehicle.assigned_branch_id) || []) {
           recipientIds.add(approverId);
         }
       }
@@ -309,11 +318,11 @@ serve(async (request) => {
         uniqueRecipients.add(userId);
         notificationsToInsert.push({
           user_id: userId,
-          branch_id: entry.branch_id,
+          branch_id: vehicle.assigned_branch_id,
           title,
           message,
           notification_type: tone,
-          source_key: `oil-change:${entry.id}`,
+          source_key: `oil-change-vehicle:${vehicle.id}`,
           source_date: today,
         });
       }
@@ -323,15 +332,14 @@ serve(async (request) => {
       return jsonResponse({
         ok: true,
         summary: {
-          scanned: Number(scannedCount || 0),
-          due: dueMaintenanceRows.length,
+          scanned: enabledVehicles.length,
+          due: dueVehicles.length,
           recipients: 0,
           inserted: 0,
           skipped_deduped: 0,
           errors: [],
-          settings,
           today,
-          due_window_end: dueWindowEnd,
+          timezone: reminderTimezone,
         },
       });
     }
@@ -354,15 +362,14 @@ serve(async (request) => {
     return jsonResponse({
       ok: true,
       summary: {
-        scanned: Number(scannedCount || 0),
-        due: dueMaintenanceRows.length,
+        scanned: enabledVehicles.length,
+        due: dueVehicles.length,
         recipients: uniqueRecipients.size,
         inserted: insertedCount,
         skipped_deduped: attemptedCount - insertedCount,
         errors: [],
-        settings,
         today,
-        due_window_end: dueWindowEnd,
+        timezone: reminderTimezone,
       },
     });
   } catch (error) {

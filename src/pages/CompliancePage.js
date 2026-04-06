@@ -9,6 +9,7 @@ export default function CompliancePage({
   currentUser,
   vehicleRecords, 
   maintenanceRecords, 
+  notificationFeed,
   incidentRecords, 
   onOpenMaintenanceModal,
   onOpenIncidentModal
@@ -27,9 +28,71 @@ export default function CompliancePage({
   const visibleVehicles = isAdmin ? vehicleRecords : vehicleRecords.filter(v => v.branch === currentUser.branch);
   const insuranceWatch = visibleVehicles.filter((vehicle) => daysUntil(vehicle.insuranceExpiry) <= 30);
   const registrationWatch = visibleVehicles.filter((vehicle) => daysUntil(vehicle.registrationExpiry) <= 30);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const oilChangeWatchlist = useMemo(() => {
+    const dedupedOilAlerts = new Map();
+
+    (notificationFeed || []).forEach((notice) => {
+        const title = String(notice.title || '').toLowerCase();
+        const detail = String(notice.detail || '').toLowerCase();
+        const sourceKey = String(notice.sourceKey || '').toLowerCase();
+        const isOilAlert = sourceKey.startsWith('oil-change-vehicle:')
+          || title.includes('oil change')
+          || detail.includes('needs oil change');
+
+        if (!isOilAlert) {
+          return;
+        }
+
+        const dedupeKey = (notice.sourceKey && notice.sourceDate)
+          ? `${notice.sourceKey}:${notice.sourceDate}`
+          : `${notice.title || ''}|${notice.detail || ''}`;
+
+        if (!dedupedOilAlerts.has(dedupeKey)) {
+          dedupedOilAlerts.set(dedupeKey, notice);
+        }
+      });
+
+    return Array.from(dedupedOilAlerts.values())
+      .map((notice) => {
+        const detail = String(notice.detail || '').trim();
+        const extractedVehicle = detail.match(/^(.+?) needs oil change\./i)?.[1]?.trim() || '';
+        const matchedVehicle = vehicleRecords.find((vehicle) => {
+          const name = String(vehicle.vehicleName || '').trim();
+          const plate = String(vehicle.plateNumber || '').trim();
+          const fullLabel = plate ? `${name} (${plate})` : name;
+          return extractedVehicle === name || extractedVehicle === fullLabel;
+        }) || null;
+
+        return {
+          id: `oil-${notice.id}`,
+          sourceType: 'oil-alert',
+          vehicle: extractedVehicle || 'Vehicle',
+          vehicleId: matchedVehicle?.id || '',
+          branch: matchedVehicle?.branch || '',
+          branchId: matchedVehicle?.branchId || '',
+          maintenanceType: 'Oil change due',
+          detail,
+          scheduleDate: notice.sourceDate || notice.createdAt || today,
+          status: 'warning',
+          actionable: false,
+        };
+      });
+  }, [notificationFeed, today, vehicleRecords]);
+
   // Pending items for Watchlist
   const rawPendingMaintenance = maintenanceRecords.filter(m => m.status === 'Pending');
   const pendingMaintenance = isAdmin ? rawPendingMaintenance : rawPendingMaintenance.filter(m => m.branch === currentUser.branch);
+  const watchlistRows = [
+    ...pendingMaintenance.map((entry) => ({
+      ...entry,
+      sourceType: 'maintenance',
+      status: 'Pending',
+      actionable: canManageMaintenance,
+    })),
+    ...oilChangeWatchlist,
+  ];
 
   // Filtered items for Service History Tab
   const filteredMaintenance = useMemo(() => {
@@ -183,28 +246,60 @@ export default function CompliancePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {pendingMaintenance.length === 0 ? (
+                    {watchlistRows.length === 0 ? (
                       <tr>
-                        <td colSpan="4" className="empty-state">No pending maintenance issues.</td>
+                        <td colSpan="4" className="empty-state">No priority watchlist issues.</td>
                       </tr>
                     ) : (
-                      pendingMaintenance.map((entry) => (
+                      watchlistRows.map((entry) => (
                         <tr
                           key={entry.id}
-                          className={canManageMaintenance ? 'interactive-row' : ''}
-                          onClick={canManageMaintenance ? () => onOpenMaintenanceModal(entry) : undefined}
+                          className={entry.actionable ? 'interactive-row' : ''}
+                          onClick={entry.actionable ? () => onOpenMaintenanceModal(entry) : undefined}
                         >
                           <td><strong>{entry.vehicle}</strong></td>
-                          <td><span style={{ fontWeight: 600 }}>{entry.maintenanceType}</span></td>
+                          <td>
+                            <span style={{ fontWeight: 600 }}>{entry.maintenanceType}</span>
+                            {entry.sourceType === 'oil-alert' && entry.detail && (
+                              <p className="cell-subtle" style={{ margin: '4px 0 0 0' }}>{entry.detail}</p>
+                            )}
+                          </td>
                           <td>
                             <div className="compliance-watchlist-schedule">
-                              <StatusBadge status="Pending" />
+                              <StatusBadge status={entry.status} />
                               <span>{formatDate(entry.scheduleDate)}</span>
                             </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            {canManageMaintenance && (
+                            {entry.sourceType === 'maintenance' && canManageMaintenance && (
                               <button className="row-action-button button-secondary">Edit</button>
+                            )}
+                            {entry.sourceType === 'oil-alert' && canManageMaintenance && (
+                              <button
+                                type="button"
+                                className="row-action-button button-secondary"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (entry.vehicleId) {
+                                    onOpenMaintenanceModal({
+                                      vehicleId: entry.vehicleId,
+                                      vehicle: entry.vehicle,
+                                      branch: entry.branch,
+                                      branchId: entry.branchId,
+                                      maintenanceType: 'Oil change',
+                                      scheduleDate: today,
+                                      completedDate: '',
+                                      provider: '',
+                                      amount: 0,
+                                      status: 'Pending',
+                                    });
+                                  } else {
+                                    onOpenMaintenanceModal();
+                                  }
+                                }}
+                              >
+                                Log
+                              </button>
                             )}
                           </td>
                         </tr>

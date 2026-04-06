@@ -22,12 +22,6 @@ const ROLE_ID_TO_NAME = {
   '00000000-0000-0000-0000-000000000004': 'requester',
 };
 
-const DEFAULT_OIL_REMINDER_SETTINGS = {
-  enabled: true,
-  oilChangeLeadDays: 7,
-  timezone: 'Asia/Manila',
-};
-
 function extractEmbeddedRoleName(roleValue) {
   if (Array.isArray(roleValue)) {
     return String(roleValue[0]?.name || '').toLowerCase();
@@ -724,16 +718,24 @@ function isMissingVehicleOdoDefectiveColumnError(error) {
   );
 }
 
-function isMissingOilReminderSettingsTableError(error) {
+function isMissingVehicleOilChangeColumnsError(error) {
   const message = String(error?.message || '').toLowerCase();
   return (
-    message.includes('maintenance_automation_settings')
-    && (message.includes('does not exist') || message.includes('schema cache') || message.includes('relation'))
+    (
+      message.includes('vehicles.oil_change_')
+      || message.includes("'oil_change_")
+      || message.includes('oil_change_reminder_enabled')
+      || message.includes('oil_change_interval_km')
+      || message.includes('oil_change_interval_months')
+      || message.includes('oil_change_last_odometer')
+      || message.includes('oil_change_last_changed_on')
+    )
+    && (message.includes('does not exist') || message.includes('schema cache'))
   );
 }
 
 async function selectVehicles(client) {
-  const baseSelect = `
+  const coreSelect = `
     id,
     vehicle_type_id,
     assigned_branch_id,
@@ -747,32 +749,83 @@ async function selectVehicles(client) {
     insurance_expiry,
     required_restrictions
   `;
+  const oilReminderSelect = `
+    oil_change_reminder_enabled,
+    oil_change_interval_km,
+    oil_change_interval_months,
+    oil_change_last_odometer,
+    oil_change_last_changed_on
+  `;
 
-  const withOdoDefectiveSelect = `${baseSelect}, is_odo_defective`;
-  const { data, error } = await client.from('vehicles').select(withOdoDefectiveSelect);
+  let includeOdoDefective = true;
+  let includeOilReminder = true;
+  let rows = null;
+  let attemptError = null;
 
-  if (!error) {
-    return (data ?? []).map((vehicle) => ({
-      ...vehicle,
-      is_odo_defective: Boolean(vehicle.is_odo_defective),
-    }));
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const selectParts = [coreSelect];
+
+    if (includeOilReminder) {
+      selectParts.push(oilReminderSelect);
+    }
+
+    if (includeOdoDefective) {
+      selectParts.push('is_odo_defective');
+    }
+
+    const select = selectParts.join(', ');
+    const { data, error } = await client.from('vehicles').select(select);
+
+    if (!error) {
+      rows = data ?? [];
+      attemptError = null;
+      break;
+    }
+
+    attemptError = error;
+    let shouldRetry = false;
+
+    if (includeOilReminder && isMissingVehicleOilChangeColumnsError(error)) {
+      includeOilReminder = false;
+      shouldRetry = true;
+    }
+
+    if (includeOdoDefective && isMissingVehicleOdoDefectiveColumnError(error)) {
+      includeOdoDefective = false;
+      shouldRetry = true;
+    }
+
+    if (!shouldRetry) {
+      break;
+    }
   }
 
-  if (!isMissingVehicleOdoDefectiveColumnError(error)) {
-    throw new Error(`Unable to load vehicles: ${error.message}`);
+  if (attemptError) {
+    throw new Error(`Unable to load vehicles: ${attemptError.message}`);
   }
 
-  const { data: fallbackData, error: fallbackError } = await client
-    .from('vehicles')
-    .select(baseSelect);
-
-  if (fallbackError) {
-    throw new Error(`Unable to load vehicles: ${fallbackError.message}`);
-  }
-
-  return (fallbackData ?? []).map((vehicle) => ({
+  return (rows ?? []).map((vehicle) => ({
     ...vehicle,
-    is_odo_defective: false,
+    is_odo_defective: includeOdoDefective ? Boolean(vehicle.is_odo_defective) : false,
+    oil_change_reminder_enabled: includeOilReminder ? Boolean(vehicle.oil_change_reminder_enabled) : false,
+    oil_change_interval_km: includeOilReminder
+      ? (vehicle.oil_change_interval_km === null || typeof vehicle.oil_change_interval_km === 'undefined'
+        ? null
+        : Number(vehicle.oil_change_interval_km))
+      : null,
+    oil_change_interval_months: includeOilReminder
+      ? (vehicle.oil_change_interval_months === null || typeof vehicle.oil_change_interval_months === 'undefined'
+        ? null
+        : Number(vehicle.oil_change_interval_months))
+      : null,
+    oil_change_last_odometer: includeOilReminder
+      ? (vehicle.oil_change_last_odometer === null || typeof vehicle.oil_change_last_odometer === 'undefined'
+        ? null
+        : Number(vehicle.oil_change_last_odometer))
+      : null,
+    oil_change_last_changed_on: includeOilReminder
+      ? (vehicle.oil_change_last_changed_on || null)
+      : null,
   }));
 }
 
@@ -861,36 +914,6 @@ async function selectPanayFuelPricing(client) {
   }
 
   return summarizePanayPricing(snapshotResult.data || [], syncRunResult.data || []);
-}
-
-async function selectOilReminderSettings(client) {
-  const { data, error } = await client
-    .from('maintenance_automation_settings')
-    .select('id, enabled, oil_change_lead_days, timezone')
-    .eq('id', 'global')
-    .limit(1);
-
-  if (error) {
-    if (isMissingOilReminderSettingsTableError(error)) {
-      return DEFAULT_OIL_REMINDER_SETTINGS;
-    }
-
-    throw new Error(`Unable to load automation settings: ${error.message}`);
-  }
-
-  const row = data?.[0];
-
-  if (!row) {
-    return DEFAULT_OIL_REMINDER_SETTINGS;
-  }
-
-  return {
-    enabled: Boolean(row.enabled),
-    oilChangeLeadDays: Number.isFinite(Number(row.oil_change_lead_days))
-      ? Number(row.oil_change_lead_days)
-      : DEFAULT_OIL_REMINDER_SETTINGS.oilChangeLeadDays,
-    timezone: String(row.timezone || DEFAULT_OIL_REMINDER_SETTINGS.timezone),
-  };
 }
 
 async function selectFirst(label, query) {
@@ -1185,7 +1208,6 @@ export async function fetchLiveAppData(client) {
     incidents,
     auditLogs,
     panayFuelPricing,
-    oilReminderSettings,
   ] = await Promise.all([
     requiredSelect('branches', client.from('branches').select('id, code, name, address, service_region, is_active, deleted_at').order('name')),
     requiredSelect('profiles', client.from('profiles').select('id, full_name, email, branch_id, is_active, deleted_at')),
@@ -1240,7 +1262,10 @@ export async function fetchLiveAppData(client) {
     ),
     requiredSelect(
       'notifications',
-      client.from('notifications').select('id, title, message, notification_type').order('created_at', { ascending: false })
+      client
+        .from('notifications')
+        .select('id, title, message, notification_type, source_key, source_date, created_at, branch_id')
+        .order('created_at', { ascending: false })
     ),
     requiredSelect(
       'incident reports',
@@ -1272,7 +1297,6 @@ export async function fetchLiveAppData(client) {
       `).order('created_at', { ascending: false })
     ),
     selectPanayFuelPricing(client),
-    selectOilReminderSettings(client),
   ]);
 
   const visibleBranches = branches.filter((branch) => !branch.deleted_at);
@@ -1434,6 +1458,17 @@ export async function fetchLiveAppData(client) {
       fuelEfficiency: vehicle.fuel_efficiency || 10,
       requiredRestrictions: vehicle.required_restrictions || '',
       isOdoDefective: Boolean(vehicle.is_odo_defective),
+      oilChangeReminderEnabled: Boolean(vehicle.oil_change_reminder_enabled),
+      oilChangeIntervalKm: vehicle.oil_change_interval_km === null || typeof vehicle.oil_change_interval_km === 'undefined'
+        ? null
+        : Number(vehicle.oil_change_interval_km),
+      oilChangeIntervalMonths: vehicle.oil_change_interval_months === null || typeof vehicle.oil_change_interval_months === 'undefined'
+        ? null
+        : Number(vehicle.oil_change_interval_months),
+      oilChangeLastOdometer: vehicle.oil_change_last_odometer === null || typeof vehicle.oil_change_last_odometer === 'undefined'
+        ? null
+        : Number(vehicle.oil_change_last_odometer),
+      oilChangeLastChangedOn: vehicle.oil_change_last_changed_on || '',
       assignedDriver: relatedTrip?.driver || 'Unassigned',
     };
   });
@@ -1510,6 +1545,10 @@ export async function fetchLiveAppData(client) {
     title: notice.title,
     detail: notice.message,
     tone: notice.notification_type,
+    sourceKey: notice.source_key || '',
+    sourceDate: notice.source_date || '',
+    createdAt: notice.created_at || '',
+    branchId: notice.branch_id || null,
   }));
 
   const auditRecords = auditLogs.map((entry) => {
@@ -1543,7 +1582,6 @@ export async function fetchLiveAppData(client) {
     notificationFeed,
     auditRecords,
     panayFuelPricing,
-    oilReminderSettings,
   };
 }
 
@@ -2102,6 +2140,19 @@ export async function deleteLiveDriver(client, driver) {
 
 export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
   const selectedVehicleType = vehicleTypeRecords.find((type) => type.id === vehicleForm.typeId);
+  const oilChangeIntervalKm = Number.parseInt(String(vehicleForm.oilChangeIntervalKm ?? ''), 10);
+  const normalizedOilChangeIntervalKm = Number.isFinite(oilChangeIntervalKm) && oilChangeIntervalKm >= 0
+    ? oilChangeIntervalKm
+    : null;
+  const oilChangeIntervalMonths = Number.parseInt(String(vehicleForm.oilChangeIntervalMonths ?? ''), 10);
+  const normalizedOilChangeIntervalMonths = Number.isFinite(oilChangeIntervalMonths) && oilChangeIntervalMonths >= 0
+    ? oilChangeIntervalMonths
+    : null;
+  const oilChangeLastOdometer = Number.parseFloat(String(vehicleForm.oilChangeLastOdometer ?? ''));
+  const normalizedOilChangeLastOdometer = Number.isFinite(oilChangeLastOdometer) && oilChangeLastOdometer >= 0
+    ? oilChangeLastOdometer
+    : null;
+  const normalizedOilChangeLastChangedOn = String(vehicleForm.oilChangeLastChangedOn || '').trim() || null;
   const payload = {
     vehicle_type_id: selectedVehicleType?.id || null,
     assigned_branch_id: vehicleForm.branchId,
@@ -2115,6 +2166,11 @@ export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
     insurance_expiry: vehicleForm.insuranceExpiry,
     required_restrictions: vehicleForm.requiredRestrictions?.trim() || null,
     is_odo_defective: Boolean(vehicleForm.isOdoDefective),
+    oil_change_reminder_enabled: Boolean(vehicleForm.oilChangeReminderEnabled),
+    oil_change_interval_km: normalizedOilChangeIntervalKm,
+    oil_change_interval_months: normalizedOilChangeIntervalMonths,
+    oil_change_last_odometer: normalizedOilChangeLastOdometer,
+    oil_change_last_changed_on: normalizedOilChangeLastChangedOn,
   };
   const queryBuilder = (nextPayload) => (
     vehicleForm.id
@@ -2122,11 +2178,26 @@ export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
       : client.from('vehicles').insert(nextPayload)
   );
 
-  let result = await queryBuilder(payload);
+  let nextPayload = payload;
+  let result = await queryBuilder(nextPayload);
+
+  if (result.error && isMissingVehicleOilChangeColumnsError(result.error)) {
+    const {
+      oil_change_reminder_enabled,
+      oil_change_interval_km,
+      oil_change_interval_months,
+      oil_change_last_odometer,
+      oil_change_last_changed_on,
+      ...legacyPayload
+    } = nextPayload;
+    nextPayload = legacyPayload;
+    result = await queryBuilder(nextPayload);
+  }
 
   if (result.error && isMissingVehicleOdoDefectiveColumnError(result.error)) {
-    const { is_odo_defective, ...legacyPayload } = payload;
-    result = await queryBuilder(legacyPayload);
+    const { is_odo_defective, ...legacyPayload } = nextPayload;
+    nextPayload = legacyPayload;
+    result = await queryBuilder(nextPayload);
   }
 
   if (result.error) {
@@ -2185,34 +2256,6 @@ export async function deleteLiveBranch(client, branch) {
     .eq('id', branch.id);
 
   if (error) {
-    throw error;
-  }
-}
-
-export async function saveLiveOilReminderSettings(client, settings) {
-  const actorId = await getAuthenticatedUserId(client);
-  const oilChangeLeadDays = Number.parseInt(String(settings.oilChangeLeadDays ?? ''), 10);
-  const normalizedLeadDays = Number.isFinite(oilChangeLeadDays)
-    ? Math.min(60, Math.max(0, oilChangeLeadDays))
-    : DEFAULT_OIL_REMINDER_SETTINGS.oilChangeLeadDays;
-
-  const payload = {
-    id: 'global',
-    enabled: Boolean(settings.enabled),
-    oil_change_lead_days: normalizedLeadDays,
-    timezone: String(settings.timezone || DEFAULT_OIL_REMINDER_SETTINGS.timezone),
-    updated_by: actorId,
-  };
-
-  const { error } = await client
-    .from('maintenance_automation_settings')
-    .upsert(payload, { onConflict: 'id' });
-
-  if (error) {
-    if (isMissingOilReminderSettingsTableError(error)) {
-      throw new Error('Automation settings table is missing. Run the latest Supabase migration first.');
-    }
-
     throw error;
   }
 }

@@ -1,17 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
 import { formatDate } from '../utils/appHelpers';
 
 export default function AdminSettingsPage({
-  isLiveMode,
   branchRecords,
   userRecords,
   driverRecords,
   vehicleRecords,
   auditRecords,
-  oilReminderSettings,
   onAddBranch,
   onEditBranch,
   onDeleteBranch,
@@ -24,7 +22,6 @@ export default function AdminSettingsPage({
   onAddVehicle,
   onEditVehicle,
   onDeleteVehicle,
-  onSaveOilReminderSettings,
 }) {
   const [activeTab, setActiveTab] = useState('users');
   const [auditQuery, setAuditQuery] = useState('');
@@ -33,53 +30,6 @@ export default function AdminSettingsPage({
   const [auditEndDate, setAuditEndDate] = useState('');
   const [selectedDriverDetails, setSelectedDriverDetails] = useState(null);
   const [selectedVehicleDetails, setSelectedVehicleDetails] = useState(null);
-  const [automationForm, setAutomationForm] = useState(() => ({
-    enabled: Boolean(oilReminderSettings?.enabled ?? true),
-    oilChangeLeadDays: Number(oilReminderSettings?.oilChangeLeadDays ?? 7),
-    timezone: String(oilReminderSettings?.timezone || 'Asia/Manila'),
-  }));
-  const [isSavingAutomation, setIsSavingAutomation] = useState(false);
-
-  useEffect(() => {
-    setAutomationForm({
-      enabled: Boolean(oilReminderSettings?.enabled ?? true),
-      oilChangeLeadDays: Number(oilReminderSettings?.oilChangeLeadDays ?? 7),
-      timezone: String(oilReminderSettings?.timezone || 'Asia/Manila'),
-    });
-  }, [oilReminderSettings]);
-
-  const isAutomationDirty = useMemo(() => (
-    Boolean(automationForm.enabled) !== Boolean(oilReminderSettings?.enabled ?? true)
-    || Number(automationForm.oilChangeLeadDays ?? 7) !== Number(oilReminderSettings?.oilChangeLeadDays ?? 7)
-    || String(automationForm.timezone || 'Asia/Manila') !== String(oilReminderSettings?.timezone || 'Asia/Manila')
-  ), [automationForm, oilReminderSettings]);
-
-  const handleAutomationFieldChange = useCallback((field, value) => {
-    setAutomationForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  }, []);
-
-  const handleAutomationSave = useCallback(async () => {
-    if (typeof onSaveOilReminderSettings !== 'function') {
-      return;
-    }
-
-    setIsSavingAutomation(true);
-
-    try {
-      await onSaveOilReminderSettings({
-        enabled: Boolean(automationForm.enabled),
-        oilChangeLeadDays: Number.parseInt(String(automationForm.oilChangeLeadDays ?? ''), 10),
-        timezone: String(automationForm.timezone || 'Asia/Manila'),
-      });
-    } catch (error) {
-      console.error('Unable to save automation settings.', error);
-    } finally {
-      setIsSavingAutomation(false);
-    }
-  }, [automationForm, onSaveOilReminderSettings]);
 
   const filteredAuditRecords = useMemo(() => {
     const normalizedQuery = auditQuery.trim().toLowerCase();
@@ -427,76 +377,6 @@ export default function AdminSettingsPage({
         ),
       },
       {
-        key: 'automation',
-        label: 'Automation',
-        count: null,
-        title: 'Automation',
-        subtitle: 'Global reminder controls for maintenance notifications',
-        note: 'Configure automatic in-app reminders for oil-change schedules across all branches.',
-        action: (
-          <button
-            type="button"
-            className="button button-primary"
-            onClick={handleAutomationSave}
-            disabled={isSavingAutomation || !isAutomationDirty}
-          >
-            <AppIcon name="check" className="button-icon" />
-            {isSavingAutomation ? 'Saving...' : 'Save automation settings'}
-          </button>
-        ),
-        table: (
-          <div className="automation-settings-panel">
-            <div className="profile-setting-item automation-toggle-row">
-              <div>
-                <span className="field-label">Oil-change reminders</span>
-                <strong>{automationForm.enabled ? 'Enabled' : 'Disabled'}</strong>
-                <span className="cell-subtle">
-                  Sends in-app reminders to admins and branch approvers.
-                </span>
-              </div>
-              <label className="automation-toggle-control">
-                <input
-                  type="checkbox"
-                  checked={automationForm.enabled}
-                  onChange={(event) => handleAutomationFieldChange('enabled', event.target.checked)}
-                />
-                <span>Enable</span>
-              </label>
-            </div>
-
-            <div className="form-grid automation-settings-grid">
-              <label>
-                <span className="field-label">Lead days</span>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  max="60"
-                  value={automationForm.oilChangeLeadDays}
-                  onChange={(event) => handleAutomationFieldChange('oilChangeLeadDays', event.target.value)}
-                />
-              </label>
-              <label>
-                <span className="field-label">Timezone</span>
-                <input className="input" type="text" value={automationForm.timezone} readOnly />
-              </label>
-            </div>
-
-            <div className="section-context-note automation-settings-note">
-              <strong>Cadence:</strong> Daily with dedupe
-              <span>
-                Hourly scheduler checks records, but each user receives at most one reminder per oil-change item per day.
-              </span>
-              {!isLiveMode && (
-                <span>
-                  Running without Supabase live mode; changes are stored in local UI state only.
-                </span>
-              )}
-            </div>
-          </div>
-        ),
-      },
-      {
         key: 'audit',
         label: 'Audit trail',
         count: auditRecords.length,
@@ -607,21 +487,15 @@ export default function AdminSettingsPage({
       },
     ],
     [
-      automationForm,
       branchRecords,
       auditCategory,
       auditEndDate,
       handleAuditExport,
-      handleAutomationFieldChange,
-      handleAutomationSave,
       auditQuery,
       auditRecords,
       auditStartDate,
       driverRecords,
       filteredAuditRecords,
-      isAutomationDirty,
-      isLiveMode,
-      isSavingAutomation,
       onAddBranch,
       onAddUser,
       onAddDriver,
@@ -714,6 +588,28 @@ export default function AdminSettingsPage({
                   <div>
                     <dt>Fuel efficiency</dt>
                     <dd>{selectedVehicleDetails.fuelEfficiency || 10} km/L</dd>
+                  </div>
+                  <div>
+                    <dt>Oil reminder</dt>
+                    <dd>{selectedVehicleDetails.oilChangeReminderEnabled ? 'Enabled' : 'Disabled'}</dd>
+                  </div>
+                  <div>
+                    <dt>Oil interval</dt>
+                    <dd>
+                      {selectedVehicleDetails.oilChangeIntervalKm ? `${selectedVehicleDetails.oilChangeIntervalKm} km` : '-'}
+                      {selectedVehicleDetails.oilChangeIntervalMonths ? ` | ${selectedVehicleDetails.oilChangeIntervalMonths} months` : ''}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Last oil change</dt>
+                    <dd>
+                      {selectedVehicleDetails.oilChangeLastOdometer || selectedVehicleDetails.oilChangeLastOdometer === 0
+                        ? `${selectedVehicleDetails.oilChangeLastOdometer?.toLocaleString?.() || selectedVehicleDetails.oilChangeLastOdometer} km`
+                        : '-'}
+                      {selectedVehicleDetails.oilChangeLastChangedOn
+                        ? ` | ${formatDate(selectedVehicleDetails.oilChangeLastChangedOn)}`
+                        : ''}
+                    </dd>
                   </div>
                   {selectedVehicleDetails.requiredRestrictions && (
                     <div>

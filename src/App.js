@@ -20,7 +20,6 @@ import {
   saveLiveBranch,
   saveLiveDriver,
   saveLiveIncident,
-  saveLiveOilReminderSettings,
   saveLiveMaintenance,
   saveLiveVehicle,
   updateLiveProfile,
@@ -76,12 +75,6 @@ const EMPTY_PANAY_FUEL_PRICING = {
   latestRun: null,
   stationCount: 0,
   topStations: [],
-};
-
-const DEFAULT_OIL_REMINDER_SETTINGS = {
-  enabled: true,
-  oilChangeLeadDays: 7,
-  timezone: 'Asia/Manila',
 };
 
 const DEFAULT_VEHICLE_TYPE_RECORDS = [
@@ -197,6 +190,7 @@ function createDriverSettingsForm(defaultBranchId = '') {
 }
 
 function createVehicleSettingsForm(defaultBranchId = '', defaultTypeId = '') {
+  const today = new Date().toISOString().slice(0, 10);
   return {
     id: '',
     vehicleName: '',
@@ -208,8 +202,13 @@ function createVehicleSettingsForm(defaultBranchId = '', defaultTypeId = '') {
     fuelType: '',
     seatingCapacity: '4',
     odometerCurrent: '0',
+    oilChangeReminderEnabled: false,
+    oilChangeIntervalKm: '5000',
+    oilChangeIntervalMonths: '6',
+    oilChangeLastOdometer: '0',
+    oilChangeLastChangedOn: today,
     registrationExpiry: '2026-12-31',
-    insurance_expiry: '2026-12-31',
+    insuranceExpiry: '2026-12-31',
     fuelEfficiency: '10',
     isOdoDefective: false,
     requiredRestrictions: '',
@@ -374,7 +373,6 @@ function App() {
   const [maintenanceRecords, setMaintenanceRecords] = useState([]);
   const [incidentRecords, setIncidentRecords] = useState([]);
   const [notificationFeed, setNotificationFeed] = useState([]);
-  const [oilReminderSettings, setOilReminderSettings] = useState(DEFAULT_OIL_REMINDER_SETTINGS);
   const [auditRecords, setAuditRecords] = useState([]);
   const [panayFuelPricing, setPanayFuelPricing] = useState(EMPTY_PANAY_FUEL_PRICING);
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
@@ -553,7 +551,6 @@ function App() {
     setMaintenanceRecords([]);
     setIncidentRecords([]);
     setNotificationFeed([]);
-    setOilReminderSettings(DEFAULT_OIL_REMINDER_SETTINGS);
     setAuditRecords([]);
     setPanayFuelPricing(EMPTY_PANAY_FUEL_PRICING);
   }, []);
@@ -613,7 +610,6 @@ function App() {
         setMaintenanceRecords(liveData.maintenanceRecords);
         setIncidentRecords(liveData.incidentRecords);
         setNotificationFeed(liveData.notificationFeed);
-        setOilReminderSettings(liveData.oilReminderSettings || DEFAULT_OIL_REMINDER_SETTINGS);
         setAuditRecords(liveData.auditRecords || []);
         setPanayFuelPricing(liveData.panayFuelPricing || EMPTY_PANAY_FUEL_PRICING);
         setLiveDataError('');
@@ -3226,6 +3222,17 @@ function App() {
             fuelType: vehicle.fuelType,
             seatingCapacity: String(vehicle.seatingCapacity),
             odometerCurrent: String(vehicle.odometerCurrent),
+            oilChangeReminderEnabled: Boolean(vehicle.oilChangeReminderEnabled),
+            oilChangeIntervalKm: vehicle.oilChangeIntervalKm === null || typeof vehicle.oilChangeIntervalKm === 'undefined'
+              ? ''
+              : String(vehicle.oilChangeIntervalKm),
+            oilChangeIntervalMonths: vehicle.oilChangeIntervalMonths === null || typeof vehicle.oilChangeIntervalMonths === 'undefined'
+              ? ''
+              : String(vehicle.oilChangeIntervalMonths),
+            oilChangeLastOdometer: vehicle.oilChangeLastOdometer === null || typeof vehicle.oilChangeLastOdometer === 'undefined'
+              ? String(vehicle.odometerCurrent || 0)
+              : String(vehicle.oilChangeLastOdometer),
+            oilChangeLastChangedOn: vehicle.oilChangeLastChangedOn || new Date().toISOString().slice(0, 10),
             registrationExpiry: vehicle.registrationExpiry,
             insuranceExpiry: vehicle.insuranceExpiry,
             fuelEfficiency: String(vehicle.fuelEfficiency || 10),
@@ -3246,6 +3253,34 @@ function App() {
 
     if (!vehicleSettingsForm.vehicleName.trim() || !vehicleSettingsForm.plateNumber.trim()) {
       showToast('Enter the vehicle name and plate number.', 'warning', 'Missing details');
+      return;
+    }
+
+    const oilChangeIntervalKmValue = Number.parseInt(String(vehicleSettingsForm.oilChangeIntervalKm ?? ''), 10);
+    const oilChangeIntervalMonthsValue = Number.parseInt(String(vehicleSettingsForm.oilChangeIntervalMonths ?? ''), 10);
+    const hasOilChangeIntervalKm = Number.isFinite(oilChangeIntervalKmValue) && oilChangeIntervalKmValue > 0;
+    const hasOilChangeIntervalMonths = Number.isFinite(oilChangeIntervalMonthsValue) && oilChangeIntervalMonthsValue > 0;
+    const hasOilChangeLastChangedOn = Boolean(String(vehicleSettingsForm.oilChangeLastChangedOn || '').trim());
+    const oilChangeLastOdometerValue = Number.parseFloat(String(vehicleSettingsForm.oilChangeLastOdometer ?? ''));
+    const hasOilChangeLastOdometer = String(vehicleSettingsForm.oilChangeLastOdometer ?? '').trim() !== '';
+
+    if (vehicleSettingsForm.oilChangeReminderEnabled && !hasOilChangeIntervalKm && !hasOilChangeIntervalMonths) {
+      showToast('Set a change-oil interval in KM or months.', 'warning', 'Oil reminder settings');
+      return;
+    }
+
+    if (hasOilChangeLastOdometer && !Number.isFinite(oilChangeLastOdometerValue)) {
+      showToast('Last oil-change odometer must be a valid number.', 'warning', 'Oil reminder settings');
+      return;
+    }
+
+    if (hasOilChangeLastOdometer && oilChangeLastOdometerValue < 0) {
+      showToast('Last oil-change odometer cannot be negative.', 'warning', 'Oil reminder settings');
+      return;
+    }
+
+    if (vehicleSettingsForm.oilChangeReminderEnabled && !hasOilChangeLastChangedOn) {
+      showToast('Set the last oil-change date to enable reminders.', 'warning', 'Oil reminder settings');
       return;
     }
 
@@ -3283,6 +3318,13 @@ function App() {
       fuelType: vehicleSettingsForm.fuelType.trim(),
       seatingCapacity: Number(vehicleSettingsForm.seatingCapacity || 0),
       odometerCurrent: Number(vehicleSettingsForm.odometerCurrent || 0),
+      oilChangeReminderEnabled: Boolean(vehicleSettingsForm.oilChangeReminderEnabled),
+      oilChangeIntervalKm: hasOilChangeIntervalKm ? oilChangeIntervalKmValue : null,
+      oilChangeIntervalMonths: hasOilChangeIntervalMonths ? oilChangeIntervalMonthsValue : null,
+      oilChangeLastOdometer: hasOilChangeLastOdometer && Number.isFinite(oilChangeLastOdometerValue)
+        ? oilChangeLastOdometerValue
+        : null,
+      oilChangeLastChangedOn: hasOilChangeLastChangedOn ? String(vehicleSettingsForm.oilChangeLastChangedOn).trim() : '',
       registrationExpiry: vehicleSettingsForm.registrationExpiry,
       insuranceExpiry: vehicleSettingsForm.insuranceExpiry,
       fuelEfficiency: Number(vehicleSettingsForm.fuelEfficiency || 10),
@@ -3363,42 +3405,6 @@ function App() {
       details: `Deleted vehicle ${vehicle.vehicleName} from the workspace.`,
     });
     showToast('Vehicle deleted successfully.', 'success', 'Settings saved');
-  }
-
-  async function handleSaveOilReminderSettings(nextSettings) {
-    const normalizedLeadDays = Number.parseInt(String(nextSettings.oilChangeLeadDays ?? ''), 10);
-
-    if (!Number.isFinite(normalizedLeadDays) || normalizedLeadDays < 0 || normalizedLeadDays > 60) {
-      showToast('Lead days must be between 0 and 60.', 'warning', 'Invalid automation setting');
-      throw new Error('Lead days must be between 0 and 60.');
-    }
-
-    const payload = {
-      enabled: Boolean(nextSettings.enabled),
-      oilChangeLeadDays: normalizedLeadDays,
-      timezone: String(nextSettings.timezone || DEFAULT_OIL_REMINDER_SETTINGS.timezone),
-    };
-
-    if (supabase) {
-      try {
-        await saveLiveOilReminderSettings(supabase, payload);
-        await refreshLiveData(currentSessionUser);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to save automation settings.';
-        showToast(message, 'danger', 'Settings failed');
-        throw error;
-      }
-    } else {
-      setOilReminderSettings(payload);
-    }
-
-    appendAuditEntry({
-      category: 'settings',
-      action: 'Updated automation settings',
-      target: 'Oil-change reminders',
-      details: `Enabled: ${payload.enabled ? 'yes' : 'no'} | Lead days: ${payload.oilChangeLeadDays} | Timezone: ${payload.timezone}`,
-    });
-    showToast('Oil-change reminder settings updated.', 'success', 'Settings saved');
   }
 
   async function handleRequestSubmit(event) {
@@ -4345,6 +4351,7 @@ function App() {
             currentUser={currentSessionUser}
             vehicleRecords={vehicleRecords}
             maintenanceRecords={maintenanceRecords}
+            notificationFeed={notificationFeed}
             incidentRecords={incidentRecords}
             onOpenMaintenanceModal={handleOpenMaintenanceModal}
             onOpenIncidentModal={handleOpenIncidentModal}
@@ -4352,13 +4359,11 @@ function App() {
         )}
         {selectedView === 'settings' && (
           <AdminSettingsPage
-            isLiveMode={Boolean(supabase)}
             branchRecords={branchRecords}
             userRecords={userRecords}
             driverRecords={driverRecords}
             vehicleRecords={vehicleRecords}
             auditRecords={auditRecords}
-            oilReminderSettings={oilReminderSettings}
             onAddBranch={() => handleOpenBranchSettingsModal()}
             onEditBranch={handleOpenBranchSettingsModal}
             onDeleteBranch={handleDeleteBranch}
@@ -4371,7 +4376,6 @@ function App() {
             onAddVehicle={() => handleOpenVehicleSettingsModal()}
             onEditVehicle={handleOpenVehicleSettingsModal}
             onDeleteVehicle={handleDeleteVehicle}
-            onSaveOilReminderSettings={handleSaveOilReminderSettings}
           />
         )}
 
@@ -4823,6 +4827,68 @@ function App() {
                   <label>
                     <span className="field-label">Odometer</span>
                     <input className="input" type="number" min="0" value={vehicleSettingsForm.odometerCurrent} onChange={(event) => handleVehicleSettingsFieldChange('odometerCurrent', event.target.value)} />
+                  </label>
+                  <label className="full-span">
+                    <span className="field-label">Oil-change reminder</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={vehicleSettingsForm.oilChangeReminderEnabled}
+                        onChange={(event) => handleVehicleSettingsFieldChange('oilChangeReminderEnabled', event.target.checked)}
+                        style={{ width: '18px', height: '18px', accentColor: 'var(--brand-amber, #f59e0b)' }}
+                      />
+                      <span style={{ fontWeight: 600 }}>
+                        Enable per-vehicle change-oil reminders
+                      </span>
+                    </div>
+                    <span className="field-help-text">
+                      Configure by mileage (example: 5000 km), by month interval, or both.
+                    </span>
+                  </label>
+                  <label>
+                    <span className="field-label">Change oil every (km)</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="5000"
+                      value={vehicleSettingsForm.oilChangeIntervalKm}
+                      onChange={(event) => handleVehicleSettingsFieldChange('oilChangeIntervalKm', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Or every (months)</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="6"
+                      value={vehicleSettingsForm.oilChangeIntervalMonths}
+                      onChange={(event) => handleVehicleSettingsFieldChange('oilChangeIntervalMonths', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Last oil change odometer</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Current odometer at last oil change"
+                      value={vehicleSettingsForm.oilChangeLastOdometer}
+                      onChange={(event) => handleVehicleSettingsFieldChange('oilChangeLastOdometer', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Last oil change date</span>
+                    <input
+                      className="input"
+                      type="date"
+                      value={vehicleSettingsForm.oilChangeLastChangedOn}
+                      onChange={(event) => handleVehicleSettingsFieldChange('oilChangeLastChangedOn', event.target.value)}
+                    />
                   </label>
                   <label>
                     <span className="field-label">Registration expiry</span>

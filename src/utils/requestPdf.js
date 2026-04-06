@@ -16,6 +16,33 @@ const CELL_PADDING_X = 5;
 const CELL_PADDING_Y = 4;
 const SECTION_GAP = 8;
 const PDF_HEADER = '%PDF-1.4\n';
+const HAS_LOGO_ASSET = Boolean(COOP_LOGO_PDF_ASSET?.hex && COOP_LOGO_PDF_ASSET?.width && COOP_LOGO_PDF_ASSET?.height);
+
+function getHeaderLogoLayout(boxBottom) {
+  const logoLeft = PAGE_MARGIN_X + 8;
+  const logoGapRight = 8;
+  const maxLogoWidth = 56;
+  const maxLogoHeight = HEADER_HEIGHT - 6;
+  const logoAspect = (COOP_LOGO_PDF_ASSET?.width && COOP_LOGO_PDF_ASSET?.height)
+    ? (COOP_LOGO_PDF_ASSET.width / COOP_LOGO_PDF_ASSET.height)
+    : 1;
+
+  let logoWidth = maxLogoWidth;
+  let logoHeight = logoAspect > 0 ? (logoWidth / logoAspect) : maxLogoHeight;
+
+  if (logoHeight > maxLogoHeight) {
+    logoHeight = maxLogoHeight;
+    logoWidth = logoHeight * (logoAspect || 1);
+  }
+
+  return {
+    logoLeft,
+    logoWidth,
+    logoHeight,
+    logoBottom: boxBottom + ((HEADER_HEIGHT - logoHeight) / 2),
+    titleLeft: logoLeft + logoWidth + logoGapRight,
+  };
+}
 
 function formatPdfDateTime(value) {
   if (!value) {
@@ -138,18 +165,16 @@ function ensurePageSpace(pages, requiredHeight) {
 function addHeader(pages, request, title) {
   const currentPage = ensurePageSpace(pages, HEADER_HEIGHT);
   const boxBottom = currentPage.y - HEADER_HEIGHT;
-  const logoWidth = 36;
-  const logoHeight = 28;
-  const logoLeft = PAGE_MARGIN_X + 8;
-  const logoBottom = currentPage.y - 39;
-  const titleLeft = logoLeft + logoWidth + 10;
+  const { logoLeft, logoWidth, logoHeight, logoBottom, titleLeft } = getHeaderLogoLayout(boxBottom);
   const rightColumnX = PAGE_MARGIN_X + CONTENT_WIDTH - 108;
 
   currentPage.commands.push(buildRectCommand(PAGE_MARGIN_X, boxBottom, CONTENT_WIDTH, HEADER_HEIGHT));
-  currentPage.commands.push('q');
-  currentPage.commands.push(`${logoWidth} 0 0 ${logoHeight} ${logoLeft} ${logoBottom} cm`);
-  currentPage.commands.push('/Im1 Do');
-  currentPage.commands.push('Q');
+  if (HAS_LOGO_ASSET) {
+    currentPage.commands.push('q');
+    currentPage.commands.push(`${logoWidth} 0 0 ${logoHeight} ${logoLeft} ${logoBottom} cm`);
+    currentPage.commands.push('/Im1 Do');
+    currentPage.commands.push('Q');
+  }
   currentPage.commands.push(buildTextCommand('BMPC VEHICLE MANAGEMENT SYSTEM', titleLeft, currentPage.y - 13, 'F2', SMALL_FONT_SIZE));
   currentPage.commands.push(buildTextCommand(title, titleLeft, currentPage.y - 30, 'F2', TITLE_FONT_SIZE));
   currentPage.commands.push(buildTextCommand(request?.requestNo || '-', rightColumnX, currentPage.y - 18, 'F2', SMALL_FONT_SIZE));
@@ -209,9 +234,8 @@ function addTable(pages, rows, columnWidths, options = {}) {
 }
 
 function buildPdfObjects(pageStreams) {
-  const hasLogoAsset = Boolean(COOP_LOGO_PDF_ASSET?.hex && COOP_LOGO_PDF_ASSET?.width && COOP_LOGO_PDF_ASSET?.height);
-  const imageObjectNumber = hasLogoAsset ? 5 : null;
-  const firstPageObjectNumber = hasLogoAsset ? 6 : 5;
+  const imageObjectNumber = HAS_LOGO_ASSET ? 5 : null;
+  const firstPageObjectNumber = HAS_LOGO_ASSET ? 6 : 5;
   const objects = [
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
     `2 0 obj\n<< /Type /Pages /Count ${pageStreams.length} /Kids [${pageStreams
@@ -221,7 +245,7 @@ function buildPdfObjects(pageStreams) {
     '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n',
   ];
 
-  if (hasLogoAsset) {
+  if (HAS_LOGO_ASSET) {
     const imageHexStream = `${COOP_LOGO_PDF_ASSET.hex}>`;
     const imageObject = `${imageObjectNumber} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${COOP_LOGO_PDF_ASSET.width} /Height ${COOP_LOGO_PDF_ASSET.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter [/ASCIIHexDecode /DCTDecode] /Length ${imageHexStream.length} >>\nstream\n${imageHexStream}\nendstream\nendobj\n`;
     objects.push(imageObject);
@@ -230,7 +254,7 @@ function buildPdfObjects(pageStreams) {
   pageStreams.forEach((stream, index) => {
     const pageObjectNumber = firstPageObjectNumber + (index * 2);
     const contentObjectNumber = pageObjectNumber + 1;
-    const xObjectSegment = hasLogoAsset ? ` /XObject << /Im1 ${imageObjectNumber} 0 R >>` : '';
+    const xObjectSegment = HAS_LOGO_ASSET ? ` /XObject << /Im1 ${imageObjectNumber} 0 R >>` : '';
 
     objects.push(
       `${pageObjectNumber} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xObjectSegment} >> /Contents ${contentObjectNumber} 0 R >>\nendobj\n`
