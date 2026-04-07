@@ -29,6 +29,28 @@ function renderNotifications(notificationFeed, emptyMessage, limit = 3) {
   );
 }
 
+function getRequestSortValue(request) {
+  const createdTime = Date.parse(request?.createdAt || '');
+
+  if (Number.isFinite(createdTime)) {
+    return createdTime;
+  }
+
+  const departureTime = Date.parse(request?.departureDatetime || '');
+
+  if (Number.isFinite(departureTime)) {
+    return departureTime;
+  }
+
+  const requestNoMatch = String(request?.requestNo || '').match(/^VR-(\d{4})-(\d{4})-(\d{3})$/);
+
+  if (requestNoMatch) {
+    return Number(`${requestNoMatch[1]}${requestNoMatch[2]}${requestNoMatch[3]}`);
+  }
+
+  return 0;
+}
+
 export default function DashboardPage({
   mode,
   currentUser,
@@ -81,6 +103,31 @@ export default function DashboardPage({
     }
     return branches;
   }, [branches, selectedBranch]);
+
+  const latestAssignedRequest = useMemo(() => {
+    if (!filteredRequests.length) {
+      return null;
+    }
+
+    return filteredRequests.reduce((latest, request) => {
+      if (!latest) {
+        return request;
+      }
+
+      const latestSortValue = getRequestSortValue(latest);
+      const requestSortValue = getRequestSortValue(request);
+
+      if (requestSortValue > latestSortValue) {
+        return request;
+      }
+
+      if (requestSortValue < latestSortValue) {
+        return latest;
+      }
+
+      return String(request.requestNo || '').localeCompare(String(latest.requestNo || '')) > 0 ? request : latest;
+    }, null);
+  }, [filteredRequests]);
 
   const tripStatusOptions = useMemo(() => (
     ['all', ...new Set(filteredTrips.map((trip) => trip.tripStatus).filter(Boolean))]
@@ -321,23 +368,23 @@ export default function DashboardPage({
         <div className="content-grid">
           <SectionCard title="Assigned requests" subtitle={`Current assignments for ${currentUser.name}`}>
             <div className="stack-list">
-              {filteredRequests.length === 0 && (
+              {!latestAssignedRequest && (
                 <div className="empty-state-panel">No requests are currently assigned to you.</div>
               )}
-              {filteredRequests.slice(0, 5).map((request) => (
-                <div key={request.id} className="list-row">
+              {latestAssignedRequest && (
+                <div key={latestAssignedRequest.id} className="list-row">
                   <div>
-                    <strong>{request.requestNo}</strong>
+                    <strong>{latestAssignedRequest.requestNo}</strong>
                     <p>
-                      {request.destination} | {request.purpose}
+                      {latestAssignedRequest.destination} | {latestAssignedRequest.purpose}
                     </p>
                   </div>
                   <div className="list-meta">
-                    <StatusBadge status={request.status} />
-                    <span>{formatDate(request.departureDatetime, true)}</span>
+                    <StatusBadge status={latestAssignedRequest.status} />
+                    <span>{formatDate(latestAssignedRequest.departureDatetime, true)}</span>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           </SectionCard>
 

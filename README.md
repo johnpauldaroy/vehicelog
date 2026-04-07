@@ -27,6 +27,27 @@ It correctly bundles React in production mode and optimizes the build for the be
 The build is minified and the filenames include the hashes.\
 Your app is ready to be deployed!
 
+## Progressive Web App (PWA)
+
+This app is configured as a PWA with an installable manifest and a production service worker.
+
+- The service worker only runs in production builds (`npm run build` + static host).
+- Offline behavior is app-shell only: static assets and the SPA shell load offline after first online visit.
+- Live Supabase data operations still require network and should fail gracefully when offline.
+- When a new deployment is available, users see a non-blocking in-app update banner with `Update now` and `Later` options.
+
+### Local verification
+
+1. Build the app: `npm run build`
+2. Serve the build output: `npx serve -s build`
+3. Open the app in Chrome and verify:
+   - DevTools > Application > Service Workers shows an active worker
+   - DevTools > Application > Manifest shows valid icons (`192x192`, `512x512`)
+   - Install prompt is available on supported platforms
+4. After first online load, switch to Offline in DevTools and refresh:
+   - App shell loads
+   - Live data requests require reconnection (expected for v1)
+
 See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
 ### `npm run eject`

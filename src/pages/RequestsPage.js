@@ -583,6 +583,18 @@ export default function RequestsPage({
                                             </button>
                                           </>
                                         )}
+                                        {canPrintRequestStatus(request.status) && (
+                                          <button
+                                            type="button"
+                                            className="action-menu-item"
+                                            onClick={() => {
+                                              closeActionMenu();
+                                              onPrintRequest(request);
+                                            }}
+                                          >
+                                            View approved PDF
+                                          </button>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -597,17 +609,57 @@ export default function RequestsPage({
                                   View details
                                 </button>
                               )
-                            : canUserUpdateFuel(request) ? (
-                                <button
-                                  type="button"
-                                  className="button button-secondary request-page-button"
-                                  onClick={() => onOpenRequestDetails(request)}
-                                >
-                                  Edit fuel
-                                </button>
-                              ) : (
-                                <span className="cell-subtle">-</span>
-                              )}
+                            : (() => {
+                                const canEditFuel = canUserUpdateFuel(request);
+                                const canOpenApprovedPdf = canPrintRequestStatus(request.status);
+
+                                if (!canEditFuel && !canOpenApprovedPdf) {
+                                  return <span className="cell-subtle">-</span>;
+                                }
+
+                                if (canEditFuel && canOpenApprovedPdf) {
+                                  return (
+                                    <div className="row-actions">
+                                      <button
+                                        type="button"
+                                        className="button button-secondary request-page-button"
+                                        onClick={() => onOpenRequestDetails(request)}
+                                      >
+                                        Edit fuel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="button button-secondary request-page-button"
+                                        onClick={() => onPrintRequest(request)}
+                                      >
+                                        View approved PDF
+                                      </button>
+                                    </div>
+                                  );
+                                }
+
+                                if (canEditFuel) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      className="button button-secondary request-page-button"
+                                      onClick={() => onOpenRequestDetails(request)}
+                                    >
+                                      Edit fuel
+                                    </button>
+                                  );
+                                }
+
+                                return (
+                                  <button
+                                    type="button"
+                                    className="button button-secondary request-page-button"
+                                    onClick={() => onPrintRequest(request)}
+                                  >
+                                    View approved PDF
+                                  </button>
+                                );
+                              })()}
                         </td>
                       )}
                     </tr>
