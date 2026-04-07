@@ -592,7 +592,7 @@ export default function RequestsPage({
                                               onPrintRequest(request);
                                             }}
                                           >
-                                            View approved PDF
+                                            View approved ticket
                                           </button>
                                         )}
                                       </div>
@@ -632,7 +632,7 @@ export default function RequestsPage({
                                         className="button button-secondary request-page-button"
                                         onClick={() => onPrintRequest(request)}
                                       >
-                                        View approved PDF
+                                        View approved ticket
                                       </button>
                                     </div>
                                   );
@@ -656,7 +656,7 @@ export default function RequestsPage({
                                     className="button button-secondary request-page-button"
                                     onClick={() => onPrintRequest(request)}
                                   >
-                                    View approved PDF
+                                    View approved ticket
                                   </button>
                                 );
                               })()}
@@ -1262,7 +1262,7 @@ export default function RequestsPage({
                     className="button button-secondary"
                     onClick={() => onPrintRequest(selectedRequestDetails)}
                   >
-                    {selectedRequestDetails.fuelRequested ? 'Open fuel slip PDF' : 'Open approved PDF'}
+                    {selectedRequestDetails.fuelRequested ? 'Open fuel slip PDF' : 'Open approved ticket'}
                   </button>
                 </div>
               )}
