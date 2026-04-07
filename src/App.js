@@ -23,6 +23,7 @@ import {
   saveLiveMaintenance,
   saveLiveVehicle,
   updateLiveProfile,
+  updateLiveRequestDriverAssignment,
   updateLiveRequestFuelValues,
   updateLiveRequestVehicleAssignment,
   uploadIncidentPhoto,
@@ -2590,6 +2591,156 @@ function App() {
     return true;
   }
 
+  async function handleSaveRequestDriverEdits(request, approvalDetails) {
+    if (!request || !['approver', 'admin'].includes(userMode)) {
+      showToast('Only admins and approvers can edit assigned drivers.', 'warning', 'Update not allowed');
+      return false;
+    }
+
+    if (request.status !== 'Checked Out') {
+      showToast('Driver reassignment is only available for checked-out requests.', 'warning', 'Update not allowed');
+      return false;
+    }
+
+    if (
+      userMode === 'approver'
+      && request?.approverId
+      && request.approverId !== currentSessionUser.id
+    ) {
+      showToast('This request is assigned to an admin approver.', 'warning', 'Update blocked');
+      return false;
+    }
+
+    const nextAssignedDriverId = String(approvalDetails?.assignedDriverId || '').trim();
+
+    if (!nextAssignedDriverId) {
+      showToast('Select a driver before saving.', 'warning', 'Driver required');
+      return false;
+    }
+
+    if (nextAssignedDriverId === request.assignedDriverId) {
+      showToast('No driver changes to save.', 'warning', 'No changes');
+      return false;
+    }
+
+    const selectedDriver = driverRecords.find((driver) => driver.id === nextAssignedDriverId);
+    const selectedVehicle = vehicleRecords.find(
+      (vehicle) => vehicle.id === request.assignedVehicleId || vehicle.vehicleName === request.assignedVehicle
+    );
+    const validation = getDriverAssignmentValidation(selectedDriver, selectedVehicle);
+
+    if (!validation.isValid) {
+      showToast(getDriverAssignmentValidationMessage(validation), 'warning', 'Driver validation');
+      return false;
+    }
+
+    const previousDriverName = request.assignedDriver || 'Unassigned';
+    const nextDriverName = selectedDriver?.fullName || 'Unassigned';
+
+    if (supabase) {
+      try {
+        await updateLiveRequestDriverAssignment(
+          supabase,
+          request,
+          nextAssignedDriverId
+        );
+        const liveData = await refreshLiveData(currentSessionUser);
+        const refreshedRequest = liveData?.requestRecords?.find(
+          (entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id
+        );
+
+        if (refreshedRequest) {
+          setSelectedRequestDetails(refreshedRequest);
+          setRequestApprovalForm(createRequestApprovalForm(refreshedRequest));
+        }
+
+        appendAuditEntry({
+          category: 'request',
+          action: 'Updated checked-out driver assignment',
+          target: request.requestNo,
+          branch: request.branch,
+          details: `${currentSessionUser.name} reassigned ${request.requestNo} from ${previousDriverName} to ${nextDriverName}.`,
+        });
+        showToast(`${request.requestNo} driver assignment updated.`, 'success', 'Assignment updated');
+        return true;
+      } catch (error) {
+        try {
+          const liveData = await refreshLiveData(currentSessionUser);
+          const refreshedRequest = liveData?.requestRecords?.find(
+            (entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id
+          );
+
+          if (refreshedRequest) {
+            setSelectedRequestDetails(refreshedRequest);
+            setRequestApprovalForm(createRequestApprovalForm(refreshedRequest));
+          }
+        } catch (_refreshError) {
+          // Keep the original save error as the primary feedback.
+        }
+
+        showToast(error.message || 'Unable to update the assigned driver.', 'danger', 'Assignment failed');
+        return false;
+      }
+    }
+
+    const requestIdSet = new Set([request.id, request.dbId, request.requestId].filter(Boolean));
+    const updatedRequest = {
+      ...request,
+      assignedDriverId: nextAssignedDriverId,
+      assignedDriver: nextDriverName,
+    };
+    const isActiveTripStatus = ['Checked Out', 'In Transit', 'Overdue'].includes(request.status);
+
+    setRequestRecords((current) =>
+      current.map((entry) =>
+        entry.id === request.id
+          ? updatedRequest
+          : entry
+      )
+    );
+    setTripRecords((current) =>
+      current.map((trip) =>
+        requestIdSet.has(trip.requestId)
+          ? {
+              ...trip,
+              driverId: nextAssignedDriverId,
+              driver: nextDriverName,
+            }
+          : trip
+      )
+    );
+    setDriverRecords((current) =>
+      current.map((driver) => {
+        if (request.assignedDriverId && driver.id === request.assignedDriverId) {
+          return {
+            ...driver,
+            status: 'available',
+          };
+        }
+
+        if (driver.id === nextAssignedDriverId) {
+          return {
+            ...driver,
+            status: isActiveTripStatus ? 'on_trip' : 'assigned',
+          };
+        }
+
+        return driver;
+      })
+    );
+    setSelectedRequestDetails(updatedRequest);
+    setRequestApprovalForm(createRequestApprovalForm(updatedRequest));
+    appendAuditEntry({
+      category: 'request',
+      action: 'Updated checked-out driver assignment',
+      target: request.requestNo,
+      branch: request.branch,
+      details: `${currentSessionUser.name} reassigned ${request.requestNo} from ${previousDriverName} to ${nextDriverName}.`,
+    });
+    showToast(`${request.requestNo} driver assignment updated.`, 'success', 'Assignment updated');
+    return true;
+  }
+
   function getDriverAssignmentValidationMessage(validation) {
     const messages = [];
 
@@ -5013,6 +5164,7 @@ function App() {
             onOpenRequestDetails={handleOpenRequestDetails}
             onCloseRequestDetails={handleCloseRequestDetails}
             onSaveRequestFuelEdits={handleSaveRequestFuelEdits}
+            onSaveRequestDriverEdits={handleSaveRequestDriverEdits}
             onAssignmentVehicleChange={setAssignmentVehicleId}
             onRejectionRemarksChange={setRejectionRemarks}
             onRejectRequest={handleRejectRequest}

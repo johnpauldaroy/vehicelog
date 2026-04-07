@@ -43,6 +43,7 @@ export default function RequestsPage({
   onAssignmentSubmit,
   onApproveRequest,
   onSaveRequestFuelEdits,
+  onSaveRequestDriverEdits,
   onPrintRequest,
   onRejectSubmit,
 }) {
@@ -121,6 +122,9 @@ export default function RequestsPage({
   }
 
   const canEditFuelInDetails = canUserUpdateFuel(selectedRequestDetails);
+  const canEditDriverInPendingDetails = canReviewRequests && selectedRequestDetails?.status === 'Pending Approval';
+  const canEditDriverInCheckedOutDetails = canReviewRequests && selectedRequestDetails?.status === 'Checked Out';
+  const canEditDriverInDetails = canEditDriverInPendingDetails || canEditDriverInCheckedOutDetails;
   const canOpenRequestDetailsModal = Boolean(selectedRequestDetails);
 
   function renderDriverValidationNotice(validation) {
@@ -265,6 +269,14 @@ export default function RequestsPage({
     }
 
     await onSaveRequestFuelEdits(selectedRequestDetails, requestApprovalForm);
+  }
+
+  async function handleSaveDriverFromDetails() {
+    if (!selectedRequestDetails || !canEditDriverInCheckedOutDetails || !onSaveRequestDriverEdits) {
+      return;
+    }
+
+    await onSaveRequestDriverEdits(selectedRequestDetails, requestApprovalForm);
   }
 
   function handleRejectFromDetails() {
@@ -1118,7 +1130,7 @@ export default function RequestsPage({
                     <div>
                       <dt>Assigned driver</dt>
                       <dd>
-                        {canReviewRequests && selectedRequestDetails.status === 'Pending Approval' ? (
+                        {canEditDriverInDetails ? (
                           <select
                             className="input"
                             value={requestApprovalForm.assignedDriverId}
@@ -1137,7 +1149,7 @@ export default function RequestsPage({
                       </dd>
                     </div>
                   )}
-                  {!isGuard && canReviewRequests && selectedRequestDetails.status === 'Pending Approval' && approvalDriverValidation && !approvalDriverValidation.isValid && (
+                  {!isGuard && canEditDriverInDetails && approvalDriverValidation && !approvalDriverValidation.isValid && (
                     <div className="full-span">
                       {renderDriverValidationNotice(approvalDriverValidation)}
                     </div>
@@ -1274,6 +1286,17 @@ export default function RequestsPage({
                     onClick={handleSaveFuelFromDetails}
                   >
                     Save fuel changes
+                  </button>
+                </div>
+              )}
+              {canEditDriverInCheckedOutDetails && (
+                <div className="form-actions request-detail-actions">
+                  <button
+                    type="button"
+                    className="button button-primary button-solid"
+                    onClick={handleSaveDriverFromDetails}
+                  >
+                    Save driver change
                   </button>
                 </div>
               )}

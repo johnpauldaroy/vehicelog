@@ -2300,6 +2300,92 @@ export async function approveLiveTripTicket(client, tripId, approverId) {
   }
 }
 
+export async function updateLiveRequestDriverAssignment(client, request, nextDriverId) {
+  const requestId = request.dbId || request.requestId || request.id;
+  const previousDriverId = request.assignedDriverId || null;
+  const driverId = nextDriverId || null;
+
+  if (!driverId) {
+    throw new Error('Select a driver before saving the assignment.');
+  }
+
+  if (driverId === previousDriverId) {
+    return;
+  }
+
+  await assertDriverMatchesVehicleRestrictions(client, driverId, request.assignedVehicleId || null);
+
+  const activeTripStatuses = ['Checked Out', 'In Transit', 'Overdue'];
+  const blockingTripStatuses = ['Ready for Release', ...activeTripStatuses];
+  const existingTrip = await getTripLogByRequestId(client, requestId);
+  const isActiveTrip = Boolean(existingTrip && activeTripStatuses.includes(existingTrip.trip_status));
+
+  if (isActiveTrip) {
+    const { data: conflictingTrips, error: conflictError } = await client
+      .from('trip_logs')
+      .select('id')
+      .eq('driver_id', driverId)
+      .in('trip_status', blockingTripStatuses)
+      .neq('request_id', requestId)
+      .limit(1);
+
+    if (conflictError) {
+      throw conflictError;
+    }
+
+    if (conflictingTrips?.length) {
+      throw new Error('The selected driver is already assigned to another active trip.');
+    }
+  } else {
+    await assertDriverIsAvailable(client, driverId);
+  }
+
+  const { error: requestError } = await updateVehicleRequest(client, requestId, {
+    assigned_driver_id: driverId,
+  });
+
+  if (requestError) {
+    throw requestError;
+  }
+
+  if (existingTrip && (canSyncTripAssignment(existingTrip.trip_status) || isActiveTrip)) {
+    const { error: tripError } = await client
+      .from('trip_logs')
+      .update({ driver_id: driverId })
+      .eq('id', existingTrip.id);
+
+    if (tripError) {
+      throw tripError;
+    }
+  } else if (!existingTrip) {
+    await syncTripLogForRequest(client, requestId);
+  }
+
+  const nextDriverStatus = isActiveTrip ? 'on_trip' : 'assigned';
+  const statusUpdates = [
+    client
+      .from('drivers')
+      .update({ status: nextDriverStatus })
+      .eq('id', driverId),
+  ];
+
+  if (previousDriverId) {
+    statusUpdates.push(
+      client
+        .from('drivers')
+        .update({ status: 'available' })
+        .eq('id', previousDriverId)
+    );
+  }
+
+  const statusResults = await Promise.all(statusUpdates);
+  const statusError = statusResults.find((result) => result.error)?.error;
+
+  if (statusError) {
+    throw statusError;
+  }
+}
+
 export async function updateLiveRequestVehicleAssignment(client, request, nextVehicleId) {
   const previousVehicleId = request.assignedVehicleId || null;
   const vehicleId = nextVehicleId || null;
