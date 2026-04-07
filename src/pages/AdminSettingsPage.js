@@ -1,8 +1,131 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
 import { formatDate } from '../utils/appHelpers';
+
+const CSV_TEMPLATES = {
+  users: {
+    filename: 'users-import-template.csv',
+    headers: ['full_name', 'email', 'role', 'branch_code', 'password'],
+    rows: [
+      {
+        full_name: 'Ana Dela Cruz',
+        email: 'ana.delacruz@bmpc.local',
+        role: 'requester',
+        branch_code: 'MAIN',
+        password: 'TempPass#2026',
+      },
+      {
+        full_name: 'Marco Reyes',
+        email: 'marco.reyes@bmpc.local',
+        role: 'driver',
+        branch_code: 'NORTH',
+        password: 'TempPass#2026',
+      },
+    ],
+  },
+  drivers: {
+    filename: 'drivers-import-template.csv',
+    headers: [
+      'full_name',
+      'employee_id',
+      'branch_code',
+      'license_number',
+      'license_expiry',
+      'contact_number',
+      'license_restrictions',
+      'status',
+      'profile_email',
+    ],
+    rows: [
+      {
+        full_name: 'Lara Cruz',
+        employee_id: 'BMPC-223',
+        branch_code: 'MAIN',
+        license_number: 'D02-09-776655',
+        license_expiry: '2026-07-10',
+        contact_number: '0917-200-1102',
+        license_restrictions: 'B B1',
+        status: 'assigned',
+        profile_email: 'driver.lara@bmpc.local',
+      },
+      {
+        full_name: 'Joel Ramirez',
+        employee_id: 'BMPC-310',
+        branch_code: 'NORTH',
+        license_number: 'D03-05-456123',
+        license_expiry: '2026-04-11',
+        contact_number: '0917-200-1103',
+        license_restrictions: 'B B1 B2',
+        status: 'on_trip',
+        profile_email: 'driver.joel@bmpc.local',
+      },
+    ],
+  },
+  vehicles: {
+    filename: 'vehicles-import-template.csv',
+    headers: [
+      'vehicle_name',
+      'plate_number',
+      'branch_code',
+      'type_name',
+      'status',
+      'fuel_type',
+      'seating_capacity',
+      'odometer_current',
+      'registration_expiry',
+      'insurance_expiry',
+      'required_restrictions',
+      'is_odo_defective',
+      'oil_change_reminder_enabled',
+      'oil_change_interval_km',
+      'oil_change_interval_months',
+      'oil_change_last_odometer',
+      'oil_change_last_changed_on',
+    ],
+    rows: [
+      {
+        vehicle_name: 'Hilux Field Unit',
+        plate_number: 'NAB-1024',
+        branch_code: 'MAIN',
+        type_name: 'Pickup',
+        status: 'available',
+        fuel_type: 'Diesel',
+        seating_capacity: '5',
+        odometer_current: '42155',
+        registration_expiry: '2026-05-08',
+        insurance_expiry: '2026-04-02',
+        required_restrictions: 'B B1',
+        is_odo_defective: 'false',
+        oil_change_reminder_enabled: 'true',
+        oil_change_interval_km: '5000',
+        oil_change_interval_months: '6',
+        oil_change_last_odometer: '38000',
+        oil_change_last_changed_on: '2025-12-15',
+      },
+      {
+        vehicle_name: 'Montero Response',
+        plate_number: 'NEF-7730',
+        branch_code: 'NORTH',
+        type_name: 'SUV',
+        status: 'in_use',
+        fuel_type: 'Diesel',
+        seating_capacity: '7',
+        odometer_current: '58201',
+        registration_expiry: '2026-06-20',
+        insurance_expiry: '2026-03-18',
+        required_restrictions: 'B B1 B2',
+        is_odo_defective: 'false',
+        oil_change_reminder_enabled: 'true',
+        oil_change_interval_km: '7000',
+        oil_change_interval_months: '6',
+        oil_change_last_odometer: '53000',
+        oil_change_last_changed_on: '2025-10-01',
+      },
+    ],
+  },
+};
 
 export default function AdminSettingsPage({
   branchRecords,
@@ -10,18 +133,22 @@ export default function AdminSettingsPage({
   driverRecords,
   vehicleRecords,
   auditRecords,
+  visibleTabKeys,
   onAddBranch,
   onEditBranch,
   onDeleteBranch,
   onAddUser,
   onEditUser,
   onDeleteUser,
+  onImportUsersCsv,
   onAddDriver,
   onEditDriver,
   onDeleteDriver,
+  onImportDriversCsv,
   onAddVehicle,
   onEditVehicle,
   onDeleteVehicle,
+  onImportVehiclesCsv,
 }) {
   const [activeTab, setActiveTab] = useState('users');
   const [auditQuery, setAuditQuery] = useState('');
@@ -30,6 +157,48 @@ export default function AdminSettingsPage({
   const [auditEndDate, setAuditEndDate] = useState('');
   const [selectedDriverDetails, setSelectedDriverDetails] = useState(null);
   const [selectedVehicleDetails, setSelectedVehicleDetails] = useState(null);
+
+  const openCsvPicker = useCallback((onImport) => {
+    if (typeof onImport !== 'function') {
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,text/csv';
+    input.onchange = () => {
+      const file = input.files?.[0];
+
+      if (file) {
+        onImport(file);
+      }
+    };
+    input.click();
+  }, []);
+
+  const downloadCsvTemplate = useCallback((templateKey) => {
+    const template = CSV_TEMPLATES[templateKey];
+
+    if (!template) {
+      return;
+    }
+
+    const toCsvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csvText = [template.headers, ...(template.rows || []).map((row) => template.headers.map((header) => row?.[header] ?? ''))]
+      .map((rowValues) => rowValues.map(toCsvCell).join(','))
+      .join('\n')
+      .concat('\n');
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = downloadUrl;
+    link.download = template.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+  }, []);
 
   const filteredAuditRecords = useMemo(() => {
     const normalizedQuery = auditQuery.trim().toLowerCase();
@@ -113,7 +282,7 @@ export default function AdminSettingsPage({
     URL.revokeObjectURL(downloadUrl);
   }, [filteredAuditRecords]);
 
-  const tabs = useMemo(
+  const allTabs = useMemo(
     () => [
       {
         key: 'branches',
@@ -188,10 +357,20 @@ export default function AdminSettingsPage({
         subtitle: 'Edit existing profiles. New auth users must still be created in Supabase Auth.',
         note: 'Email and role are shown for reference. Profile name and branch can be maintained here.',
         action: (
-          <button type="button" className="button button-primary" onClick={onAddUser}>
-            <AppIcon name="user" className="button-icon" />
-            Add user
-          </button>
+          <div className="row-actions">
+            <button type="button" className="button button-primary" onClick={onAddUser}>
+              <AppIcon name="user" className="button-icon" />
+              Add user
+            </button>
+            <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('users')}>
+              <AppIcon name="download" className="button-icon" />
+              Template
+            </button>
+            <button type="button" className="button button-secondary" onClick={() => openCsvPicker(onImportUsersCsv)}>
+              <AppIcon name="reports" className="button-icon" />
+              Import CSV
+            </button>
+          </div>
         ),
         table: (
           <div className="table-wrap">
@@ -250,10 +429,20 @@ export default function AdminSettingsPage({
         subtitle: 'Availability, licensing, and branch assignment',
         note: 'Driver records here control request assignment choices and dispatch readiness.',
         action: (
-          <button type="button" className="button button-primary" onClick={onAddDriver}>
-            <AppIcon name="people" className="button-icon" />
-            Add driver
-          </button>
+          <div className="row-actions">
+            <button type="button" className="button button-primary" onClick={onAddDriver}>
+              <AppIcon name="people" className="button-icon" />
+              Add driver
+            </button>
+            <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('drivers')}>
+              <AppIcon name="download" className="button-icon" />
+              Template
+            </button>
+            <button type="button" className="button button-secondary" onClick={() => openCsvPicker(onImportDriversCsv)}>
+              <AppIcon name="reports" className="button-icon" />
+              Import CSV
+            </button>
+          </div>
         ),
         table: (
           <div className="table-wrap">
@@ -319,10 +508,26 @@ export default function AdminSettingsPage({
         subtitle: 'Fleet master records and assignment readiness',
         note: 'Vehicle status here feeds the requester and assignment availability workflow.',
         action: (
-          <button type="button" className="button button-primary" onClick={onAddVehicle}>
-            <AppIcon name="vehicles" className="button-icon" />
-            Add vehicle
-          </button>
+          <div className="row-actions">
+            {typeof onAddVehicle === 'function' && (
+              <button type="button" className="button button-primary" onClick={onAddVehicle}>
+                <AppIcon name="vehicles" className="button-icon" />
+                Add vehicle
+              </button>
+            )}
+            {typeof onImportVehiclesCsv === 'function' && (
+              <>
+                <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('vehicles')}>
+                  <AppIcon name="download" className="button-icon" />
+                  Template
+                </button>
+                <button type="button" className="button button-secondary" onClick={() => openCsvPicker(onImportVehiclesCsv)}>
+                  <AppIcon name="reports" className="button-icon" />
+                  Import CSV
+                </button>
+              </>
+            )}
+          </div>
         ),
         table: (
           <div className="table-wrap">
@@ -360,13 +565,17 @@ export default function AdminSettingsPage({
                           <AppIcon name="eye" className="button-icon" />
                           View details
                         </button>
-                        <button type="button" className="button button-secondary row-action-button" onClick={() => onEditVehicle(vehicle)}>
-                          Edit
-                        </button>
-                        <button type="button" className="button button-danger row-action-button" onClick={() => onDeleteVehicle(vehicle)}>
-                          <AppIcon name="trash" className="button-icon" />
-                          Delete
-                        </button>
+                        {typeof onEditVehicle === 'function' && (
+                          <button type="button" className="button button-secondary row-action-button" onClick={() => onEditVehicle(vehicle)}>
+                            Edit
+                          </button>
+                        )}
+                        {typeof onDeleteVehicle === 'function' && (
+                          <button type="button" className="button button-danger row-action-button" onClick={() => onDeleteVehicle(vehicle)}>
+                            <AppIcon name="trash" className="button-icon" />
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -508,12 +717,35 @@ export default function AdminSettingsPage({
       onEditDriver,
       onEditVehicle,
       onEditUser,
+      onImportDriversCsv,
+      onImportUsersCsv,
+      onImportVehiclesCsv,
+      downloadCsvTemplate,
+      openCsvPicker,
       userRecords,
       vehicleRecords,
     ],
   );
 
+  const tabs = useMemo(() => {
+    if (!Array.isArray(visibleTabKeys) || !visibleTabKeys.length) {
+      return allTabs;
+    }
+
+    return allTabs.filter((tab) => visibleTabKeys.includes(tab.key));
+  }, [allTabs, visibleTabKeys]);
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.key === activeTab)) {
+      setActiveTab(tabs[0]?.key || 'users');
+    }
+  }, [activeTab, tabs]);
+
   const activePanel = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
+
+  if (!activePanel) {
+    return null;
+  }
 
   return (
     <>

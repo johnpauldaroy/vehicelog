@@ -143,6 +143,14 @@ export default function AppIcon({ name, className = '' }) {
           <path d="M16.5 17v-4.5" />
         </svg>
       );
+    case 'download':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName}>
+          <path d="M12 4.5v10" />
+          <path d="m8.5 11 3.5 3.5 3.5-3.5" />
+          <path d="M5 18.5h14" />
+        </svg>
+      );
     case 'people':
       return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={iconClassName}>

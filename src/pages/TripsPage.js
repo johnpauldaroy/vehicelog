@@ -6,6 +6,7 @@ import { ACTIVE_TRIP_STATUSES, READY_FOR_CHECKOUT } from '../constants/appConfig
 import { formatDate } from '../utils/appHelpers';
 
 export default function TripsPage({
+  mode,
   tripRecords,
   vehicleRecords,
   checkoutForm,
@@ -21,9 +22,13 @@ export default function TripsPage({
   onCheckinSubmit,
   onApproveTripTicket,
 }) {
+  const isGuard = mode === 'guard';
   const [detailTripId, setDetailTripId] = useState('');
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [tripSearch, setTripSearch] = useState('');
+  const [tripDateFrom, setTripDateFrom] = useState('');
+  const [tripDateTo, setTripDateTo] = useState('');
   const tripsPerPage = 8;
 
   const detailTrip = useMemo(
@@ -64,11 +69,11 @@ export default function TripsPage({
   function openTripDetails(trip) {
     setDetailTripId(trip.id);
 
-    if (READY_FOR_CHECKOUT.includes(trip.tripStatus)) {
+    if (!isGuard && READY_FOR_CHECKOUT.includes(trip.tripStatus)) {
       onCheckoutTripChange(trip.id);
     }
 
-    if (ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)) {
+    if (!isGuard && ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)) {
       onCheckinTripChange(trip.id);
     }
 
@@ -81,6 +86,14 @@ export default function TripsPage({
   }
 
   function getTripButtonConfig(trip) {
+    if (isGuard) {
+      return {
+        icon: 'eye',
+        label: 'View details',
+        className: 'button button-secondary row-action-button trip-action-button',
+      };
+    }
+
     if (READY_FOR_CHECKOUT.includes(trip.tripStatus)) {
       return {
         icon: 'release',
@@ -113,26 +126,119 @@ export default function TripsPage({
   }
 
   const detailMode = detailTrip
-    ? READY_FOR_CHECKOUT.includes(detailTrip.tripStatus)
+    ? isGuard
+      ? 'history'
+      : READY_FOR_CHECKOUT.includes(detailTrip.tripStatus)
       ? 'release'
       : ACTIVE_TRIP_STATUSES.includes(detailTrip.tripStatus)
         ? 'return'
         : 'history'
     : null;
 
-  const totalPages = Math.max(1, Math.ceil(tripRecords.length / tripsPerPage));
+  const filteredTripRecords = useMemo(() => {
+    const normalizedSearch = String(tripSearch || '').trim().toLowerCase();
+
+    function getTripFilterDate(trip) {
+      return (
+        trip?.dateOut
+        || trip?.actualReturnDatetime
+        || trip?.expectedReturn
+        || trip?.departureDatetime
+        || trip?.createdAt
+        || ''
+      );
+    }
+
+    return tripRecords.filter((trip) => {
+      const tripDate = String(getTripFilterDate(trip)).slice(0, 10);
+
+      if (tripDateFrom && tripDate < tripDateFrom) {
+        return false;
+      }
+
+      if (tripDateTo && tripDate > tripDateTo) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      const searchableFields = [
+        trip?.requestNo,
+        trip?.origin,
+        trip?.destination,
+        trip?.vehicle,
+        trip?.driver,
+        trip?.tripStatus,
+        trip?.requestedBy,
+        Array.isArray(trip?.passengerNames) ? trip.passengerNames.join(' ') : '',
+      ];
+
+      return searchableFields.some((value) =>
+        String(value || '').toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [tripDateFrom, tripDateTo, tripRecords, tripSearch]);
+
+  const sortedTripRecords = useMemo(() => {
+    function toSortableTimestamp(value) {
+      const millis = new Date(value || '').getTime();
+      return Number.isFinite(millis) ? millis : 0;
+    }
+
+    function getTripSortTimestamp(trip) {
+      return toSortableTimestamp(
+        trip?.dateOut
+        || trip?.actualReturnDatetime
+        || trip?.expectedReturn
+        || trip?.departureDatetime
+        || trip?.createdAt
+      );
+    }
+
+    return [...filteredTripRecords].sort((left, right) => {
+      const timestampDelta = getTripSortTimestamp(right) - getTripSortTimestamp(left);
+
+      if (timestampDelta !== 0) {
+        return timestampDelta;
+      }
+
+      const requestNoLeft = String(left?.requestNo || '');
+      const requestNoRight = String(right?.requestNo || '');
+      const requestNoDelta = requestNoRight.localeCompare(requestNoLeft);
+
+      if (requestNoDelta !== 0) {
+        return requestNoDelta;
+      }
+
+      return String(right?.id || '').localeCompare(String(left?.id || ''));
+    });
+  }, [filteredTripRecords]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedTripRecords.length / tripsPerPage));
   const paginatedTripRecords = useMemo(() => {
     const startIndex = (currentPage - 1) * tripsPerPage;
-    return tripRecords.slice(startIndex, startIndex + tripsPerPage);
-  }, [currentPage, tripRecords]);
-  const pageStart = tripRecords.length === 0 ? 0 : (currentPage - 1) * tripsPerPage + 1;
-  const pageEnd = Math.min(currentPage * tripsPerPage, tripRecords.length);
+    return sortedTripRecords.slice(startIndex, startIndex + tripsPerPage);
+  }, [currentPage, sortedTripRecords]);
+  const pageStart = sortedTripRecords.length === 0 ? 0 : (currentPage - 1) * tripsPerPage + 1;
+  const pageEnd = Math.min(currentPage * tripsPerPage, sortedTripRecords.length);
 
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tripSearch, tripDateFrom, tripDateTo]);
+
+  function clearTripFilters() {
+    setTripSearch('');
+    setTripDateFrom('');
+    setTripDateTo('');
+  }
 
   const actionTrip = detailMode === 'release'
     ? selectedCheckoutTrip
@@ -157,8 +263,9 @@ export default function TripsPage({
                   <p className="eyebrow">Trip details</p>
                   <h3>{detailTrip.requestNo}</h3>
                   <p className="modal-copy">
-                    {detailTrip.vehicle} | {detailTrip.driver} | {detailTrip.origin} to{' '}
-                    {detailTrip.destination}
+                    {isGuard
+                      ? `${detailTrip.requestNo} | ${detailTrip.origin} | ${detailTrip.tripStatus}`
+                      : `${detailTrip.vehicle} | ${detailTrip.driver} | ${detailTrip.origin} to ${detailTrip.destination}`}
                   </p>
                 </div>
                 <button
@@ -176,14 +283,17 @@ export default function TripsPage({
                     <div>
                       <strong>{detailTrip.requestNo}</strong>
                       <p>
-                        {detailTrip.vehicle} | {detailTrip.driver}
+                        {isGuard ? detailTrip.origin : `${detailTrip.vehicle} | ${detailTrip.driver}`}
                       </p>
                     </div>
                     <StatusBadge status={detailTrip.tripStatus} />
                   </div>
                   <div className="trip-action-meta">
-                    <span>Route: {detailTrip.origin} to {detailTrip.destination}</span>
+                    {!isGuard && <span>Route: {detailTrip.origin} to {detailTrip.destination}</span>}
+                    {isGuard && <span>Branch: {detailTrip.origin}</span>}
                     <span>Expected return: {formatDate(detailTrip.expectedReturn, true)}</span>
+                    {isGuard && <span>Vehicle: {detailTrip.vehicle || 'Unknown vehicle'}</span>}
+                    {isGuard && <span>Requested by: {detailTrip.requestedBy || 'Unknown'}</span>}
                     <span>
                       {detailTrip.dateOut
                         ? `Released: ${formatDate(detailTrip.dateOut, true)}`
@@ -192,10 +302,19 @@ export default function TripsPage({
                     {detailTrip.actualReturnDatetime && (
                       <span>Returned: {formatDate(detailTrip.actualReturnDatetime, true)}</span>
                     )}
+                    {isGuard && (
+                      <span>
+                        Passengers: {Number(detailTrip.passengerCount || 0) <= 1
+                          ? (detailTrip.driver || 'Unknown driver')
+                          : (detailTrip.passengerNames?.length
+                            ? detailTrip.passengerNames.join(', ')
+                            : `${Math.max(0, Number(detailTrip.passengerCount || 0) - 1)} passenger(s)`)}
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                {detailMode === 'release' && actionTrip && (
+                {!isGuard && detailMode === 'release' && actionTrip && (
                   <form className="form-grid" onSubmit={onCheckoutSubmit}>
                     <label>
                       <span className="field-label">Date and time out</span>
@@ -260,7 +379,7 @@ export default function TripsPage({
                   </form>
                 )}
 
-                {detailMode === 'return' && actionTrip && (
+                {!isGuard && detailMode === 'return' && actionTrip && (
                   <form className="form-grid" onSubmit={onCheckinSubmit}>
                     <label>
                       <span className="field-label">Date and time in</span>
@@ -332,12 +451,19 @@ export default function TripsPage({
                 {detailMode === 'history' && (
                   <div className="detail-panel trip-action-info">
                     <span className="field-label">Trip summary</span>
-                    <p>
-                      Odometer out: {detailTrip.odometerOut || '-'} | Odometer in:{' '}
-                      {detailTrip.odometerIn || '-'} | Mileage:{' '}
-                      {detailTrip.mileageComputed ? `${detailTrip.mileageComputed} km` : 'Pending'}
-                    </p>
-                    {detailTrip.tripStatus === 'Returned' && (
+                    {isGuard ? (
+                      <p>
+                        Status: {detailTrip.tripStatus} | Branch: {detailTrip.origin} | Expected return:{' '}
+                        {formatDate(detailTrip.expectedReturn, true)}
+                      </p>
+                    ) : (
+                      <p>
+                        Odometer out: {detailTrip.odometerOut || '-'} | Odometer in:{' '}
+                        {detailTrip.odometerIn || '-'} | Mileage:{' '}
+                        {detailTrip.mileageComputed ? `${detailTrip.mileageComputed} km` : 'Pending'}
+                      </p>
+                    )}
+                    {!isGuard && detailTrip.tripStatus === 'Returned' && (
                       <div className="form-actions" style={{ marginTop: '16px' }}>
                         <button
                           type="button"
@@ -360,36 +486,93 @@ export default function TripsPage({
       )}
 
       <div className="content-grid-tight">
-        <SectionCard title="Trip operations" subtitle="One table for release, active, and returned trips">
+        <SectionCard
+          title={isGuard ? 'Trip monitor' : 'Trip operations'}
+          subtitle={isGuard ? 'Read-only branch trip status and passenger visibility' : 'One table for release, active, and returned trips'}
+        >
+          <div className="toolbar request-toolbar">
+            <input
+              className="input"
+              value={tripSearch}
+              onChange={(event) => setTripSearch(event.target.value)}
+              placeholder={
+                isGuard
+                  ? 'Search request no, branch, driver, passenger, or status'
+                  : 'Search request no, route, vehicle, driver, or status'
+              }
+            />
+            <div className="request-filter-group">
+              <label className="request-date-filter">
+                <span className="field-label">From</span>
+                <input
+                  type="date"
+                  className="input"
+                  value={tripDateFrom}
+                  onChange={(event) => setTripDateFrom(event.target.value)}
+                />
+              </label>
+              <label className="request-date-filter">
+                <span className="field-label">To</span>
+                <input
+                  type="date"
+                  className="input"
+                  value={tripDateTo}
+                  onChange={(event) => setTripDateTo(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="button button-secondary request-filter-clear"
+                onClick={clearTripFilters}
+                disabled={!tripSearch && !tripDateFrom && !tripDateTo}
+              >
+                Clear filters
+              </button>
+            </div>
+          </div>
           <div className="section-context-note">
-            Open any trip from the table to review details. Release and return fields only appear
-            inside the detail view for actionable trips.
+            {isGuard
+              ? 'Open any trip to view status, branch schedule, and passenger information. Operational controls are hidden in guard mode.'
+              : 'Open any trip from the table to review details. Release and return fields only appear inside the detail view for actionable trips.'}
           </div>
           <div className="table-wrap trip-operations-table-wrap">
             <table className="data-table trip-operations-table">
               <thead>
                 <tr>
+                  {isGuard && <th>Status</th>}
                   <th>Request</th>
-                  <th>Vehicle and driver</th>
-                  <th>Status</th>
+                  <th>{isGuard ? 'Passengers' : 'Vehicle and driver'}</th>
+                  {!isGuard && <th>Status</th>}
                   <th>Timing</th>
-                  <th>Mileage</th>
+                  <th>{isGuard ? 'Branch' : 'Mileage'}</th>
                   <th className="vehicle-actions-head">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {tripRecords.length === 0 && (
+                {sortedTripRecords.length === 0 && (
                   <tr>
                     <td colSpan="6" className="empty-state">
-                      No trip records found.
+                      No trip records match your search or date filter.
                     </td>
                   </tr>
                 )}
                 {paginatedTripRecords.map((trip) => {
                   const buttonConfig = getTripButtonConfig(trip);
+                  const isDriverOnlyPassenger = Number(trip.passengerCount || 0) <= 1;
+                  const guardPassengerSummary = isDriverOnlyPassenger
+                    ? ''
+                    : (trip.passengerNames?.length
+                      ? trip.passengerNames.join(', ')
+                      : `${Math.max(0, Number(trip.passengerCount || 0) - 1)} passenger(s)`);
+                  const guardDriverSummary = `Driver: ${trip.driver || 'Unknown driver'}`;
 
                   return (
                     <tr key={trip.id}>
+                      {isGuard && (
+                        <td data-label="Status" className="trip-status-cell">
+                          <StatusBadge status={trip.tripStatus} />
+                        </td>
+                      )}
                       <td data-label="Request">
                         <div className="trip-request-head">
                           <strong>{trip.requestNo}</strong>
@@ -398,16 +581,30 @@ export default function TripsPage({
                           </span>
                         </div>
                         <span className="cell-subtle">
-                          {trip.origin} to {trip.destination}
+                          {isGuard ? `Expected return ${formatDate(trip.expectedReturn, true)}` : `${trip.origin} to ${trip.destination}`}
                         </span>
+                        {isGuard && (
+                          <span className="cell-subtle">Requested by {trip.requestedBy || 'Unknown'}</span>
+                        )}
+                        {isGuard && (
+                          <span className="cell-subtle">Vehicle: {trip.vehicle || 'Unknown vehicle'}</span>
+                        )}
                       </td>
-                      <td data-label="Vehicle and driver">
-                        {trip.vehicle}
-                        <span className="cell-subtle">{trip.driver}</span>
+                      <td data-label={isGuard ? 'Passengers' : 'Vehicle and driver'}>
+                        {isGuard
+                          ? guardDriverSummary
+                          : trip.vehicle}
+                        {(!isGuard || !isDriverOnlyPassenger) && (
+                          <span className="cell-subtle">
+                            {isGuard ? guardPassengerSummary : trip.driver}
+                          </span>
+                        )}
                       </td>
-                      <td data-label="Status" className="trip-status-cell">
-                        <StatusBadge status={trip.tripStatus} />
-                      </td>
+                      {!isGuard && (
+                        <td data-label="Status" className="trip-status-cell">
+                          <StatusBadge status={trip.tripStatus} />
+                        </td>
+                      )}
                       <td data-label="Timing">
                         <strong>{trip.dateOut ? `Out ${formatDate(trip.dateOut, true)}` : 'Not released yet'}</strong>
                         <span className="cell-subtle">Due {formatDate(trip.expectedReturn, true)}</span>
@@ -415,11 +612,13 @@ export default function TripsPage({
                           <span className="cell-subtle">Returned {formatDate(trip.actualReturnDatetime, true)}</span>
                         )}
                       </td>
-                      <td data-label="Mileage">
-                        {trip.mileageComputed ? `${trip.mileageComputed} km` : 'Pending'}
-                        <span className="cell-subtle">
-                          {trip.odometerOut ? `Out ${trip.odometerOut}` : 'No check-out reading'}
-                        </span>
+                      <td data-label={isGuard ? 'Branch' : 'Mileage'}>
+                        {isGuard ? trip.origin : (trip.mileageComputed ? `${trip.mileageComputed} km` : 'Pending')}
+                        {!isGuard && (
+                          <span className="cell-subtle">
+                            {trip.odometerOut ? `Out ${trip.odometerOut}` : 'No check-out reading'}
+                          </span>
+                        )}
                       </td>
                       <td data-label="Action" className="vehicle-actions-cell">
                         <div className="row-actions">
@@ -441,9 +640,9 @@ export default function TripsPage({
           </div>
           <div className="request-pagination">
             <p className="request-pagination-copy">
-              {tripRecords.length === 0
+              {sortedTripRecords.length === 0
                 ? 'No trip records to show'
-                : `Showing ${pageStart}-${pageEnd} of ${tripRecords.length} trips`}
+                : `Showing ${pageStart}-${pageEnd} of ${sortedTripRecords.length} trips`}
             </p>
             <div className="request-pagination-actions">
               <button

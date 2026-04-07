@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const allowedRoles = new Set(['admin', 'approver', 'driver', 'requester']);
+const allowedRoles = new Set(['admin', 'approver', 'guard', 'pump_station', 'driver', 'requester']);
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {

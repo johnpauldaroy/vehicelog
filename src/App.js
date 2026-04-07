@@ -149,6 +149,158 @@ function normalizeComparableText(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function normalizeCsvHeader(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s-]+/g, '_');
+}
+
+function parseCsvText(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[index + 1] === '"') {
+          field += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      continue;
+    }
+
+    if (char === ',') {
+      row.push(field);
+      field = '';
+      continue;
+    }
+
+    if (char === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      continue;
+    }
+
+    if (char !== '\r') {
+      field += char;
+    }
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  if (!rows.length) {
+    return [];
+  }
+
+  const headers = rows[0].map((entry) => normalizeCsvHeader(entry));
+  const dataRows = rows.slice(1);
+
+  return dataRows
+    .filter((entries) => entries.some((entry) => String(entry || '').trim() !== ''))
+    .map((entries) =>
+      headers.reduce((mapped, header, headerIndex) => {
+        if (!header) {
+          return mapped;
+        }
+
+        mapped[header] = String(entries[headerIndex] || '').trim();
+        return mapped;
+      }, {})
+    );
+}
+
+function getCsvValue(row, keys) {
+  for (const key of keys) {
+    const value = String(row?.[key] || '').trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function normalizeRoleLabel(value) {
+  const normalized = normalizeComparableText(value).replace(/\s+/g, '_');
+
+  switch (normalized) {
+    case 'admin':
+      return 'Admin';
+    case 'approver':
+      return 'Approver';
+    case 'guard':
+      return 'Guard';
+    case 'pump_station':
+    case 'pumpstation':
+    case 'pump':
+      return 'Pump Station';
+    case 'driver':
+      return 'Driver';
+    case 'requester':
+      return 'Requester';
+    default:
+      return '';
+  }
+}
+
+function normalizeDriverStatus(value) {
+  const normalized = normalizeComparableText(value).replace(/\s+/g, '_');
+
+  if (['available', 'assigned', 'on_trip', 'inactive', 'leave'].includes(normalized)) {
+    return normalized;
+  }
+
+  return 'available';
+}
+
+function normalizeVehicleStatus(value) {
+  const normalized = normalizeComparableText(value).replace(/\s+/g, '_');
+
+  if (['available', 'reserved', 'in_use', 'maintenance', 'inactive'].includes(normalized)) {
+    return normalized;
+  }
+
+  return 'available';
+}
+
+function parseBooleanCsvValue(value, fallback = false) {
+  const normalized = normalizeComparableText(value);
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'y'].includes(normalized);
+}
+
+function generateTemporaryPassword() {
+  const randomSeed = Math.random().toString(36).slice(2, 10);
+  return `Temp!${randomSeed}9A`;
+}
+
 function createUserSettingsForm(defaultBranchId = '') {
   return {
     id: '',
@@ -402,7 +554,7 @@ function App() {
   const expectedSessionUserIdRef = useRef('');
   const sessionHydrationRef = useRef({ userId: '', promise: null });
   const liveDataRefreshRef = useRef({ userId: '', promise: null });
-  const normalizedRole = currentSessionUser.role?.toLowerCase();
+  const normalizedRole = String(currentSessionUser.role || '').toLowerCase().replace(/\s+/g, '_');
   const operationsDay = useMemo(() => {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
@@ -412,9 +564,42 @@ function App() {
     ? 'admin'
     : normalizedRole === 'approver'
       ? 'approver'
+      : normalizedRole === 'guard'
+        ? 'guard'
+      : normalizedRole === 'pump_station'
+        ? 'pump_station'
       : normalizedRole === 'driver'
         ? 'driver'
       : 'requester';
+  const canManageVehicleSettings = userMode === 'admin' || userMode === 'approver';
+  const approverManagedBranchId = useMemo(() => {
+    if (userMode !== 'approver') {
+      return '';
+    }
+
+    if (currentSessionUser.branchId) {
+      return currentSessionUser.branchId;
+    }
+
+    return branchRecords.find(
+      (branch) => normalizeComparableText(branch.name) === normalizeComparableText(currentSessionUser.branch)
+    )?.id || '';
+  }, [branchRecords, currentSessionUser.branch, currentSessionUser.branchId, userMode]);
+  const isVehicleInApproverScope = useCallback((vehicle) => {
+    if (!vehicle) {
+      return false;
+    }
+
+    if (userMode !== 'approver') {
+      return true;
+    }
+
+    if (approverManagedBranchId && vehicle.branchId) {
+      return vehicle.branchId === approverManagedBranchId;
+    }
+
+    return normalizeComparableText(vehicle.branch) === normalizeComparableText(currentSessionUser.branch);
+  }, [approverManagedBranchId, currentSessionUser.branch, userMode]);
 
   const currentDriverRecord = useMemo(() => {
     const sessionUserId = currentSessionUser.id;
@@ -459,11 +644,25 @@ function App() {
   }, [currentDriverRecord?.id, isDriverNameMatch]);
 
   const getVisibleTripRecords = useCallback((records) => {
-    if (userMode !== 'driver') {
-      return records;
-    }
+    const scopedRecords = userMode === 'driver'
+      ? records.filter(isTripAssignedToCurrentDriver)
+      : [...records];
 
-    return records.filter(isTripAssignedToCurrentDriver);
+    return scopedRecords.sort((left, right) => {
+      const byLatestActivity = sortByLatestDate(left, right, getLatestActivityTimestamp);
+
+      if (byLatestActivity !== 0) {
+        return byLatestActivity;
+      }
+
+      const byRequestNo = String(right.requestNo || '').localeCompare(String(left.requestNo || ''));
+
+      if (byRequestNo !== 0) {
+        return byRequestNo;
+      }
+
+      return String(right.id || '').localeCompare(String(left.id || ''));
+    });
   }, [isTripAssignedToCurrentDriver, userMode]);
 
   useEffect(() => {
@@ -800,7 +999,7 @@ function App() {
       return requestRecords;
     }
 
-    if (userMode === 'approver') {
+    if (userMode === 'approver' || userMode === 'guard' || userMode === 'pump_station') {
       return requestRecords.filter((request) => request.branch === currentSessionUser.branch);
     }
 
@@ -860,6 +1059,7 @@ function App() {
           request.branch,
           request.purpose,
           request.destination,
+          Array.isArray(request.passengerNames) ? request.passengerNames.join(' ') : '',
           request.status,
         ]
           .join(' ')
@@ -877,6 +1077,29 @@ function App() {
         return String(right.requestNo || '').localeCompare(String(left.requestNo || ''));
       });
   }, [requestSearch, visibleRequestRecords]);
+  const branchScopedRequestRecords = useMemo(() => {
+    if (userMode === 'admin') {
+      return requestRecords;
+    }
+
+    if (currentSessionUser.branchId) {
+      return requestRecords.filter((request) => String(request.branchId || '') === String(currentSessionUser.branchId));
+    }
+
+    const currentBranchName = normalizeComparableText(currentSessionUser.branch);
+    return requestRecords.filter((request) => normalizeComparableText(request.branch) === currentBranchName);
+  }, [currentSessionUser.branch, currentSessionUser.branchId, requestRecords, userMode]);
+  const branchScopedRequestStatusSummary = useMemo(
+    () => ({
+      total: branchScopedRequestRecords.length,
+      pendingApproval: branchScopedRequestRecords.filter((request) => request.status === 'Pending Approval').length,
+      approved: branchScopedRequestRecords.filter((request) => request.status === 'Approved').length,
+      readyForRelease: branchScopedRequestRecords.filter((request) => request.status === 'Ready for Release').length,
+      checkedOut: branchScopedRequestRecords.filter((request) => request.status === 'Checked Out').length,
+      returned: branchScopedRequestRecords.filter((request) => request.status === 'Returned').length,
+    }),
+    [branchScopedRequestRecords]
+  );
 
   const filteredVehicles = useMemo(() => {
     if (vehicleFilter === 'all') {
@@ -885,6 +1108,33 @@ function App() {
 
     return vehicleRecords.filter((vehicle) => vehicle.status === vehicleFilter);
   }, [vehicleFilter, vehicleRecords]);
+  const branchScopedTripRecords = useMemo(() => {
+    if (userMode === 'admin') {
+      return tripRecords;
+    }
+
+    if (currentSessionUser.branchId) {
+      return tripRecords.filter((trip) => String(trip.branchId || '') === String(currentSessionUser.branchId));
+    }
+
+    const currentBranchName = normalizeComparableText(currentSessionUser.branch);
+    return tripRecords.filter((trip) => normalizeComparableText(trip.branch) === currentBranchName);
+  }, [currentSessionUser.branch, currentSessionUser.branchId, tripRecords, userMode]);
+  const calendarTripRecords = useMemo(
+    () => (userMode === 'driver' ? branchScopedTripRecords : visibleTripRecords),
+    [branchScopedTripRecords, userMode, visibleTripRecords]
+  );
+  const tripsPageTripRecords = useMemo(
+    () => (userMode === 'driver' ? branchScopedTripRecords : visibleTripRecords),
+    [branchScopedTripRecords, userMode, visibleTripRecords]
+  );
+  const settingsVehicleRecords = useMemo(() => {
+    if (userMode !== 'approver') {
+      return vehicleRecords;
+    }
+
+    return vehicleRecords.filter((vehicle) => isVehicleInApproverScope(vehicle));
+  }, [isVehicleInApproverScope, userMode, vehicleRecords]);
 
   const unavailableDriverIds = useMemo(() => {
     const ids = new Set();
@@ -1063,9 +1313,22 @@ function App() {
         .sort((left, right) => left.name.localeCompare(right.name)),
     [driverLinkedProfileIds, driverSettingsForm.branchId, driverSettingsForm.profileId, userRecords]
   );
+  const vehicleBranchScopeOptions = useMemo(() => {
+    if (userMode !== 'approver') {
+      return branchOptions;
+    }
+
+    const scopedBranches = branchOptions.filter((branch) => (
+      approverManagedBranchId
+        ? branch.id === approverManagedBranchId
+        : normalizeComparableText(branch.name) === normalizeComparableText(currentSessionUser.branch)
+    ));
+
+    return scopedBranches.length ? scopedBranches : branchOptions;
+  }, [approverManagedBranchId, branchOptions, currentSessionUser.branch, userMode]);
   const vehicleBranchOptions = useMemo(
-    () => buildBranchSelectOptions(branchOptions, vehicleSettingsForm.branchId, vehicleSettingsForm.branchName),
-    [branchOptions, vehicleSettingsForm.branchId, vehicleSettingsForm.branchName]
+    () => buildBranchSelectOptions(vehicleBranchScopeOptions, vehicleSettingsForm.branchId, vehicleSettingsForm.branchName),
+    [vehicleBranchScopeOptions, vehicleSettingsForm.branchId, vehicleSettingsForm.branchName]
   );
   const selectedRequestApprovalVehicle = useMemo(
     () => vehicleRecords.find((vehicle) => vehicle.id === selectedRequestDetails?.assignedVehicleId) || null,
@@ -1149,6 +1412,32 @@ function App() {
     }),
     [operationsDay, visibleTripRecords]
   );
+  const calendarTripStatusSummary = useMemo(
+    () => ({
+      total: calendarTripRecords.length,
+      readyForRelease: calendarTripRecords.filter((trip) => READY_FOR_CHECKOUT.includes(trip.tripStatus)).length,
+      active: calendarTripRecords.filter((trip) => ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)).length,
+      overdue: calendarTripRecords.filter((trip) => trip.tripStatus === 'Overdue').length,
+      returned: calendarTripRecords.filter((trip) => trip.tripStatus === 'Returned').length,
+      scheduledToday: calendarTripRecords.filter((trip) =>
+        isSameCalendarDay(trip.dateOut || trip.expectedReturn, operationsDay)
+      ).length,
+    }),
+    [calendarTripRecords, operationsDay]
+  );
+  const tripsPageTripStatusSummary = useMemo(
+    () => ({
+      total: tripsPageTripRecords.length,
+      readyForRelease: tripsPageTripRecords.filter((trip) => READY_FOR_CHECKOUT.includes(trip.tripStatus)).length,
+      active: tripsPageTripRecords.filter((trip) => ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)).length,
+      overdue: tripsPageTripRecords.filter((trip) => trip.tripStatus === 'Overdue').length,
+      returned: tripsPageTripRecords.filter((trip) => trip.tripStatus === 'Returned').length,
+      scheduledToday: tripsPageTripRecords.filter((trip) =>
+        isSameCalendarDay(trip.dateOut || trip.expectedReturn, operationsDay)
+      ).length,
+    }),
+    [operationsDay, tripsPageTripRecords]
+  );
 
   const fleetSummary = useMemo(
     () => ({
@@ -1177,6 +1466,34 @@ function App() {
     () => requestRecords.filter((request) => request.requestedBy === currentSessionUser.name),
     [currentSessionUser.name, requestRecords]
   );
+  const branchAdminApprover = useMemo(() => {
+    const normalizedCurrentBranchName = normalizeComparableText(currentSessionUser.branch);
+    const isBranchUser = (user) => (
+      (currentSessionUser.branchId && String(user.branchId || '') === String(currentSessionUser.branchId))
+      || normalizeComparableText(user.branch) === normalizedCurrentBranchName
+    );
+    const isAdminLikeUser = (user) => {
+      const roleMatch = normalizeComparableText(user.role) === 'admin';
+      const emailMatch = /\badmin\b/i.test(String(user.email || ''));
+      const nameMatch = /\badmin\b/i.test(String(user.name || ''));
+      return roleMatch || emailMatch || nameMatch;
+    };
+
+    const branchAdminCandidate = userRecords.find((user) => (
+      user.id !== currentSessionUser.id
+      && isBranchUser(user)
+      && isAdminLikeUser(user)
+    ));
+
+    if (branchAdminCandidate) {
+      return branchAdminCandidate;
+    }
+
+    return userRecords.find((user) => (
+      user.id !== currentSessionUser.id
+      && isAdminLikeUser(user)
+    )) || null;
+  }, [currentSessionUser.branch, currentSessionUser.branchId, currentSessionUser.id, userRecords]);
 
   const availableNavItems = useMemo(
     () => navItems.filter((item) => item.roles.includes(userMode)),
@@ -1222,7 +1539,8 @@ function App() {
     ];
   }, [availableNavItems, isAdminMobileNavMode, mobileNavPrimaryItems, mobileNavSecondaryItems]);
 
-  const selectedView = availableNavItems.some((item) => item.id === activeView) ? activeView : 'dashboard';
+  const defaultNavView = availableNavItems[0]?.id || 'dashboard';
+  const selectedView = availableNavItems.some((item) => item.id === activeView) ? activeView : defaultNavView;
   const activeNavItem = availableNavItems.find((item) => item.id === selectedView) || availableNavItems[0];
 
   useEffect(() => {
@@ -1348,6 +1666,68 @@ function App() {
           };
         }
 
+        if (userMode === 'guard') {
+          return {
+            kicker: 'Guard portal',
+            title: 'Monitor request status and passenger flow for your branch.',
+            description:
+              'This read-only view shows all branch request statuses and passenger manifests without exposing trip destinations or assignment details.',
+            primaryAction: null,
+            secondaryAction: null,
+            spotlights: [
+              {
+                label: 'Branch queue',
+                value: visibleRequestStatusSummary.total,
+                helper: 'All statuses in scope',
+                icon: 'requests',
+              },
+              {
+                label: 'Pending',
+                value: visibleRequestStatusSummary.pendingApproval,
+                helper: 'Awaiting review',
+                icon: 'clock',
+              },
+              {
+                label: 'Passengers',
+                value: visibleRequestRecords.reduce((total, request) => total + Number(request.passengerCount || 0), 0),
+                helper: 'Riders listed today',
+                icon: 'people',
+              },
+            ],
+          };
+        }
+
+        if (userMode === 'pump_station') {
+          return {
+            kicker: 'Pump station',
+            title: 'Review approved fuel authorizations only.',
+            description:
+              'This read-only view shows approved fuel authorizations with fuel details, status, and approver.',
+            primaryAction: null,
+            secondaryAction: null,
+            spotlights: [
+              {
+                label: 'Approved fuel',
+                value: visibleRequestRecords.length,
+                helper: 'Approved authorizations in scope',
+                icon: 'reports',
+              },
+              {
+                label: 'Total liters',
+                value: visibleRequestRecords.reduce((total, request) => total + Number(request.fuelLiters || 0), 0).toFixed(2),
+                helper: 'Authorized liters',
+                icon: 'vehicles',
+              },
+              {
+                label: 'Total amount',
+                value: `₱${visibleRequestRecords.reduce((total, request) => total + Number(request.fuelAmount || 0), 0).toFixed(2)}`,
+                helper: 'Authorized fuel value',
+                icon: 'check',
+              },
+            ],
+          };
+        }
+
         if (userMode === 'driver') {
           return {
             kicker: 'Assignments',
@@ -1358,20 +1738,20 @@ function App() {
             secondaryAction: null,
             spotlights: [
               {
-                label: 'Assigned',
-                value: visibleRequestStatusSummary.total,
-                helper: 'Requests tied to you',
+                label: 'Branch requests',
+                value: branchScopedRequestStatusSummary.total,
+                helper: currentSessionUser.branch,
                 icon: 'requests',
               },
               {
                 label: 'Ready',
-                value: visibleRequestStatusSummary.readyForRelease,
+                value: branchScopedRequestStatusSummary.readyForRelease,
                 helper: 'Waiting for release',
                 icon: 'release',
               },
               {
                 label: 'Active',
-                value: tripStatusSummary.active,
+                value: tripsPageTripStatusSummary.active,
                 helper: 'Checked out or in transit',
                 icon: 'trips',
               },
@@ -1402,9 +1782,25 @@ function App() {
             primaryAction: actionFor('requests', 'Open assigned requests'),
             secondaryAction: null,
             spotlights: [
-              { label: 'Assigned', value: tripStatusSummary.total, helper: 'Trip records tied to you', icon: 'trips' },
-              { label: 'Ready', value: tripStatusSummary.readyForRelease, helper: 'Waiting for release', icon: 'release' },
-              { label: 'Open returns', value: tripStatusSummary.active, helper: 'Need check-in', icon: 'return' },
+              { label: 'Branch trips', value: tripsPageTripStatusSummary.total, helper: currentSessionUser.branch, icon: 'trips' },
+              { label: 'Ready', value: tripsPageTripStatusSummary.readyForRelease, helper: 'Waiting for release', icon: 'release' },
+              { label: 'Open returns', value: tripsPageTripStatusSummary.active, helper: 'Need check-in', icon: 'return' },
+            ],
+          };
+        }
+
+        if (userMode === 'guard') {
+          return {
+            kicker: 'Guard portal',
+            title: 'Monitor branch trip status with passenger context.',
+            description:
+              'This read-only trip view shows status and schedule without exposing route, assignment, or vehicle trip details.',
+            primaryAction: null,
+            secondaryAction: actionFor('requests', 'Open requests'),
+            spotlights: [
+              { label: 'Trips', value: visibleTripRecords.length, helper: 'Branch records in scope', icon: 'trips' },
+              { label: 'Active', value: tripStatusSummary.active, helper: 'Checked out or in transit', icon: 'release' },
+              { label: 'Returned', value: tripStatusSummary.returned, helper: 'Completed returns', icon: 'return' },
             ],
           };
         }
@@ -1434,6 +1830,36 @@ function App() {
             { label: 'Requests', value: visibleRequestRecords.length, helper: 'Records in reporting scope', icon: 'requests' },
             { label: 'Trips', value: visibleTripRecords.length, helper: 'Dispatch records available', icon: 'trips' },
             { label: 'Fuel-authorized', value: visibleRequestRecords.filter((request) => request.fuelRequested).length, helper: 'Requests with fuel support', icon: 'reports' },
+          ],
+        };
+      case 'calendar':
+        if (userMode === 'driver') {
+          return {
+            kicker: 'Branch calendar',
+            title: 'Review your branch trip schedule.',
+            description:
+              'Calendar data is scoped to your branch so all drivers in the same branch see the same schedule.',
+            primaryAction: actionFor('requests', 'Open assigned requests'),
+            secondaryAction: actionFor('trips', 'Open trip actions'),
+            spotlights: [
+              { label: 'Branch trips', value: calendarTripStatusSummary.total, helper: currentSessionUser.branch, icon: 'calendar' },
+              { label: 'Ready', value: calendarTripStatusSummary.readyForRelease, helper: 'Queued for release', icon: 'release' },
+              { label: 'Active', value: calendarTripStatusSummary.active, helper: 'Checked out or in transit', icon: 'trips' },
+            ],
+          };
+        }
+
+        return {
+          kicker: 'Calendar',
+          title: 'Track scheduled, active, and returning trips by date.',
+          description:
+            'Use the calendar to review trip load and dispatch timing for the records in your current access scope.',
+          primaryAction: actionFor('trips', 'Open dispatch'),
+          secondaryAction: actionFor('requests', 'Open requests'),
+          spotlights: [
+            { label: 'Trips in scope', value: calendarTripStatusSummary.total, helper: 'Calendar-visible records', icon: 'calendar' },
+            { label: 'Ready', value: calendarTripStatusSummary.readyForRelease, helper: 'Queued for release', icon: 'release' },
+            { label: 'Active', value: calendarTripStatusSummary.active, helper: 'Checked out or in transit', icon: 'trips' },
           ],
         };
       case 'vehicles':
@@ -1466,6 +1892,22 @@ function App() {
           ],
         };
       case 'settings':
+        if (userMode === 'approver') {
+          return {
+            kicker: 'Vehicle settings',
+            title: 'Manage your branch fleet settings.',
+            description:
+              'Add and edit vehicles assigned to your branch to keep dispatch and compliance data accurate.',
+            primaryAction: actionFor('settings', 'Open settings'),
+            secondaryAction: actionFor('requests', 'Back to requests'),
+            spotlights: [
+              { label: 'Branch vehicles', value: settingsVehicleRecords.length, helper: currentSessionUser.branch, icon: 'vehicles' },
+              { label: 'Available', value: settingsVehicleRecords.filter((vehicle) => vehicle.status === 'available').length, helper: 'Ready for assignment', icon: 'check' },
+              { label: 'Maintenance', value: settingsVehicleRecords.filter((vehicle) => vehicle.status === 'maintenance').length, helper: 'Needs service follow-up', icon: 'wrench' },
+            ],
+          };
+        }
+
         return {
           kicker: 'Admin settings',
           title: 'Manage users, drivers, and vehicles.',
@@ -1627,6 +2069,10 @@ function App() {
     myRequestRecords,
     notificationFeed.length,
     requestStatusSummary,
+    branchScopedRequestStatusSummary,
+    calendarTripStatusSummary,
+    tripsPageTripStatusSummary,
+    settingsVehicleRecords,
     selectedView,
     todayShortLabel,
     tripStatusSummary,
@@ -1837,6 +2283,10 @@ function App() {
   }
 
   function handleVehicleSettingsFieldChange(field, value) {
+    if (userMode === 'approver' && field === 'branchId') {
+      return;
+    }
+
     setVehicleSettingsForm((current) => ({
       ...current,
       [field]: value,
@@ -2160,68 +2610,19 @@ function App() {
     return messages.join(' ');
   }
 
-  function openRequestPdfPreviewWindow(requestNo) {
-    const previewWindow = window.open('', '_blank', 'width=980,height=860');
-
-    if (!previewWindow) {
-      return null;
-    }
-
-    previewWindow.document.open();
-    previewWindow.document.write(`<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>${String(requestNo || 'Approved request')} PDF</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #eef3fb;
-        color: #1d2b57;
-        font-family: "Segoe UI", Tahoma, sans-serif;
-      }
-      .panel {
-        width: min(420px, calc(100vw - 48px));
-        padding: 28px;
-        border: 1px solid #d8e0f0;
-        border-radius: 18px;
-        background: #ffffff;
-        text-align: center;
-      }
-      h1 {
-        margin: 0 0 10px;
-        font-size: 22px;
-      }
-      p {
-        margin: 0;
-        color: #607095;
-        line-height: 1.55;
-      }
-    </style>
-  </head>
-  <body>
-    <main class="panel">
-      <h1>Generating approved PDF</h1>
-      <p>${String(requestNo || 'Your approved ticket')} is being prepared.</p>
-    </main>
-  </body>
-</html>`);
-    previewWindow.document.close();
-
-    return previewWindow;
-  }
-
   async function handleReviewRequest(request, nextStatus, approvalDetails = null) {
-    if (userMode !== 'approver') {
+    if (!['approver', 'admin'].includes(userMode)) {
       return false;
     }
 
-    const previewWindow = nextStatus === 'Approved'
-      ? openRequestPdfPreviewWindow(request?.requestNo)
-      : null;
+    if (
+      userMode === 'approver'
+      && request?.approverId
+      && request.approverId !== currentSessionUser.id
+    ) {
+      showToast('This request is assigned to an admin approver.', 'warning', 'Approval blocked');
+      return false;
+    }
 
     if (nextStatus === 'Approved' && approvalDetails) {
       const selectedDriver = driverRecords.find(
@@ -2230,9 +2631,6 @@ function App() {
       const validation = getDriverAssignmentValidation(selectedDriver, selectedRequestApprovalVehicle);
 
       if (!validation.isValid) {
-        if (previewWindow && !previewWindow.closed) {
-          previewWindow.close();
-        }
         showToast(getDriverAssignmentValidationMessage(validation), 'warning', 'Driver validation');
         return false;
       }
@@ -2241,37 +2639,7 @@ function App() {
     if (supabase) {
       try {
         await reviewLiveRequest(supabase, request, currentSessionUser, nextStatus, approvalDetails);
-        const liveData = await refreshLiveData(currentSessionUser);
-        const approvedRequest = nextStatus === 'Approved'
-          ? liveData?.requestRecords?.find((entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id)
-          : null;
-
-        if (nextStatus === 'Approved') {
-          const didOpenPdf = handlePrintRequest(approvedRequest || {
-            ...request,
-            status: nextStatus,
-            approver: currentSessionUser.name,
-            approverId: currentSessionUser.id,
-            assignedDriverId: approvalDetails?.assignedDriverId ?? request.assignedDriverId,
-            fuelRequested: approvalDetails?.fuelRequested ?? request.fuelRequested,
-            fuelAmount: Number(approvalDetails?.fuelAmount ?? request.fuelAmount ?? 0),
-            fuelLiters: Number(approvalDetails?.fuelLiters ?? request.fuelLiters ?? 0),
-            estimatedKms: Number(approvalDetails?.estimatedKms ?? request.estimatedKms ?? 0),
-            fuelRemarks: approvalDetails?.fuelRemarks ?? request.fuelRemarks ?? '',
-            fuelProduct: approvalDetails?.fuelProduct ?? request.fuelProduct ?? 'diesel',
-            fuelQuotePricePerLiter: approvalDetails?.fuelQuotePricePerLiter ?? request.fuelQuotePricePerLiter ?? null,
-            fuelQuoteSource: approvalDetails?.fuelQuoteSource ?? request.fuelQuoteSource ?? '',
-            fuelQuoteObservedAt: approvalDetails?.fuelQuoteObservedAt ?? request.fuelQuoteObservedAt ?? '',
-            fuelQuoteLocation: approvalDetails?.fuelQuoteLocation ?? request.fuelQuoteLocation ?? '',
-            fuelQuoteProvince: approvalDetails?.fuelQuoteProvince ?? request.fuelQuoteProvince ?? '',
-            fuelQuoteMunicipality: approvalDetails?.fuelQuoteMunicipality ?? request.fuelQuoteMunicipality ?? '',
-            approvedAt: new Date().toISOString(),
-          }, previewWindow);
-
-          if (!didOpenPdf) {
-            showToast('Allow pop-ups for this site to open the approved request PDF automatically.', 'warning', 'PDF blocked');
-          }
-        }
+        await refreshLiveData(currentSessionUser);
 
         appendAuditEntry({
           category: 'request',
@@ -2295,9 +2663,6 @@ function App() {
           // Keep the original approval error as the primary feedback.
         }
 
-        if (previewWindow && !previewWindow.closed) {
-          previewWindow.close();
-        }
         showToast(error.message || `Unable to mark the request as ${nextStatus.toLowerCase()}.`, 'danger', 'Update failed');
         return false;
       }
@@ -2389,16 +2754,6 @@ function App() {
       }
     }
 
-    if (nextStatus === 'Approved') {
-      const didOpenPdf = handlePrintRequest(updatedRequest, previewWindow);
-
-      if (!didOpenPdf) {
-        showToast('Allow pop-ups for this site to open the approved request PDF automatically.', 'warning', 'PDF blocked');
-      }
-    } else if (previewWindow && !previewWindow.closed) {
-      previewWindow.close();
-    }
-
     appendAuditEntry({
       category: 'request',
       action: `Marked request as ${nextStatus}`,
@@ -2425,7 +2780,16 @@ function App() {
   async function handleRejectSubmit(event) {
     event.preventDefault();
 
-    if (userMode !== 'approver' || !selectedReviewRequest) {
+    if (!['approver', 'admin'].includes(userMode) || !selectedReviewRequest) {
+      return;
+    }
+
+    if (
+      userMode === 'approver'
+      && selectedReviewRequest?.approverId
+      && selectedReviewRequest.approverId !== currentSessionUser.id
+    ) {
+      showToast('This request is assigned to an admin approver.', 'warning', 'Rejection blocked');
       return;
     }
 
@@ -3209,13 +3573,34 @@ function App() {
   }
 
   function handleOpenVehicleSettingsModal(vehicle = null) {
+    if (!canManageVehicleSettings) {
+      showToast('Only admins and approvers can manage vehicle settings.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && !approverManagedBranchId) {
+      showToast('Your approver account needs a branch assignment before editing vehicles.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && vehicle && !isVehicleInApproverScope(vehicle)) {
+      showToast('You can only edit vehicles assigned to your branch.', 'warning', 'Permission denied');
+      return;
+    }
+
+    const defaultBranchId = userMode === 'approver'
+      ? approverManagedBranchId
+      : (branchOptions[0]?.id || '');
+
     setVehicleSettingsForm(
       vehicle
         ? {
             id: vehicle.id,
             vehicleName: vehicle.vehicleName,
             plateNumber: vehicle.plateNumber,
-            branchId: vehicle.branchId || findBranchId(branchRecords, vehicle.branch),
+            branchId: userMode === 'approver'
+              ? approverManagedBranchId
+              : (vehicle.branchId || findBranchId(branchRecords, vehicle.branch)),
             branchName: vehicle.branch,
             typeId: vehicle.typeId || availableVehicleTypeRecords.find((type) => type.name === vehicle.type)?.id || vehicle.type,
             status: vehicle.status,
@@ -3239,7 +3624,7 @@ function App() {
             isOdoDefective: vehicle.isOdoDefective || false,
             requiredRestrictions: vehicle.requiredRestrictions || vehicle.required_restrictions || '',
           }
-        : createVehicleSettingsForm(branchOptions[0]?.id || '', availableVehicleTypeRecords[0]?.id || '')
+        : createVehicleSettingsForm(defaultBranchId, availableVehicleTypeRecords[0]?.id || '')
     );
     setVehicleSettingsModalOpen(true);
   }
@@ -3251,20 +3636,46 @@ function App() {
   async function handleVehicleSettingsSubmit(event) {
     event.preventDefault();
 
-    if (!vehicleSettingsForm.vehicleName.trim() || !vehicleSettingsForm.plateNumber.trim()) {
+    if (!canManageVehicleSettings) {
+      showToast('Only admins and approvers can manage vehicle settings.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && !approverManagedBranchId) {
+      showToast('Your approver account needs a branch assignment before editing vehicles.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && vehicleSettingsForm.id) {
+      const existingVehicle = vehicleRecords.find((vehicle) => vehicle.id === vehicleSettingsForm.id);
+
+      if (!isVehicleInApproverScope(existingVehicle)) {
+        showToast('You can only edit vehicles assigned to your branch.', 'warning', 'Permission denied');
+        return;
+      }
+    }
+
+    const scopedVehicleSettingsForm = userMode === 'approver'
+      ? {
+          ...vehicleSettingsForm,
+          branchId: approverManagedBranchId,
+        }
+      : vehicleSettingsForm;
+
+    if (!scopedVehicleSettingsForm.vehicleName.trim() || !scopedVehicleSettingsForm.plateNumber.trim()) {
       showToast('Enter the vehicle name and plate number.', 'warning', 'Missing details');
       return;
     }
 
-    const oilChangeIntervalKmValue = Number.parseInt(String(vehicleSettingsForm.oilChangeIntervalKm ?? ''), 10);
-    const oilChangeIntervalMonthsValue = Number.parseInt(String(vehicleSettingsForm.oilChangeIntervalMonths ?? ''), 10);
+    const oilChangeIntervalKmValue = Number.parseInt(String(scopedVehicleSettingsForm.oilChangeIntervalKm ?? ''), 10);
+    const oilChangeIntervalMonthsValue = Number.parseInt(String(scopedVehicleSettingsForm.oilChangeIntervalMonths ?? ''), 10);
     const hasOilChangeIntervalKm = Number.isFinite(oilChangeIntervalKmValue) && oilChangeIntervalKmValue > 0;
     const hasOilChangeIntervalMonths = Number.isFinite(oilChangeIntervalMonthsValue) && oilChangeIntervalMonthsValue > 0;
-    const hasOilChangeLastChangedOn = Boolean(String(vehicleSettingsForm.oilChangeLastChangedOn || '').trim());
-    const oilChangeLastOdometerValue = Number.parseFloat(String(vehicleSettingsForm.oilChangeLastOdometer ?? ''));
-    const hasOilChangeLastOdometer = String(vehicleSettingsForm.oilChangeLastOdometer ?? '').trim() !== '';
+    const hasOilChangeLastChangedOn = Boolean(String(scopedVehicleSettingsForm.oilChangeLastChangedOn || '').trim());
+    const oilChangeLastOdometerValue = Number.parseFloat(String(scopedVehicleSettingsForm.oilChangeLastOdometer ?? ''));
+    const hasOilChangeLastOdometer = String(scopedVehicleSettingsForm.oilChangeLastOdometer ?? '').trim() !== '';
 
-    if (vehicleSettingsForm.oilChangeReminderEnabled && !hasOilChangeIntervalKm && !hasOilChangeIntervalMonths) {
+    if (scopedVehicleSettingsForm.oilChangeReminderEnabled && !hasOilChangeIntervalKm && !hasOilChangeIntervalMonths) {
       showToast('Set a change-oil interval in KM or months.', 'warning', 'Oil reminder settings');
       return;
     }
@@ -3279,21 +3690,21 @@ function App() {
       return;
     }
 
-    if (vehicleSettingsForm.oilChangeReminderEnabled && !hasOilChangeLastChangedOn) {
+    if (scopedVehicleSettingsForm.oilChangeReminderEnabled && !hasOilChangeLastChangedOn) {
       showToast('Set the last oil-change date to enable reminders.', 'warning', 'Oil reminder settings');
       return;
     }
 
     if (supabase) {
       try {
-        await saveLiveVehicle(supabase, vehicleSettingsForm, availableVehicleTypeRecords);
+        await saveLiveVehicle(supabase, scopedVehicleSettingsForm, availableVehicleTypeRecords);
         await refreshLiveData(currentSessionUser);
         appendAuditEntry({
           category: 'vehicle',
-          action: vehicleSettingsForm.id ? 'Updated vehicle record' : 'Created vehicle record',
-          target: vehicleSettingsForm.vehicleName.trim(),
-          branch: branchOptions.find((branch) => branch.id === vehicleSettingsForm.branchId)?.name || currentSessionUser.branch,
-          details: `Saved vehicle ${vehicleSettingsForm.vehicleName.trim()} in live mode.`,
+          action: scopedVehicleSettingsForm.id ? 'Updated vehicle record' : 'Created vehicle record',
+          target: scopedVehicleSettingsForm.vehicleName.trim(),
+          branch: branchOptions.find((branch) => branch.id === scopedVehicleSettingsForm.branchId)?.name || currentSessionUser.branch,
+          details: `Saved vehicle ${scopedVehicleSettingsForm.vehicleName.trim()} in live mode.`,
         });
         showToast('Vehicle record updated.', 'success', 'Settings saved');
         handleCloseVehicleSettingsModal();
@@ -3304,53 +3715,58 @@ function App() {
       return;
     }
 
-    const branchName = branchOptions.find((branch) => branch.id === vehicleSettingsForm.branchId)?.name || 'Unassigned';
-    const vehicleTypeName = availableVehicleTypeRecords.find((type) => type.id === vehicleSettingsForm.typeId)?.name || vehicleSettingsForm.typeId;
+    const branchName = branchOptions.find((branch) => branch.id === scopedVehicleSettingsForm.branchId)?.name || 'Unassigned';
+    const vehicleTypeName = availableVehicleTypeRecords.find((type) => type.id === scopedVehicleSettingsForm.typeId)?.name || scopedVehicleSettingsForm.typeId;
     const nextVehicle = {
-      id: vehicleSettingsForm.id || createId('veh'),
-      plateNumber: vehicleSettingsForm.plateNumber.trim(),
-      vehicleName: vehicleSettingsForm.vehicleName.trim(),
+      id: scopedVehicleSettingsForm.id || createId('veh'),
+      plateNumber: scopedVehicleSettingsForm.plateNumber.trim(),
+      vehicleName: scopedVehicleSettingsForm.vehicleName.trim(),
       type: vehicleTypeName,
-      typeId: vehicleSettingsForm.typeId,
+      typeId: scopedVehicleSettingsForm.typeId,
       branch: branchName,
-      branchId: vehicleSettingsForm.branchId,
-      status: vehicleSettingsForm.status,
-      fuelType: vehicleSettingsForm.fuelType.trim(),
-      seatingCapacity: Number(vehicleSettingsForm.seatingCapacity || 0),
-      odometerCurrent: Number(vehicleSettingsForm.odometerCurrent || 0),
-      oilChangeReminderEnabled: Boolean(vehicleSettingsForm.oilChangeReminderEnabled),
+      branchId: scopedVehicleSettingsForm.branchId,
+      status: scopedVehicleSettingsForm.status,
+      fuelType: scopedVehicleSettingsForm.fuelType.trim(),
+      seatingCapacity: Number(scopedVehicleSettingsForm.seatingCapacity || 0),
+      odometerCurrent: Number(scopedVehicleSettingsForm.odometerCurrent || 0),
+      oilChangeReminderEnabled: Boolean(scopedVehicleSettingsForm.oilChangeReminderEnabled),
       oilChangeIntervalKm: hasOilChangeIntervalKm ? oilChangeIntervalKmValue : null,
       oilChangeIntervalMonths: hasOilChangeIntervalMonths ? oilChangeIntervalMonthsValue : null,
       oilChangeLastOdometer: hasOilChangeLastOdometer && Number.isFinite(oilChangeLastOdometerValue)
         ? oilChangeLastOdometerValue
         : null,
-      oilChangeLastChangedOn: hasOilChangeLastChangedOn ? String(vehicleSettingsForm.oilChangeLastChangedOn).trim() : '',
-      registrationExpiry: vehicleSettingsForm.registrationExpiry,
-      insuranceExpiry: vehicleSettingsForm.insuranceExpiry,
-      fuelEfficiency: Number(vehicleSettingsForm.fuelEfficiency || 10),
-      requiredRestrictions: vehicleSettingsForm.requiredRestrictions.trim(),
-      isOdoDefective: vehicleSettingsForm.isOdoDefective || false,
+      oilChangeLastChangedOn: hasOilChangeLastChangedOn ? String(scopedVehicleSettingsForm.oilChangeLastChangedOn).trim() : '',
+      registrationExpiry: scopedVehicleSettingsForm.registrationExpiry,
+      insuranceExpiry: scopedVehicleSettingsForm.insuranceExpiry,
+      fuelEfficiency: Number(scopedVehicleSettingsForm.fuelEfficiency || 10),
+      requiredRestrictions: scopedVehicleSettingsForm.requiredRestrictions.trim(),
+      isOdoDefective: scopedVehicleSettingsForm.isOdoDefective || false,
       assignedDriver: 'Unassigned',
     };
 
     setVehicleRecords((current) =>
-      vehicleSettingsForm.id
-        ? current.map((vehicle) => (vehicle.id === vehicleSettingsForm.id ? nextVehicle : vehicle))
+      scopedVehicleSettingsForm.id
+        ? current.map((vehicle) => (vehicle.id === scopedVehicleSettingsForm.id ? nextVehicle : vehicle))
         : [nextVehicle, ...current]
     );
 
     appendAuditEntry({
       category: 'vehicle',
-      action: vehicleSettingsForm.id ? 'Updated vehicle record' : 'Created vehicle record',
+      action: scopedVehicleSettingsForm.id ? 'Updated vehicle record' : 'Created vehicle record',
       target: nextVehicle.vehicleName,
       branch: nextVehicle.branch,
-      details: `${vehicleSettingsForm.id ? 'Updated' : 'Created'} ${nextVehicle.type} vehicle ${nextVehicle.vehicleName}.`,
+      details: `${scopedVehicleSettingsForm.id ? 'Updated' : 'Created'} ${nextVehicle.type} vehicle ${nextVehicle.vehicleName}.`,
     });
-    showToast(`Vehicle ${vehicleSettingsForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
+    showToast(`Vehicle ${scopedVehicleSettingsForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
     handleCloseVehicleSettingsModal();
   }
 
   async function handleDeleteVehicle(vehicle) {
+    if (userMode !== 'admin') {
+      showToast('Only admins can delete vehicle records.', 'warning', 'Permission denied');
+      return;
+    }
+
     if (!window.confirm(`Delete vehicle "${vehicle.vehicleName}"? This cannot be undone.`)) {
       return;
     }
@@ -3405,6 +3821,303 @@ function App() {
       details: `Deleted vehicle ${vehicle.vehicleName} from the workspace.`,
     });
     showToast('Vehicle deleted successfully.', 'success', 'Settings saved');
+  }
+
+  function resolveBranchFromCsvToken(token) {
+    const normalizedToken = normalizeComparableText(token);
+
+    if (!normalizedToken) {
+      return null;
+    }
+
+    return branchRecords.find((branch) => (
+      normalizeComparableText(branch.id) === normalizedToken
+      || normalizeComparableText(branch.code) === normalizedToken
+      || normalizeComparableText(branch.name) === normalizedToken
+    )) || null;
+  }
+
+  function resolveVehicleTypeFromCsvToken(token) {
+    const normalizedToken = normalizeComparableText(token);
+
+    if (!normalizedToken) {
+      return null;
+    }
+
+    return availableVehicleTypeRecords.find((type) => (
+      normalizeComparableText(type.id) === normalizedToken
+      || normalizeComparableText(type.name) === normalizedToken
+    )) || null;
+  }
+
+  async function handleImportUsersCsv(file) {
+    if (!file) {
+      return;
+    }
+
+    if (!supabase) {
+      showToast('Supabase is required for user CSV import.', 'danger', 'Import failed');
+      return;
+    }
+
+    const rows = parseCsvText(await file.text());
+
+    if (!rows.length) {
+      showToast('The selected CSV has no data rows.', 'warning', 'Import skipped');
+      return;
+    }
+
+    const usersByEmail = new Map(
+      userRecords
+        .filter((user) => user.email)
+        .map((user) => [normalizeComparableText(user.email), user])
+    );
+    const errors = [];
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      const row = rows[rowIndex];
+      const name = getCsvValue(row, ['full_name', 'name']);
+      const email = normalizeComparableText(getCsvValue(row, ['email']));
+      const roleLabel = normalizeRoleLabel(getCsvValue(row, ['role']));
+      const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
+      const branch = resolveBranchFromCsvToken(branchToken);
+      const existingUser = usersByEmail.get(email);
+
+      if (!name || !email || !roleLabel || !branch) {
+        errors.push(`Row ${rowIndex + 2}: missing/invalid name, email, role, or branch.`);
+        continue;
+      }
+
+      try {
+        if (existingUser?.id) {
+          await updateLiveProfile(supabase, {
+            id: existingUser.id,
+            name,
+            email,
+            role: roleLabel,
+            branchId: branch.id,
+          });
+          updatedCount += 1;
+        } else {
+          const password = getCsvValue(row, ['password', 'temporary_password']) || generateTemporaryPassword();
+          await createLiveUser(supabase, {
+            name,
+            email,
+            role: roleLabel,
+            branchId: branch.id,
+            password,
+            confirmPassword: password,
+          });
+          createdCount += 1;
+        }
+      } catch (error) {
+        errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import user.'}`);
+      }
+    }
+
+    await refreshLiveData(currentSessionUser);
+    appendAuditEntry({
+      category: 'user',
+      action: 'Imported users CSV',
+      target: `${createdCount + updatedCount} row(s)`,
+      details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
+    });
+
+    if (errors.length) {
+      showToast(`Users import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
+      return;
+    }
+
+    showToast(`Users CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+  }
+
+  async function handleImportDriversCsv(file) {
+    if (!file) {
+      return;
+    }
+
+    if (!supabase) {
+      showToast('Supabase is required for driver CSV import.', 'danger', 'Import failed');
+      return;
+    }
+
+    const rows = parseCsvText(await file.text());
+
+    if (!rows.length) {
+      showToast('The selected CSV has no data rows.', 'warning', 'Import skipped');
+      return;
+    }
+
+    const driversByEmployeeId = new Map(
+      driverRecords
+        .filter((driver) => driver.employeeId)
+        .map((driver) => [normalizeComparableText(driver.employeeId), driver])
+    );
+    const usersByEmail = new Map(
+      userRecords
+        .filter((user) => user.email)
+        .map((user) => [normalizeComparableText(user.email), user])
+    );
+    const errors = [];
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      const row = rows[rowIndex];
+      const fullName = getCsvValue(row, ['full_name', 'name']);
+      const employeeId = getCsvValue(row, ['employee_id', 'employee_no', 'employee']);
+      const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
+      const branch = resolveBranchFromCsvToken(branchToken);
+      const licenseNumber = getCsvValue(row, ['license_number']);
+      const licenseExpiry = getCsvValue(row, ['license_expiry']);
+      const contactNumber = getCsvValue(row, ['contact_number', 'contact']);
+      const licenseRestrictions = getCsvValue(row, ['license_restrictions', 'restrictions']);
+      const status = normalizeDriverStatus(getCsvValue(row, ['status']));
+      const profileEmail = normalizeComparableText(getCsvValue(row, ['profile_email', 'linked_email']));
+      const profileId = profileEmail ? (usersByEmail.get(profileEmail)?.id || '') : '';
+      const existingDriver = driversByEmployeeId.get(normalizeComparableText(employeeId));
+
+      if (!fullName || !employeeId || !branch || !licenseNumber || !licenseExpiry) {
+        errors.push(`Row ${rowIndex + 2}: missing/invalid full_name, employee_id, branch, license_number, or license_expiry.`);
+        continue;
+      }
+
+      try {
+        await saveLiveDriver(supabase, {
+          id: existingDriver?.id || '',
+          profileId,
+          fullName,
+          employeeId,
+          branchId: branch.id,
+          branchName: branch.name,
+          status,
+          licenseNumber,
+          licenseRestrictions,
+          licenseExpiry,
+          contactNumber,
+        });
+
+        if (existingDriver?.id) {
+          updatedCount += 1;
+        } else {
+          createdCount += 1;
+        }
+      } catch (error) {
+        errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import driver.'}`);
+      }
+    }
+
+    await refreshLiveData(currentSessionUser);
+    appendAuditEntry({
+      category: 'driver',
+      action: 'Imported drivers CSV',
+      target: `${createdCount + updatedCount} row(s)`,
+      details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
+    });
+
+    if (errors.length) {
+      showToast(`Drivers import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
+      return;
+    }
+
+    showToast(`Drivers CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+  }
+
+  async function handleImportVehiclesCsv(file) {
+    if (!file) {
+      return;
+    }
+
+    if (userMode !== 'admin') {
+      showToast('Only admins can import vehicles via CSV.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (!supabase) {
+      showToast('Supabase is required for vehicle CSV import.', 'danger', 'Import failed');
+      return;
+    }
+
+    const rows = parseCsvText(await file.text());
+
+    if (!rows.length) {
+      showToast('The selected CSV has no data rows.', 'warning', 'Import skipped');
+      return;
+    }
+
+    const vehiclesByPlate = new Map(
+      vehicleRecords
+        .filter((vehicle) => vehicle.plateNumber)
+        .map((vehicle) => [normalizeComparableText(vehicle.plateNumber), vehicle])
+    );
+    const errors = [];
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      const row = rows[rowIndex];
+      const vehicleName = getCsvValue(row, ['vehicle_name', 'name']);
+      const plateNumber = getCsvValue(row, ['plate_number', 'plate']);
+      const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
+      const typeToken = getCsvValue(row, ['type_id', 'type_name', 'vehicle_type', 'type']);
+      const branch = resolveBranchFromCsvToken(branchToken);
+      const vehicleType = resolveVehicleTypeFromCsvToken(typeToken);
+      const existingVehicle = vehiclesByPlate.get(normalizeComparableText(plateNumber));
+
+      if (!vehicleName || !plateNumber || !branch || !vehicleType) {
+        errors.push(`Row ${rowIndex + 2}: missing/invalid vehicle_name, plate_number, branch, or type.`);
+        continue;
+      }
+
+      try {
+        await saveLiveVehicle(supabase, {
+          id: existingVehicle?.id || '',
+          vehicleName,
+          plateNumber,
+          branchId: branch.id,
+          branchName: branch.name,
+          typeId: vehicleType.id,
+          status: normalizeVehicleStatus(getCsvValue(row, ['status'])),
+          fuelType: getCsvValue(row, ['fuel_type']) || 'Diesel',
+          seatingCapacity: getCsvValue(row, ['seating_capacity']) || '0',
+          odometerCurrent: getCsvValue(row, ['odometer_current']) || '0',
+          registrationExpiry: getCsvValue(row, ['registration_expiry']) || null,
+          insuranceExpiry: getCsvValue(row, ['insurance_expiry']) || null,
+          requiredRestrictions: getCsvValue(row, ['required_restrictions']),
+          isOdoDefective: parseBooleanCsvValue(getCsvValue(row, ['is_odo_defective']), false),
+          oilChangeReminderEnabled: parseBooleanCsvValue(getCsvValue(row, ['oil_change_reminder_enabled']), false),
+          oilChangeIntervalKm: getCsvValue(row, ['oil_change_interval_km']),
+          oilChangeIntervalMonths: getCsvValue(row, ['oil_change_interval_months']),
+          oilChangeLastOdometer: getCsvValue(row, ['oil_change_last_odometer']),
+          oilChangeLastChangedOn: getCsvValue(row, ['oil_change_last_changed_on']) || null,
+        }, availableVehicleTypeRecords);
+
+        if (existingVehicle?.id) {
+          updatedCount += 1;
+        } else {
+          createdCount += 1;
+        }
+      } catch (error) {
+        errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import vehicle.'}`);
+      }
+    }
+
+    await refreshLiveData(currentSessionUser);
+    appendAuditEntry({
+      category: 'vehicle',
+      action: 'Imported vehicles CSV',
+      target: `${createdCount + updatedCount} row(s)`,
+      details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
+    });
+
+    if (errors.length) {
+      showToast(`Vehicles import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
+      return;
+    }
+
+    showToast(`Vehicles CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
   }
 
   async function handleRequestSubmit(event) {
@@ -3470,6 +4183,13 @@ function App() {
       return;
     }
 
+    const forcedApproverId = userMode === 'approver'
+      ? branchAdminApprover?.id || null
+      : null;
+    const forcedApproverName = userMode === 'approver'
+      ? branchAdminApprover?.name || 'Pending'
+      : 'Pending';
+
     if (supabase) {
       try {
         const requestNo = await createLiveRequest(
@@ -3480,7 +4200,10 @@ function App() {
             passengerCount,
             passengerNames,
           },
-          requestRecords.length
+          requestRecords.length,
+          {
+            forcedApproverId,
+          }
         );
 
         await refreshLiveData(currentSessionUser);
@@ -3518,7 +4241,6 @@ function App() {
       passengerCount,
       passengerNames,
       status: 'Pending Approval',
-      approver: 'Pending',
       assignedVehicle: selectedVehicle?.vehicleName || 'Unassigned',
       assignedVehicleId: requestForm.assignedVehicleId || '',
       assignedDriver: selectedDriver?.fullName || 'Unassigned',
@@ -3535,6 +4257,8 @@ function App() {
       fuelQuoteLocation: requestForm.fuelQuoteLocation || '',
       fuelQuoteProvince: requestForm.fuelQuoteProvince || '',
       fuelQuoteMunicipality: requestForm.fuelQuoteMunicipality || '',
+      approverId: forcedApproverId || '',
+      approver: forcedApproverName,
     };
 
     setRequestRecords((current) => [nextRequest, ...current]);
@@ -4301,7 +5025,8 @@ function App() {
         )}
         {selectedView === 'trips' && (
           <TripsPage
-            tripRecords={visibleTripRecords}
+            mode={userMode}
+            tripRecords={tripsPageTripRecords}
             vehicleRecords={vehicleRecords}
             checkoutForm={checkoutForm}
             checkinForm={checkinForm}
@@ -4320,7 +5045,7 @@ function App() {
           />
         )}
         {selectedView === 'calendar' && (
-          <TripsCalendarPage tripRecords={visibleTripRecords} />
+          <TripsCalendarPage tripRecords={calendarTripRecords} />
         )}
         {selectedView === 'reports' && (
           <ReportsPage
@@ -4362,20 +5087,24 @@ function App() {
             branchRecords={branchRecords}
             userRecords={userRecords}
             driverRecords={driverRecords}
-            vehicleRecords={vehicleRecords}
+            vehicleRecords={settingsVehicleRecords}
             auditRecords={auditRecords}
+            visibleTabKeys={userMode === 'approver' ? ['vehicles'] : undefined}
             onAddBranch={() => handleOpenBranchSettingsModal()}
             onEditBranch={handleOpenBranchSettingsModal}
             onDeleteBranch={handleDeleteBranch}
             onAddUser={() => handleOpenUserSettingsModal()}
             onEditUser={handleOpenUserSettingsModal}
             onDeleteUser={handleDeleteUser}
+            onImportUsersCsv={handleImportUsersCsv}
             onAddDriver={() => handleOpenDriverSettingsModal()}
             onEditDriver={handleOpenDriverSettingsModal}
             onDeleteDriver={handleDeleteDriver}
+            onImportDriversCsv={handleImportDriversCsv}
             onAddVehicle={() => handleOpenVehicleSettingsModal()}
             onEditVehicle={handleOpenVehicleSettingsModal}
-            onDeleteVehicle={handleDeleteVehicle}
+            onDeleteVehicle={userMode === 'admin' ? handleDeleteVehicle : undefined}
+            onImportVehiclesCsv={userMode === 'admin' ? handleImportVehiclesCsv : undefined}
           />
         )}
 
@@ -4512,7 +5241,7 @@ function App() {
                       value={userSettingsForm.role}
                       onChange={(event) => handleUserSettingsFieldChange('role', event.target.value)}
                     >
-                      {['Admin', 'Approver', 'Driver', 'Requester'].map((role) => (
+                      {['Admin', 'Approver', 'Guard', 'Pump Station', 'Driver', 'Requester'].map((role) => (
                         <option key={role} value={role}>{role}</option>
                       ))}
                     </select>
@@ -4769,7 +5498,12 @@ function App() {
                   </label>
                   <label>
                     <span className="field-label">Branch</span>
-                    <select className="input" value={vehicleSettingsForm.branchId} onChange={(event) => handleVehicleSettingsFieldChange('branchId', event.target.value)}>
+                    <select
+                      className="input"
+                      value={vehicleSettingsForm.branchId}
+                      onChange={(event) => handleVehicleSettingsFieldChange('branchId', event.target.value)}
+                      disabled={userMode === 'approver'}
+                    >
                       {vehicleBranchOptions.map((branch) => (
                         <option key={branch.id} value={branch.id}>{branch.name}</option>
                       ))}

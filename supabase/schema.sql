@@ -35,6 +35,35 @@ begin
 end;
 $$;
 
+drop function if exists public.resolve_admin_approver(uuid);
+
+create or replace function public.resolve_admin_approver(branch_uuid uuid default null)
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.id
+  from public.profiles p
+  join public.user_roles ur on ur.user_id = p.id
+  join public.roles r on r.id = ur.role_id
+  where r.name = 'admin'
+    and p.is_active is distinct from false
+    and p.deleted_at is null
+  order by
+    case
+      when branch_uuid is not null and (ur.branch_id = branch_uuid or p.branch_id = branch_uuid) then 0
+      when ur.branch_id is null then 1
+      else 2
+    end,
+    p.created_at asc,
+    p.id asc
+  limit 1;
+$$;
+
+grant execute on function public.resolve_admin_approver(uuid) to authenticated;
+
 create table if not exists public.roles (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
@@ -242,6 +271,149 @@ create table if not exists public.request_passengers (
   created_by uuid
 );
 
+drop function if exists public.get_guard_request_feed();
+
+create or replace function public.get_guard_request_feed()
+returns table (
+  request_id uuid,
+  request_no text,
+  status text,
+  requester_id uuid,
+  requester_name text,
+  branch_id uuid,
+  branch_name text,
+  departure_datetime timestamptz,
+  expected_return_datetime timestamptz,
+  passenger_count integer,
+  passenger_names text[],
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with guard_profile as (
+    select p.id as user_id, p.branch_id
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.branch_id is not null
+      and exists (
+        select 1
+        from public.user_roles ur
+        join public.roles r on r.id = ur.role_id
+        where ur.user_id = p.id
+          and r.name = 'guard'
+          and (ur.branch_id is null or ur.branch_id = p.branch_id)
+      )
+    limit 1
+  )
+  select
+    vr.id as request_id,
+    vr.request_no,
+    vr.status,
+    vr.requested_by as requester_id,
+    coalesce(requester.full_name, 'Unknown') as requester_name,
+    vr.branch_id,
+    coalesce(branch.name, 'Unknown') as branch_name,
+    vr.departure_datetime,
+    vr.expected_return_datetime,
+    coalesce(vr.passenger_count, 1)::integer as passenger_count,
+    coalesce(
+      array_agg(rp.passenger_name order by rp.created_at)
+        filter (where rp.passenger_name is not null and btrim(rp.passenger_name) <> ''),
+      '{}'::text[]
+    ) as passenger_names,
+    vr.created_at
+  from guard_profile gp
+  join public.vehicle_requests vr on vr.branch_id = gp.branch_id
+  left join public.profiles requester on requester.id = vr.requested_by
+  left join public.branches branch on branch.id = vr.branch_id
+  left join public.request_passengers rp on rp.request_id = vr.id
+  group by
+    vr.id,
+    vr.request_no,
+    vr.status,
+    vr.requested_by,
+    requester.full_name,
+    vr.branch_id,
+    branch.name,
+    vr.departure_datetime,
+    vr.expected_return_datetime,
+    vr.passenger_count,
+    vr.created_at
+  order by coalesce(vr.created_at, vr.departure_datetime) desc, vr.request_no desc;
+$$;
+
+drop function if exists public.get_pump_fuel_authorization_feed();
+
+create or replace function public.get_pump_fuel_authorization_feed()
+returns table (
+  request_id uuid,
+  request_no text,
+  branch_id uuid,
+  branch_name text,
+  status text,
+  approver_name text,
+  approved_at timestamptz,
+  fuel_product text,
+  fuel_amount numeric(12,2),
+  fuel_liters numeric(12,2),
+  estimated_kms numeric(12,2),
+  fuel_remarks text,
+  fuel_quote_price_per_liter numeric(12,4),
+  fuel_quote_source text,
+  fuel_quote_observed_at timestamptz,
+  fuel_quote_location text,
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with pump_profile as (
+    select p.id as user_id, p.branch_id
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.branch_id is not null
+      and exists (
+        select 1
+        from public.user_roles ur
+        join public.roles r on r.id = ur.role_id
+        where ur.user_id = p.id
+          and r.name = 'pump_station'
+          and (ur.branch_id is null or ur.branch_id = p.branch_id)
+      )
+    limit 1
+  )
+  select
+    vr.id as request_id,
+    vr.request_no,
+    vr.branch_id,
+    coalesce(branch.name, 'Unknown') as branch_name,
+    vr.status,
+    coalesce(approver.full_name, 'Pending') as approver_name,
+    vr.approved_at,
+    vr.fuel_product,
+    vr.fuel_amount,
+    vr.fuel_liters,
+    vr.estimated_kms,
+    vr.fuel_remarks,
+    vr.fuel_quote_price_per_liter,
+    vr.fuel_quote_source,
+    vr.fuel_quote_observed_at,
+    vr.fuel_quote_location,
+    vr.created_at
+  from pump_profile pp
+  join public.vehicle_requests vr on vr.branch_id = pp.branch_id
+  left join public.branches branch on branch.id = vr.branch_id
+  left join public.profiles approver on approver.id = vr.approver_id
+  where vr.fuel_requested = true
+    and vr.status = 'Approved'
+  order by coalesce(vr.approved_at, vr.created_at) desc, vr.request_no desc;
+$$;
+
 create table if not exists public.trip_logs (
   id uuid primary key default gen_random_uuid(),
   request_id uuid not null references public.vehicle_requests(id),
@@ -284,6 +456,89 @@ create table if not exists public.trip_checklists (
   updated_at timestamptz not null default now(),
   created_by uuid
 );
+
+drop function if exists public.get_guard_trip_feed();
+
+create or replace function public.get_guard_trip_feed()
+returns table (
+  trip_id uuid,
+  request_id uuid,
+  request_no text,
+  requester_name text,
+  driver_name text,
+  vehicle_name text,
+  branch_id uuid,
+  branch_name text,
+  trip_status text,
+  date_out timestamptz,
+  expected_return_datetime timestamptz,
+  date_in timestamptz,
+  passenger_count integer,
+  passenger_names text[]
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with guard_profile as (
+    select p.id as user_id, p.branch_id
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.branch_id is not null
+      and exists (
+        select 1
+        from public.user_roles ur
+        join public.roles r on r.id = ur.role_id
+        where ur.user_id = p.id
+          and r.name = 'guard'
+          and (ur.branch_id is null or ur.branch_id = p.branch_id)
+      )
+    limit 1
+  )
+  select
+    tl.id as trip_id,
+    tl.request_id,
+    coalesce(vr.request_no, 'Unlinked request') as request_no,
+    coalesce(requester.full_name, 'Unknown') as requester_name,
+    coalesce(driver.full_name, 'Unknown driver') as driver_name,
+    coalesce(vehicle.vehicle_name, 'Unknown vehicle') as vehicle_name,
+    tl.branch_id,
+    coalesce(branch.name, 'Unknown') as branch_name,
+    tl.trip_status,
+    tl.date_out,
+    tl.expected_return_datetime,
+    tl.date_in,
+    coalesce(vr.passenger_count, 1)::integer as passenger_count,
+    coalesce(
+      array_agg(rp.passenger_name order by rp.created_at)
+        filter (where rp.passenger_name is not null and btrim(rp.passenger_name) <> ''),
+      '{}'::text[]
+    ) as passenger_names
+  from guard_profile gp
+  join public.trip_logs tl on tl.branch_id = gp.branch_id
+  left join public.vehicle_requests vr on vr.id = tl.request_id
+  left join public.profiles requester on requester.id = vr.requested_by
+  left join public.drivers driver on driver.id = tl.driver_id
+  left join public.vehicles vehicle on vehicle.id = tl.vehicle_id
+  left join public.branches branch on branch.id = tl.branch_id
+  left join public.request_passengers rp on rp.request_id = tl.request_id
+  group by
+    tl.id,
+    tl.request_id,
+    vr.request_no,
+    requester.full_name,
+    driver.full_name,
+    vehicle.vehicle_name,
+    tl.branch_id,
+    branch.name,
+    tl.trip_status,
+    tl.date_out,
+    tl.expected_return_datetime,
+    tl.date_in,
+    vr.passenger_count
+  order by coalesce(tl.date_out, tl.expected_return_datetime) desc, coalesce(vr.request_no, '') desc;
+$$;
 
 create table if not exists public.fuel_logs (
   id uuid primary key default gen_random_uuid(),

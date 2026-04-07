@@ -246,9 +246,15 @@ on public.vehicle_requests
 for select
 using (
   public.has_role('admin')
-  or requested_by = auth.uid()
-  or approver_id = auth.uid()
-  or public.same_branch(branch_id)
+  or (
+    not public.has_role('guard')
+    and not public.has_role('pump_station')
+    and (
+      requested_by = auth.uid()
+      or approver_id = auth.uid()
+      or public.same_branch(branch_id)
+    )
+  )
 );
 
 drop policy if exists "vehicle requests create self" on public.vehicle_requests;
@@ -258,6 +264,13 @@ for insert
 with check (
   requested_by = auth.uid()
   and (public.same_branch(branch_id) or public.has_role('admin'))
+  and (
+    public.has_role('admin')
+    or (
+      not public.has_role('guard')
+      and not public.has_role('pump_station')
+    )
+  )
 );
 
 drop policy if exists "vehicle requests update by approver or admin" on public.vehicle_requests;
@@ -266,13 +279,25 @@ on public.vehicle_requests
 for update
 using (
   public.has_role('admin')
-  or public.has_role('approver', branch_id)
-  or requested_by = auth.uid()
+  or (
+    not public.has_role('guard')
+    and not public.has_role('pump_station')
+    and (
+      public.has_role('approver', branch_id)
+      or requested_by = auth.uid()
+    )
+  )
 )
 with check (
   public.has_role('admin')
-  or public.has_role('approver', branch_id)
-  or requested_by = auth.uid()
+  or (
+    not public.has_role('guard')
+    and not public.has_role('pump_station')
+    and (
+      public.has_role('approver', branch_id)
+      or requested_by = auth.uid()
+    )
+  )
 );
 
 drop policy if exists "request passengers scoped select" on public.request_passengers;
@@ -280,16 +305,19 @@ create policy "request passengers scoped select"
 on public.request_passengers
 for select
 using (
-  exists (
-    select 1
-    from public.vehicle_requests vr
-    where vr.id = request_passengers.request_id
-      and (
-        public.has_role('admin')
-        or vr.requested_by = auth.uid()
-        or vr.approver_id = auth.uid()
-        or public.same_branch(vr.branch_id)
-      )
+  public.has_role('admin')
+  or (
+    not public.has_role('pump_station')
+    and exists (
+      select 1
+      from public.vehicle_requests vr
+      where vr.id = request_passengers.request_id
+        and (
+          vr.requested_by = auth.uid()
+          or vr.approver_id = auth.uid()
+          or public.same_branch(vr.branch_id)
+        )
+    )
   )
 );
 
@@ -298,27 +326,37 @@ create policy "request passengers scoped manage"
 on public.request_passengers
 for all
 using (
-  exists (
-    select 1
-    from public.vehicle_requests vr
-    where vr.id = request_passengers.request_id
-      and (
-        public.has_role('admin')
-        or public.has_role('approver', vr.branch_id)
-        or vr.requested_by = auth.uid()
-      )
+  public.has_role('admin')
+  or (
+    not public.has_role('guard')
+    and not public.has_role('pump_station')
+    and exists (
+      select 1
+      from public.vehicle_requests vr
+      where vr.id = request_passengers.request_id
+        and (
+          public.has_role('admin')
+          or public.has_role('approver', vr.branch_id)
+          or vr.requested_by = auth.uid()
+        )
+    )
   )
 )
 with check (
-  exists (
-    select 1
-    from public.vehicle_requests vr
-    where vr.id = request_passengers.request_id
-      and (
-        public.has_role('admin')
-        or public.has_role('approver', vr.branch_id)
-        or vr.requested_by = auth.uid()
-      )
+  public.has_role('admin')
+  or (
+    not public.has_role('guard')
+    and not public.has_role('pump_station')
+    and exists (
+      select 1
+      from public.vehicle_requests vr
+      where vr.id = request_passengers.request_id
+        and (
+          public.has_role('admin')
+          or public.has_role('approver', vr.branch_id)
+          or vr.requested_by = auth.uid()
+        )
+    )
   )
 );
 
@@ -328,12 +366,18 @@ on public.trip_logs
 for select
 using (
   public.has_role('admin')
-  or public.same_branch(branch_id)
-  or exists (
-    select 1
-    from public.drivers d
-    where d.id = trip_logs.driver_id
-      and d.profile_id = auth.uid()
+  or (
+    not public.has_role('guard')
+    and not public.has_role('pump_station')
+    and (
+      public.same_branch(branch_id)
+      or exists (
+        select 1
+        from public.drivers d
+        where d.id = trip_logs.driver_id
+          and d.profile_id = auth.uid()
+      )
+    )
   )
 );
 

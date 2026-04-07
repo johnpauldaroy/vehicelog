@@ -1,16 +1,26 @@
 import { createTransientSupabaseClient } from './supabaseClient';
 
+function normalizeRoleName(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
 function titleCaseRole(value) {
   if (!value) {
     return 'Requester';
   }
 
-  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+  return normalizeRoleName(value)
+    .split('_')
+    .filter(Boolean)
+    .map((entry) => entry.charAt(0).toUpperCase() + entry.slice(1))
+    .join(' ');
 }
 
 const ROLE_PRIORITY = {
-  admin: 4,
-  approver: 3,
+  admin: 6,
+  approver: 5,
+  guard: 4,
+  pump_station: 3,
   driver: 2,
   requester: 1,
 };
@@ -20,6 +30,16 @@ const ROLE_ID_TO_NAME = {
   '00000000-0000-0000-0000-000000000002': 'approver',
   '00000000-0000-0000-0000-000000000003': 'driver',
   '00000000-0000-0000-0000-000000000004': 'requester',
+  '00000000-0000-0000-0000-000000000005': 'guard',
+  '00000000-0000-0000-0000-000000000006': 'pump_station',
+};
+
+const EMPTY_PANAY_FUEL_PRICING = {
+  rows: [],
+  lastUpdatedAt: '',
+  latestRun: null,
+  stationCount: 0,
+  topStations: [],
 };
 
 function extractEmbeddedRoleName(roleValue) {
@@ -35,9 +55,11 @@ function extractEmbeddedRoleName(roleValue) {
 }
 
 function extractRoleName(entry) {
-  return extractEmbeddedRoleName(entry?.roles)
+  return normalizeRoleName(
+    extractEmbeddedRoleName(entry?.roles)
     || ROLE_ID_TO_NAME[String(entry?.role_id || '').toLowerCase()]
-    || '';
+    || ''
+  );
 }
 
 function pickHighestRoleName(roleEntries = []) {
@@ -645,6 +667,196 @@ async function selectVehicleRequests(client) {
   return (fallbackData ?? []).map(withVehicleRequestFuelDefaults);
 }
 
+async function selectGuardRequestFeed(client) {
+  const { data, error } = await client.rpc('get_guard_request_feed');
+
+  if (error) {
+    throw new Error(`Unable to load guard request feed: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
+async function selectGuardTripFeed(client) {
+  const { data, error } = await client.rpc('get_guard_trip_feed');
+
+  if (error) {
+    throw new Error(`Unable to load guard trip feed: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
+async function selectPumpFuelAuthorizationFeed(client) {
+  const { data, error } = await client.rpc('get_pump_fuel_authorization_feed');
+
+  if (error) {
+    throw new Error(`Unable to load pump fuel authorization feed: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
+async function resolveAdminApproverId(client, branchId) {
+  const { data, error } = await client.rpc('resolve_admin_approver', {
+    branch_uuid: branchId || null,
+  });
+
+  if (error) {
+    throw new Error(`Unable to resolve admin approver: ${error.message}`);
+  }
+
+  const resolvedId = String(data || '').trim();
+  return resolvedId || null;
+}
+
+function mapGuardRequestRecord(entry) {
+  const passengerNames = Array.isArray(entry?.passenger_names)
+    ? entry.passenger_names
+      .map((name) => String(name || '').trim())
+      .filter(Boolean)
+    : [];
+  const rawPassengerCount = Number(entry?.passenger_count || 1);
+  const passengerCount = Number.isFinite(rawPassengerCount) && rawPassengerCount > 0
+    ? rawPassengerCount
+    : Math.max(1, passengerNames.length + 1);
+  const requestId = entry?.request_id || '';
+
+  return {
+    id: requestId,
+    dbId: requestId,
+    requestId,
+    createdAt: entry?.created_at || '',
+    requestNo: entry?.request_no || '',
+    requestedBy: entry?.requester_name || 'Unknown',
+    requestedById: entry?.requester_id || '',
+    branch: entry?.branch_name || 'Unknown',
+    branchId: entry?.branch_id || '',
+    purpose: '',
+    destination: '',
+    departureDatetime: entry?.departure_datetime || '',
+    expectedReturnDatetime: entry?.expected_return_datetime || '',
+    passengerCount,
+    passengerNames,
+    passengers: passengerNames.map((name, index) => ({
+      id: `${requestId || 'request'}-passenger-${index}`,
+      name,
+      role: 'Passenger',
+    })),
+    notes: '',
+    fuelRequested: false,
+    fuelAmount: 0,
+    fuelLiters: 0,
+    estimatedKms: 0,
+    fuelRemarks: '',
+    fuelProduct: '',
+    fuelQuotePricePerLiter: null,
+    fuelQuoteSource: '',
+    fuelQuoteObservedAt: '',
+    fuelQuoteLocation: '',
+    fuelQuoteProvince: '',
+    fuelQuoteMunicipality: '',
+    status: entry?.status || 'Pending Approval',
+    approvedAt: '',
+    rejectionReason: '',
+    approver: 'Pending',
+    approverId: '',
+    assignedVehicle: 'Unassigned',
+    assignedVehicleId: '',
+    assignedDriver: 'Unassigned',
+    assignedDriverId: '',
+  };
+}
+
+function mapPumpFuelAuthorizationRecord(entry) {
+  const requestId = entry?.request_id || '';
+
+  return {
+    id: requestId,
+    dbId: requestId,
+    requestId,
+    createdAt: entry?.created_at || '',
+    requestNo: entry?.request_no || '',
+    requestedBy: '',
+    requestedById: '',
+    branch: entry?.branch_name || 'Unknown',
+    branchId: entry?.branch_id || '',
+    purpose: '',
+    destination: '',
+    departureDatetime: '',
+    expectedReturnDatetime: '',
+    passengerCount: 0,
+    passengerNames: [],
+    passengers: [],
+    notes: '',
+    fuelRequested: true,
+    fuelAmount: Number(entry?.fuel_amount || 0),
+    fuelLiters: Number(entry?.fuel_liters || 0),
+    estimatedKms: Number(entry?.estimated_kms || 0),
+    fuelRemarks: entry?.fuel_remarks || '',
+    fuelProduct: entry?.fuel_product || '',
+    fuelQuotePricePerLiter: entry?.fuel_quote_price_per_liter === null || typeof entry?.fuel_quote_price_per_liter === 'undefined'
+      ? null
+      : Number(entry?.fuel_quote_price_per_liter || 0),
+    fuelQuoteSource: entry?.fuel_quote_source || '',
+    fuelQuoteObservedAt: entry?.fuel_quote_observed_at || '',
+    fuelQuoteLocation: entry?.fuel_quote_location || '',
+    fuelQuoteProvince: '',
+    fuelQuoteMunicipality: '',
+    status: entry?.status || 'Approved',
+    approvedAt: entry?.approved_at || '',
+    rejectionReason: '',
+    approver: entry?.approver_name || 'Pending',
+    approverId: '',
+    assignedVehicle: 'Unassigned',
+    assignedVehicleId: '',
+    assignedDriver: 'Unassigned',
+    assignedDriverId: '',
+  };
+}
+
+function mapGuardTripRecord(entry) {
+  const passengerNames = Array.isArray(entry?.passenger_names)
+    ? entry.passenger_names
+      .map((name) => String(name || '').trim())
+      .filter(Boolean)
+    : [];
+  const rawPassengerCount = Number(entry?.passenger_count || 1);
+  const passengerCount = Number.isFinite(rawPassengerCount) && rawPassengerCount > 0
+    ? rawPassengerCount
+    : Math.max(1, passengerNames.length + 1);
+  const tripId = entry?.trip_id || entry?.request_id || '';
+
+  return {
+    id: tripId,
+    dbId: tripId,
+    requestId: entry?.request_id || '',
+    requestNo: entry?.request_no || 'Unlinked request',
+    requestedBy: entry?.requester_name || 'Unknown',
+    vehicle: entry?.vehicle_name || 'Unknown vehicle',
+    vehicleId: '',
+    driver: entry?.driver_name || 'Unknown driver',
+    driverId: '',
+    origin: entry?.branch_name || 'Unknown branch',
+    branchId: entry?.branch_id || '',
+    destination: '',
+    tripStatus: entry?.trip_status || 'Scheduled',
+    dateOut: entry?.date_out || '',
+    expectedReturn: entry?.expected_return_datetime || '',
+    actualReturnDatetime: entry?.date_in || '',
+    dateIn: entry?.date_in || '',
+    odometerOut: null,
+    odometerIn: null,
+    fuelOut: '',
+    fuelIn: '',
+    conditionOut: '',
+    mileageComputed: 0,
+    remarks: '',
+    passengerCount,
+    passengerNames,
+  };
+}
+
 async function insertVehicleRequest(client, payload) {
   let result = await client
     .from('vehicle_requests')
@@ -982,7 +1194,7 @@ async function createLiveUserFallback(client, profileForm) {
   const email = profileForm.email.trim().toLowerCase();
   const password = profileForm.password;
   const fullName = profileForm.name.trim();
-  const roleName = profileForm.role.trim().toLowerCase();
+  const roleName = normalizeRoleName(profileForm.role);
   const branchId = profileForm.branchId || null;
 
   const [{ data: roleRecord, error: roleError }, { data: callerData }] = await Promise.all([
@@ -1193,6 +1405,100 @@ export async function fetchLiveSessionUser(client, authUserId) {
 }
 
 export async function fetchLiveAppData(client) {
+  const authUserId = await getAuthenticatedUserId(client).catch(() => null);
+  let sessionUser = null;
+
+  if (authUserId) {
+    sessionUser = await fetchLiveSessionUser(client, authUserId).catch(() => null);
+  }
+
+  const normalizedSessionRole = normalizeRoleName(sessionUser?.role);
+
+  if (normalizedSessionRole === 'guard') {
+    const [guardRequests, guardTrips] = await Promise.all([
+      selectGuardRequestFeed(client),
+      selectGuardTripFeed(client),
+    ]);
+
+    return {
+      branches: sessionUser.branchId
+        ? [{
+            id: sessionUser.branchId,
+            code: '',
+            name: sessionUser.branch || 'Unassigned',
+            address: '',
+            serviceRegion: sessionUser.serviceRegion || 'other',
+            isActive: true,
+            utilization: 0,
+            assignedUsers: 1,
+            assignedDrivers: 0,
+            assignedVehicles: 0,
+          }]
+        : [],
+      requestRecords: guardRequests.map(mapGuardRequestRecord),
+      tripRecords: guardTrips.map(mapGuardTripRecord),
+      userRecords: [{
+        id: sessionUser.id,
+        dbId: sessionUser.id,
+        name: sessionUser.name,
+        email: sessionUser.email,
+        role: sessionUser.role,
+        branch: sessionUser.branch,
+        branchId: sessionUser.branchId,
+        serviceRegion: sessionUser.serviceRegion || 'other',
+      }],
+      vehicleRecords: [],
+      vehicleTypeRecords: [],
+      driverRecords: [],
+      maintenanceRecords: [],
+      incidentRecords: [],
+      notificationFeed: [],
+      auditRecords: [],
+      panayFuelPricing: EMPTY_PANAY_FUEL_PRICING,
+    };
+  }
+
+  if (normalizedSessionRole === 'pump_station') {
+    const pumpRequests = await selectPumpFuelAuthorizationFeed(client);
+
+    return {
+      branches: sessionUser.branchId
+        ? [{
+            id: sessionUser.branchId,
+            code: '',
+            name: sessionUser.branch || 'Unassigned',
+            address: '',
+            serviceRegion: sessionUser.serviceRegion || 'other',
+            isActive: true,
+            utilization: 0,
+            assignedUsers: 1,
+            assignedDrivers: 0,
+            assignedVehicles: 0,
+          }]
+        : [],
+      requestRecords: pumpRequests.map(mapPumpFuelAuthorizationRecord),
+      tripRecords: [],
+      userRecords: [{
+        id: sessionUser.id,
+        dbId: sessionUser.id,
+        name: sessionUser.name,
+        email: sessionUser.email,
+        role: sessionUser.role,
+        branch: sessionUser.branch,
+        branchId: sessionUser.branchId,
+        serviceRegion: sessionUser.serviceRegion || 'other',
+      }],
+      vehicleRecords: [],
+      vehicleTypeRecords: [],
+      driverRecords: [],
+      maintenanceRecords: [],
+      incidentRecords: [],
+      notificationFeed: [],
+      auditRecords: [],
+      panayFuelPricing: EMPTY_PANAY_FUEL_PRICING,
+    };
+  }
+
   const [
     branches,
     profiles,
@@ -1388,6 +1694,7 @@ export async function fetchLiveAppData(client) {
       dbId: trip.id,
       requestId: trip.request_id,
       requestNo: request?.request_no || 'Unlinked request',
+      requestedBy: profileMap.get(request?.requested_by)?.full_name || 'Unknown',
       vehicle: vehicleMap.get(trip.vehicle_id)?.vehicle_name || 'Unknown vehicle',
       vehicleId: trip.vehicle_id,
       driver: driverMap.get(trip.driver_id)?.full_name || 'Unknown driver',
@@ -1581,17 +1888,29 @@ export async function fetchLiveAppData(client) {
     incidentRecords,
     notificationFeed,
     auditRecords,
-    panayFuelPricing,
+    panayFuelPricing: panayFuelPricing || EMPTY_PANAY_FUEL_PRICING,
   };
 }
 
-export async function createLiveRequest(client, currentSessionUser, requestForm, existingCount) {
+export async function createLiveRequest(client, currentSessionUser, requestForm, existingCount, options = {}) {
   const requestNo = formatRequestNumber(new Date(), existingCount + 1);
   const selectedVehicleId = requestForm.assignedVehicleId || null;
   const selectedDriverId = requestForm.assignedDriverId || null;
+  const forcedApproverId = String(options?.forcedApproverId || '').trim() || null;
+  const normalizedRole = String(currentSessionUser?.role || '').trim().toLowerCase();
+  const isApproverRequest = normalizedRole === 'approver';
+  let resolvedApproverId = forcedApproverId;
   const passengerNames = Array.isArray(requestForm.passengerNames)
     ? requestForm.passengerNames.map((name) => String(name || '').trim()).filter(Boolean)
     : [];
+
+  if (isApproverRequest && !resolvedApproverId) {
+    resolvedApproverId = await resolveAdminApproverId(client, currentSessionUser.branchId);
+  }
+
+  if (isApproverRequest && !resolvedApproverId) {
+    throw new Error('No admin approver account is available for this branch.');
+  }
 
   await Promise.all([
     assertVehicleIsAvailable(client, selectedVehicleId),
@@ -1624,6 +1943,7 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     fuel_quote_province: requestForm.fuelQuoteProvince?.trim() || null,
     fuel_quote_municipality: requestForm.fuelQuoteMunicipality?.trim() || null,
     status: 'Pending Approval',
+    approver_id: resolvedApproverId,
     assigned_vehicle_id: selectedVehicleId,
     assigned_driver_id: selectedDriverId,
     created_by: currentSessionUser.id,
@@ -2004,7 +2324,7 @@ export async function updateLiveProfile(client, profileForm) {
     userId: profileForm.id,
     email: profileForm.email.trim().toLowerCase(),
     fullName: profileForm.name.trim(),
-    role: profileForm.role.trim().toLowerCase(),
+    role: normalizeRoleName(profileForm.role),
     branchId: profileForm.branchId || null,
   };
 
@@ -2041,7 +2361,7 @@ export async function createLiveUser(client, profileForm) {
     email: profileForm.email.trim().toLowerCase(),
     password: profileForm.password,
     fullName: profileForm.name.trim(),
-    role: profileForm.role.trim().toLowerCase(),
+    role: normalizeRoleName(profileForm.role),
     branchId: profileForm.branchId || null,
   };
 
