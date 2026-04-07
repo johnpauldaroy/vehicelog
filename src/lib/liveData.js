@@ -524,6 +524,12 @@ async function requiredSelect(label, query) {
   return data ?? [];
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function isMissingVehicleRequestFuelColumnError(error) {
   const message = String(error?.message || '').toLowerCase();
 
@@ -1360,27 +1366,44 @@ async function updateLiveProfileFallback(client, payload) {
 }
 
 export async function fetchLiveSessionUser(client, authUserId) {
-  const [profile, roles] = await Promise.all([
-    selectFirst(
+  async function loadProfile() {
+    return selectFirst(
       'your live profile',
       client
         .from('profiles')
         .select('id, full_name, email, branch_id, is_active, deleted_at')
         .eq('id', authUserId)
         .limit(1)
-    ),
-    requiredSelect(
-      'your live role assignments',
-      client
-        .from('user_roles')
-        .select('user_id, role_id, roles(name)')
-        .eq('user_id', authUserId),
-    ),
-  ]);
+    );
+  }
 
-  if (!profile || profile.is_active === false || profile.deleted_at) {
+  let profile = await loadProfile();
+
+  // A newly created account can briefly authenticate before its profile row is visible.
+  if (!profile) {
+    const profileRetryCount = 5;
+
+    for (let attempt = 0; attempt < profileRetryCount && !profile; attempt += 1) {
+      await sleep(400);
+      profile = await loadProfile();
+    }
+  }
+
+  if (!profile) {
+    throw new Error('Your account profile is still being prepared. Please try again in a moment.');
+  }
+
+  if (profile.is_active === false || profile.deleted_at) {
     throw new Error('This account has been deactivated.');
   }
+
+  const roles = await requiredSelect(
+    'your live role assignments',
+    client
+      .from('user_roles')
+      .select('user_id, role_id, roles(name)')
+      .eq('user_id', authUserId),
+  );
 
   const branch = await safeSelect(
     client
