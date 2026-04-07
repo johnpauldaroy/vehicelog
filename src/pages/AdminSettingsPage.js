@@ -4,6 +4,8 @@ import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
 import { formatDate } from '../utils/appHelpers';
 
+const AUDIT_ROWS_PER_PAGE = 8;
+
 const CSV_TEMPLATES = {
   users: {
     filename: 'users-import-template.csv',
@@ -155,6 +157,7 @@ export default function AdminSettingsPage({
   const [auditCategory, setAuditCategory] = useState('all');
   const [auditStartDate, setAuditStartDate] = useState('');
   const [auditEndDate, setAuditEndDate] = useState('');
+  const [auditCurrentPage, setAuditCurrentPage] = useState(1);
   const [selectedDriverDetails, setSelectedDriverDetails] = useState(null);
   const [selectedVehicleDetails, setSelectedVehicleDetails] = useState(null);
 
@@ -281,6 +284,21 @@ export default function AdminSettingsPage({
     document.body.removeChild(link);
     URL.revokeObjectURL(downloadUrl);
   }, [filteredAuditRecords]);
+
+  useEffect(() => {
+    setAuditCurrentPage(1);
+  }, [auditCategory, auditEndDate, auditQuery, auditStartDate]);
+
+  const auditTotalPages = Math.max(1, Math.ceil(filteredAuditRecords.length / AUDIT_ROWS_PER_PAGE));
+  const paginatedAuditRecords = filteredAuditRecords.slice((auditCurrentPage - 1) * AUDIT_ROWS_PER_PAGE, auditCurrentPage * AUDIT_ROWS_PER_PAGE);
+  const auditPageStart = filteredAuditRecords.length === 0 ? 0 : (auditCurrentPage - 1) * AUDIT_ROWS_PER_PAGE + 1;
+  const auditPageEnd = Math.min(auditCurrentPage * AUDIT_ROWS_PER_PAGE, filteredAuditRecords.length);
+
+  useEffect(() => {
+    if (auditCurrentPage > auditTotalPages) {
+      setAuditCurrentPage(auditTotalPages);
+    }
+  }, [auditCurrentPage, auditTotalPages]);
 
   const allTabs = useMemo(
     () => [
@@ -645,7 +663,9 @@ export default function AdminSettingsPage({
                   ))}
                 </div>
                 <p className="muted audit-results-copy">
-                  Showing {filteredAuditRecords.length} of {auditRecords.length} audit events.
+                  {filteredAuditRecords.length === 0
+                    ? `Showing 0 of ${auditRecords.length} audit events.`
+                    : `Showing ${auditPageStart}-${auditPageEnd} of ${filteredAuditRecords.length} audit events.`}
                 </p>
               </div>
             </div>
@@ -669,7 +689,7 @@ export default function AdminSettingsPage({
                       <td colSpan="8" className="empty-state">No audit entries match the current filters.</td>
                     </tr>
                   )}
-                  {filteredAuditRecords.map((entry) => (
+                  {paginatedAuditRecords.map((entry) => (
                     <tr key={entry.id}>
                       <td>
                         <strong>{formatDate(entry.timestamp, true)}</strong>
@@ -691,6 +711,37 @@ export default function AdminSettingsPage({
                 </tbody>
               </table>
             </div>
+            <div className="request-pagination">
+              <p className="request-pagination-copy">
+                {filteredAuditRecords.length === 0
+                  ? 'No audit events to show'
+                  : `Showing ${auditPageStart}-${auditPageEnd} of ${filteredAuditRecords.length} audit events`}
+              </p>
+              <div className="request-pagination-actions">
+                <button
+                  type="button"
+                  className="button button-secondary request-page-button pagination-nav-button"
+                  onClick={() => setAuditCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={auditCurrentPage === 1}
+                >
+                  <span className="pagination-label-full">Previous</span>
+                  <span className="pagination-label-short">Prev</span>
+                </button>
+                <span className="request-page-indicator">
+                  <span className="request-page-indicator-full">Page {filteredAuditRecords.length === 0 ? 0 : auditCurrentPage} of {filteredAuditRecords.length === 0 ? 0 : auditTotalPages}</span>
+                  <span className="request-page-indicator-short">{filteredAuditRecords.length === 0 ? 0 : auditCurrentPage}/{filteredAuditRecords.length === 0 ? 0 : auditTotalPages}</span>
+                </span>
+                <button
+                  type="button"
+                  className="button button-secondary request-page-button pagination-nav-button"
+                  onClick={() => setAuditCurrentPage((page) => Math.min(auditTotalPages, page + 1))}
+                  disabled={auditCurrentPage >= auditTotalPages || filteredAuditRecords.length === 0}
+                >
+                  <span className="pagination-label-full">Next</span>
+                  <span className="pagination-label-short">Next</span>
+                </button>
+              </div>
+            </div>
           </>
         ),
       },
@@ -701,8 +752,12 @@ export default function AdminSettingsPage({
       auditEndDate,
       handleAuditExport,
       auditQuery,
+      auditCurrentPage,
+      auditPageEnd,
+      auditPageStart,
       auditRecords,
       auditStartDate,
+      auditTotalPages,
       driverRecords,
       filteredAuditRecords,
       onAddBranch,
@@ -722,6 +777,7 @@ export default function AdminSettingsPage({
       onImportVehiclesCsv,
       downloadCsvTemplate,
       openCsvPicker,
+      paginatedAuditRecords,
       userRecords,
       vehicleRecords,
     ],
