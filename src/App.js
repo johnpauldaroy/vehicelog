@@ -5028,32 +5028,6 @@ function App() {
     setActiveView(action);
   }
 
-  if (isBootstrapping) {
-    return (
-      <main className="auth-shell">
-        <section className="auth-card auth-card-bootstrapping">
-          <div className="auth-brand auth-logo-pulse">
-            <BrandLogo compact className="auth-brand-logo" />
-            <div className="auth-brand-copy">
-              <strong>Vehicle Management System</strong>
-            </div>
-          </div>
-          <p className="auth-kicker">Live workspace</p>
-          <h1 className="auth-connecting-title">Connecting</h1>
-          
-          <div className="auth-loader-track">
-            <div className="auth-loader-progress" />
-          </div>
-
-          <p className="auth-copy">
-            Checking your live session and preparing the workspace.
-          </p>
-          {liveDataError && <p className="auth-error">{liveDataError}</p>}
-        </section>
-      </main>
-    );
-  }
-
   if (!isAuthenticated) {
     const authErrorMessage = loginError || liveDataError;
 
