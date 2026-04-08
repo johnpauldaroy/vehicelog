@@ -125,6 +125,10 @@ function getVehicleRestrictionRequirement(vehicleType) {
     return { requiredRestrictions: ['B', 'B1', 'B2'], label: 'Sedan' };
   }
 
+  if (normalizedType.includes('motorcycle') || normalizedType.includes('motorbike')) {
+    return { requiredRestrictions: ['A', 'A1'], label: 'Motorcycle' };
+  }
+
   return null;
 }
 

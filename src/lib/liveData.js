@@ -2571,8 +2571,74 @@ export async function deleteLiveDriver(client, driver) {
   }
 }
 
+async function resolveVehicleTypeId(client, selectedVehicleType) {
+  if (!selectedVehicleType?.name) {
+    return selectedVehicleType?.id || null;
+  }
+
+  if (selectedVehicleType.id) {
+    const { data: typeById, error: typeByIdError } = await client
+      .from('vehicle_types')
+      .select('id')
+      .eq('id', selectedVehicleType.id)
+      .maybeSingle();
+
+    if (!typeByIdError && typeById?.id) {
+      return typeById.id;
+    }
+  }
+
+  const { data: existingType, error: existingTypeError } = await client
+    .from('vehicle_types')
+    .select('id')
+    .ilike('name', String(selectedVehicleType.name))
+    .limit(1)
+    .maybeSingle();
+
+  if (existingTypeError) {
+    throw existingTypeError;
+  }
+
+  if (existingType?.id) {
+    return existingType.id;
+  }
+
+  const insertPayload = {
+    id: selectedVehicleType.id || undefined,
+    name: String(selectedVehicleType.name).trim(),
+    description: `${String(selectedVehicleType.name).trim()} vehicle`,
+  };
+  const { data: insertedType, error: insertTypeError } = await client
+    .from('vehicle_types')
+    .insert(insertPayload)
+    .select('id')
+    .single();
+
+  if (insertTypeError) {
+    const { data: retryType, error: retryTypeError } = await client
+      .from('vehicle_types')
+      .select('id')
+      .ilike('name', String(selectedVehicleType.name))
+      .limit(1)
+      .maybeSingle();
+
+    if (retryTypeError || !retryType?.id) {
+      throw insertTypeError;
+    }
+
+    return retryType.id;
+  }
+
+  return insertedType?.id || null;
+}
+
 export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
-  const selectedVehicleType = vehicleTypeRecords.find((type) => type.id === vehicleForm.typeId);
+  const selectedVehicleType = (
+    vehicleTypeRecords.find((type) => type.id === vehicleForm.typeId)
+    || vehicleTypeRecords.find((type) => String(type.name || '').toLowerCase() === String(vehicleForm.typeId || '').toLowerCase())
+    || null
+  );
+  const resolvedVehicleTypeId = await resolveVehicleTypeId(client, selectedVehicleType);
   const oilChangeIntervalKm = Number.parseInt(String(vehicleForm.oilChangeIntervalKm ?? ''), 10);
   const normalizedOilChangeIntervalKm = Number.isFinite(oilChangeIntervalKm) && oilChangeIntervalKm >= 0
     ? oilChangeIntervalKm
@@ -2587,7 +2653,7 @@ export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
     : null;
   const normalizedOilChangeLastChangedOn = String(vehicleForm.oilChangeLastChangedOn || '').trim() || null;
   const payload = {
-    vehicle_type_id: selectedVehicleType?.id || null,
+    vehicle_type_id: resolvedVehicleTypeId,
     assigned_branch_id: vehicleForm.branchId,
     plate_number: vehicleForm.plateNumber.trim(),
     vehicle_name: vehicleForm.vehicleName.trim(),

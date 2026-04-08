@@ -85,6 +85,7 @@ const DEFAULT_VEHICLE_TYPE_RECORDS = [
   { id: '20000000-0000-0000-0000-000000000003', name: 'MPV' },
   { id: '20000000-0000-0000-0000-000000000004', name: 'Sedan' },
   { id: '20000000-0000-0000-0000-000000000005', name: 'Van' },
+  { id: '20000000-0000-0000-0000-000000000006', name: 'Motorcycle' },
 ];
 
 const LICENSE_RESTRICTION_OPTIONS = ['A', 'A1', 'B', 'B1', 'B2', 'C', 'D', 'BE'];
@@ -1298,7 +1299,22 @@ function App() {
     () => branchRecords.map((branch) => ({ id: branch.id, name: branch.name, isActive: branch.isActive })),
     [branchRecords]
   );
-  const availableVehicleTypeRecords = vehicleTypeRecords.length ? vehicleTypeRecords : DEFAULT_VEHICLE_TYPE_RECORDS;
+  const availableVehicleTypeRecords = useMemo(() => {
+    const sourceRecords = vehicleTypeRecords.length ? vehicleTypeRecords : [];
+    const mergedRecords = [...sourceRecords, ...DEFAULT_VEHICLE_TYPE_RECORDS];
+    const seenNames = new Set();
+
+    return mergedRecords.filter((type) => {
+      const normalizedName = normalizeComparableText(type?.name);
+
+      if (!normalizedName || seenNames.has(normalizedName)) {
+        return false;
+      }
+
+      seenNames.add(normalizedName);
+      return true;
+    });
+  }, [vehicleTypeRecords]);
   const selectedDriverRestrictionCodes = useMemo(
     () => normalizeRestrictionSelection(driverSettingsForm.licenseRestrictions),
     [driverSettingsForm.licenseRestrictions]
@@ -4114,13 +4130,23 @@ function App() {
       }
     }
 
-    await refreshLiveData(currentSessionUser);
+    let refreshErrorMessage = '';
+    try {
+      await refreshLiveData(currentSessionUser);
+    } catch (error) {
+      refreshErrorMessage = error.message || 'Live data refresh failed after import.';
+    }
     appendAuditEntry({
       category: 'user',
       action: 'Imported users CSV',
       target: `${createdCount + updatedCount} row(s)`,
       details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
     });
+
+    if (refreshErrorMessage) {
+      showToast(`Users import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
+      return;
+    }
 
     if (errors.length) {
       showToast(`Users import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
@@ -4206,13 +4232,23 @@ function App() {
       }
     }
 
-    await refreshLiveData(currentSessionUser);
+    let refreshErrorMessage = '';
+    try {
+      await refreshLiveData(currentSessionUser);
+    } catch (error) {
+      refreshErrorMessage = error.message || 'Live data refresh failed after import.';
+    }
     appendAuditEntry({
       category: 'driver',
       action: 'Imported drivers CSV',
       target: `${createdCount + updatedCount} row(s)`,
       details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
     });
+
+    if (refreshErrorMessage) {
+      showToast(`Drivers import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
+      return;
+    }
 
     if (errors.length) {
       showToast(`Drivers import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
@@ -4301,13 +4337,23 @@ function App() {
       }
     }
 
-    await refreshLiveData(currentSessionUser);
+    let refreshErrorMessage = '';
+    try {
+      await refreshLiveData(currentSessionUser);
+    } catch (error) {
+      refreshErrorMessage = error.message || 'Live data refresh failed after import.';
+    }
     appendAuditEntry({
       category: 'vehicle',
       action: 'Imported vehicles CSV',
       target: `${createdCount + updatedCount} row(s)`,
       details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
     });
+
+    if (refreshErrorMessage) {
+      showToast(`Vehicles import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
+      return;
+    }
 
     if (errors.length) {
       showToast(`Vehicles import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');

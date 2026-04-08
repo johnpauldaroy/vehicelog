@@ -60,7 +60,8 @@ insert into public.vehicle_types (id, name, description) values
   ('20000000-0000-0000-0000-000000000002', 'SUV', 'Field response vehicle'),
   ('20000000-0000-0000-0000-000000000003', 'MPV', 'Passenger shuttle'),
   ('20000000-0000-0000-0000-000000000004', 'Sedan', 'City service unit'),
-  ('20000000-0000-0000-0000-000000000005', 'Van', 'Cargo or service van')
+  ('20000000-0000-0000-0000-000000000005', 'Van', 'Cargo or service van'),
+  ('20000000-0000-0000-0000-000000000006', 'Motorcycle', 'Motorcycle or utility bike')
 on conflict (id) do nothing;
 
 insert into public.profiles (id, branch_id, employee_no, full_name, email, contact_number)
