@@ -31,6 +31,9 @@ function vehicleMatchesTrip(vehicle, trip) {
 
 export default function TripsPage({
   mode,
+  currentUserName,
+  currentDriverId,
+  currentDriverName,
   tripRecords,
   vehicleRecords,
   checkoutForm,
@@ -94,7 +97,7 @@ export default function TripsPage({
       onCheckoutTripChange(trip.id);
     }
 
-    if (!isGuard && isDriver && ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)) {
+    if (!isGuard && canCurrentUserReturnTrip(trip)) {
       onCheckinTripChange(trip.id);
     }
 
@@ -104,6 +107,41 @@ export default function TripsPage({
   function closeTripDetails() {
     setDetailModalOpen(false);
     setDetailTripId('');
+  }
+
+  function normalizePersonName(value) {
+    return normalizeComparableText(value)
+      .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
+      .replace(/[.,]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isTripAssignedToCurrentUser(trip) {
+    if (!trip) {
+      return false;
+    }
+
+    if (currentDriverId && trip.driverId && String(trip.driverId) === String(currentDriverId)) {
+      return true;
+    }
+
+    const tripDriver = normalizePersonName(trip.driver);
+
+    if (!tripDriver) {
+      return false;
+    }
+
+    const candidateNames = [currentUserName, currentDriverName]
+      .map((name) => normalizePersonName(name))
+      .filter(Boolean);
+
+    return candidateNames.some((name) => name === tripDriver);
+  }
+
+  function canCurrentUserReturnTrip(trip) {
+    return ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)
+      && (isDriver || isTripAssignedToCurrentUser(trip));
   }
 
   function getTripButtonConfig(trip) {
@@ -123,7 +161,7 @@ export default function TripsPage({
       };
     }
 
-    if (ACTIVE_TRIP_STATUSES.includes(trip.tripStatus) && isDriver) {
+    if (canCurrentUserReturnTrip(trip)) {
       return {
         icon: 'return',
         label: 'Return vehicle',
@@ -151,7 +189,7 @@ export default function TripsPage({
       ? 'history'
       : READY_FOR_CHECKOUT.includes(detailTrip.tripStatus)
       ? 'release'
-      : ACTIVE_TRIP_STATUSES.includes(detailTrip.tripStatus) && isDriver
+      : canCurrentUserReturnTrip(detailTrip)
         ? 'return'
         : 'history'
     : null;

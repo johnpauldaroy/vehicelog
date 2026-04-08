@@ -332,6 +332,16 @@ function generateHiredDriverEmployeeId() {
   return `HIR-${timestampFragment}-${randomFragment}`;
 }
 
+function shouldSuppressLiveDataToast(message) {
+  const normalizedMessage = String(message || '').toLowerCase();
+
+  return (
+    normalizedMessage.includes('live data took too long to load')
+    || normalizedMessage.includes('your live profile took too long to load')
+    || normalizedMessage.includes('session check took too long')
+  );
+}
+
 function createUserSettingsForm(defaultBranchId = '') {
   return {
     id: '',
@@ -2154,6 +2164,10 @@ function App() {
 
   useEffect(() => {
     if (!liveDataError || liveDataError.startsWith('Using your last known branch profile')) {
+      return;
+    }
+
+    if (shouldSuppressLiveDataToast(liveDataError)) {
       return;
     }
 
@@ -5075,7 +5089,9 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    const authErrorMessage = loginError || liveDataError;
+    const authErrorMessage = [loginError, liveDataError]
+      .filter(Boolean)
+      .find((message) => !shouldSuppressLiveDataToast(message)) || '';
 
     return (
       <main className="auth-shell">
@@ -5336,6 +5352,9 @@ function App() {
         {selectedView === 'trips' && (
           <TripsPage
             mode={userMode}
+            currentUserName={currentSessionUser.name}
+            currentDriverId={currentDriverRecord?.id || ''}
+            currentDriverName={currentDriverRecord?.fullName || ''}
             tripRecords={tripsPageTripRecords}
             vehicleRecords={vehicleRecords}
             checkoutForm={checkoutForm}

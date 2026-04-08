@@ -5,6 +5,7 @@ import StatusBadge from '../components/StatusBadge';
 import { formatDate } from '../utils/appHelpers';
 
 const AUDIT_ROWS_PER_PAGE = 8;
+const SETTINGS_ROWS_PER_PAGE = 8;
 
 const CSV_TEMPLATES = {
   users: {
@@ -177,6 +178,10 @@ export default function AdminSettingsPage({
   const [auditStartDate, setAuditStartDate] = useState('');
   const [auditEndDate, setAuditEndDate] = useState('');
   const [auditCurrentPage, setAuditCurrentPage] = useState(1);
+  const [branchesCurrentPage, setBranchesCurrentPage] = useState(1);
+  const [usersCurrentPage, setUsersCurrentPage] = useState(1);
+  const [driversCurrentPage, setDriversCurrentPage] = useState(1);
+  const [vehiclesCurrentPage, setVehiclesCurrentPage] = useState(1);
   const [selectedDriverDetails, setSelectedDriverDetails] = useState(null);
   const [selectedVehicleDetails, setSelectedVehicleDetails] = useState(null);
 
@@ -319,6 +324,62 @@ export default function AdminSettingsPage({
     }
   }, [auditCurrentPage, auditTotalPages]);
 
+  const branchesTotalPages = Math.max(1, Math.ceil(branchRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedBranchRecords = useMemo(
+    () => branchRecords.slice((branchesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, branchesCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [branchRecords, branchesCurrentPage]
+  );
+  const branchesPageStart = branchRecords.length === 0 ? 0 : (branchesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const branchesPageEnd = Math.min(branchesCurrentPage * SETTINGS_ROWS_PER_PAGE, branchRecords.length);
+
+  useEffect(() => {
+    if (branchesCurrentPage > branchesTotalPages) {
+      setBranchesCurrentPage(branchesTotalPages);
+    }
+  }, [branchesCurrentPage, branchesTotalPages]);
+
+  const usersTotalPages = Math.max(1, Math.ceil(userRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedUserRecords = useMemo(
+    () => userRecords.slice((usersCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, usersCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [userRecords, usersCurrentPage]
+  );
+  const usersPageStart = userRecords.length === 0 ? 0 : (usersCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const usersPageEnd = Math.min(usersCurrentPage * SETTINGS_ROWS_PER_PAGE, userRecords.length);
+
+  useEffect(() => {
+    if (usersCurrentPage > usersTotalPages) {
+      setUsersCurrentPage(usersTotalPages);
+    }
+  }, [usersCurrentPage, usersTotalPages]);
+
+  const driversTotalPages = Math.max(1, Math.ceil(driverRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedDriverRecords = useMemo(
+    () => driverRecords.slice((driversCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, driversCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [driverRecords, driversCurrentPage]
+  );
+  const driversPageStart = driverRecords.length === 0 ? 0 : (driversCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const driversPageEnd = Math.min(driversCurrentPage * SETTINGS_ROWS_PER_PAGE, driverRecords.length);
+
+  useEffect(() => {
+    if (driversCurrentPage > driversTotalPages) {
+      setDriversCurrentPage(driversTotalPages);
+    }
+  }, [driversCurrentPage, driversTotalPages]);
+
+  const vehiclesTotalPages = Math.max(1, Math.ceil(vehicleRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedVehicleRecords = useMemo(
+    () => vehicleRecords.slice((vehiclesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, vehiclesCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [vehicleRecords, vehiclesCurrentPage]
+  );
+  const vehiclesPageStart = vehicleRecords.length === 0 ? 0 : (vehiclesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const vehiclesPageEnd = Math.min(vehiclesCurrentPage * SETTINGS_ROWS_PER_PAGE, vehicleRecords.length);
+
+  useEffect(() => {
+    if (vehiclesCurrentPage > vehiclesTotalPages) {
+      setVehiclesCurrentPage(vehiclesTotalPages);
+    }
+  }, [vehiclesCurrentPage, vehiclesTotalPages]);
+
   const allTabs = useMemo(
     () => [
       {
@@ -335,6 +396,7 @@ export default function AdminSettingsPage({
           </button>
         ),
         table: (
+          <>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -352,7 +414,7 @@ export default function AdminSettingsPage({
                     <td colSpan="5" className="empty-state">No branches available.</td>
                   </tr>
                 )}
-                {branchRecords.map((branch) => (
+                {paginatedBranchRecords.map((branch) => (
                   <tr key={branch.id}>
                     <td>{branch.code || '-'}</td>
                     <td>
@@ -384,6 +446,38 @@ export default function AdminSettingsPage({
               </tbody>
             </table>
           </div>
+          <div className="request-pagination">
+            <p className="request-pagination-copy">
+              {branchRecords.length === 0
+                ? 'No branches to show'
+                : `Showing ${branchesPageStart}-${branchesPageEnd} of ${branchRecords.length} branches`}
+            </p>
+            <div className="request-pagination-actions">
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setBranchesCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={branchesCurrentPage === 1}
+              >
+                <span className="pagination-label-full">Previous</span>
+                <span className="pagination-label-short">Prev</span>
+              </button>
+              <span className="request-page-indicator">
+                <span className="request-page-indicator-full">Page {branchRecords.length === 0 ? 0 : branchesCurrentPage} of {branchRecords.length === 0 ? 0 : branchesTotalPages}</span>
+                <span className="request-page-indicator-short">{branchRecords.length === 0 ? 0 : branchesCurrentPage}/{branchRecords.length === 0 ? 0 : branchesTotalPages}</span>
+              </span>
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setBranchesCurrentPage((page) => Math.min(branchesTotalPages, page + 1))}
+                disabled={branchesCurrentPage >= branchesTotalPages || branchRecords.length === 0}
+              >
+                <span className="pagination-label-full">Next</span>
+                <span className="pagination-label-short">Next</span>
+              </button>
+            </div>
+          </div>
+          </>
         ),
       },
       {
@@ -410,6 +504,7 @@ export default function AdminSettingsPage({
           </div>
         ),
         table: (
+          <>
           <div className="table-wrap">
             <table className="data-table users-data-table">
               <thead>
@@ -427,7 +522,7 @@ export default function AdminSettingsPage({
                     <td colSpan="5" className="empty-state">No users available.</td>
                   </tr>
                 )}
-                {userRecords.map((user) => (
+                {paginatedUserRecords.map((user) => (
                   <tr key={user.id}>
                     <td data-label="Name">
                       <div className="user-mobile-head">
@@ -456,6 +551,38 @@ export default function AdminSettingsPage({
               </tbody>
             </table>
           </div>
+          <div className="request-pagination">
+            <p className="request-pagination-copy">
+              {userRecords.length === 0
+                ? 'No users to show'
+                : `Showing ${usersPageStart}-${usersPageEnd} of ${userRecords.length} users`}
+            </p>
+            <div className="request-pagination-actions">
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setUsersCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={usersCurrentPage === 1}
+              >
+                <span className="pagination-label-full">Previous</span>
+                <span className="pagination-label-short">Prev</span>
+              </button>
+              <span className="request-page-indicator">
+                <span className="request-page-indicator-full">Page {userRecords.length === 0 ? 0 : usersCurrentPage} of {userRecords.length === 0 ? 0 : usersTotalPages}</span>
+                <span className="request-page-indicator-short">{userRecords.length === 0 ? 0 : usersCurrentPage}/{userRecords.length === 0 ? 0 : usersTotalPages}</span>
+              </span>
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setUsersCurrentPage((page) => Math.min(usersTotalPages, page + 1))}
+                disabled={usersCurrentPage >= usersTotalPages || userRecords.length === 0}
+              >
+                <span className="pagination-label-full">Next</span>
+                <span className="pagination-label-short">Next</span>
+              </button>
+            </div>
+          </div>
+          </>
         ),
       },
       {
@@ -482,6 +609,7 @@ export default function AdminSettingsPage({
           </div>
         ),
         table: (
+          <>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -499,7 +627,7 @@ export default function AdminSettingsPage({
                     <td colSpan="5" className="empty-state">No drivers available.</td>
                   </tr>
                 )}
-                {driverRecords.map((driver) => (
+                {paginatedDriverRecords.map((driver) => (
                   <tr key={driver.id}>
                     <td>
                       {driver.fullName}
@@ -535,6 +663,38 @@ export default function AdminSettingsPage({
               </tbody>
             </table>
           </div>
+          <div className="request-pagination">
+            <p className="request-pagination-copy">
+              {driverRecords.length === 0
+                ? 'No drivers to show'
+                : `Showing ${driversPageStart}-${driversPageEnd} of ${driverRecords.length} drivers`}
+            </p>
+            <div className="request-pagination-actions">
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setDriversCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={driversCurrentPage === 1}
+              >
+                <span className="pagination-label-full">Previous</span>
+                <span className="pagination-label-short">Prev</span>
+              </button>
+              <span className="request-page-indicator">
+                <span className="request-page-indicator-full">Page {driverRecords.length === 0 ? 0 : driversCurrentPage} of {driverRecords.length === 0 ? 0 : driversTotalPages}</span>
+                <span className="request-page-indicator-short">{driverRecords.length === 0 ? 0 : driversCurrentPage}/{driverRecords.length === 0 ? 0 : driversTotalPages}</span>
+              </span>
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setDriversCurrentPage((page) => Math.min(driversTotalPages, page + 1))}
+                disabled={driversCurrentPage >= driversTotalPages || driverRecords.length === 0}
+              >
+                <span className="pagination-label-full">Next</span>
+                <span className="pagination-label-short">Next</span>
+              </button>
+            </div>
+          </div>
+          </>
         ),
       },
       {
@@ -567,6 +727,7 @@ export default function AdminSettingsPage({
           </div>
         ),
         table: (
+          <>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -585,7 +746,7 @@ export default function AdminSettingsPage({
                     <td colSpan="6" className="empty-state">No vehicles available.</td>
                   </tr>
                 )}
-                {vehicleRecords.map((vehicle) => (
+                {paginatedVehicleRecords.map((vehicle) => (
                   <tr key={vehicle.id}>
                     <td>{vehicle.vehicleName}</td>
                     <td>{vehicle.plateNumber}</td>
@@ -620,6 +781,38 @@ export default function AdminSettingsPage({
               </tbody>
             </table>
           </div>
+          <div className="request-pagination">
+            <p className="request-pagination-copy">
+              {vehicleRecords.length === 0
+                ? 'No vehicles to show'
+                : `Showing ${vehiclesPageStart}-${vehiclesPageEnd} of ${vehicleRecords.length} vehicles`}
+            </p>
+            <div className="request-pagination-actions">
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setVehiclesCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={vehiclesCurrentPage === 1}
+              >
+                <span className="pagination-label-full">Previous</span>
+                <span className="pagination-label-short">Prev</span>
+              </button>
+              <span className="request-page-indicator">
+                <span className="request-page-indicator-full">Page {vehicleRecords.length === 0 ? 0 : vehiclesCurrentPage} of {vehicleRecords.length === 0 ? 0 : vehiclesTotalPages}</span>
+                <span className="request-page-indicator-short">{vehicleRecords.length === 0 ? 0 : vehiclesCurrentPage}/{vehicleRecords.length === 0 ? 0 : vehiclesTotalPages}</span>
+              </span>
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setVehiclesCurrentPage((page) => Math.min(vehiclesTotalPages, page + 1))}
+                disabled={vehiclesCurrentPage >= vehiclesTotalPages || vehicleRecords.length === 0}
+              >
+                <span className="pagination-label-full">Next</span>
+                <span className="pagination-label-short">Next</span>
+              </button>
+            </div>
+          </div>
+          </>
         ),
       },
       {
@@ -767,6 +960,10 @@ export default function AdminSettingsPage({
     ],
     [
       branchRecords,
+      branchesCurrentPage,
+      branchesPageEnd,
+      branchesPageStart,
+      branchesTotalPages,
       auditCategory,
       auditEndDate,
       handleAuditExport,
@@ -778,6 +975,10 @@ export default function AdminSettingsPage({
       auditStartDate,
       auditTotalPages,
       driverRecords,
+      driversCurrentPage,
+      driversPageEnd,
+      driversPageStart,
+      driversTotalPages,
       filteredAuditRecords,
       onAddBranch,
       onAddUser,
@@ -796,9 +997,21 @@ export default function AdminSettingsPage({
       onImportVehiclesCsv,
       downloadCsvTemplate,
       openCsvPicker,
+      paginatedBranchRecords,
       paginatedAuditRecords,
+      paginatedDriverRecords,
+      paginatedUserRecords,
+      paginatedVehicleRecords,
       userRecords,
+      usersCurrentPage,
+      usersPageEnd,
+      usersPageStart,
+      usersTotalPages,
       vehicleRecords,
+      vehiclesCurrentPage,
+      vehiclesPageEnd,
+      vehiclesPageStart,
+      vehiclesTotalPages,
     ],
   );
 
