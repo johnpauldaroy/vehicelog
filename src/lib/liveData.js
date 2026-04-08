@@ -952,6 +952,14 @@ function isMissingVehicleOilChangeColumnsError(error) {
   );
 }
 
+function isMissingVehiclesDeletedAtColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    (message.includes('vehicles.deleted_at') || message.includes("'deleted_at'"))
+    && (message.includes('does not exist') || message.includes('schema cache'))
+  );
+}
+
 async function selectVehicles(client) {
   const coreSelect = `
     id,
@@ -965,7 +973,8 @@ async function selectVehicles(client) {
     odometer_current,
     registration_expiry,
     insurance_expiry,
-    required_restrictions
+    required_restrictions,
+    deleted_at
   `;
   const oilReminderSelect = `
     oil_change_reminder_enabled,
@@ -977,6 +986,7 @@ async function selectVehicles(client) {
 
   let includeOdoDefective = true;
   let includeOilReminder = true;
+  let includeDeletedAt = true;
   let rows = null;
   let attemptError = null;
 
@@ -989,6 +999,10 @@ async function selectVehicles(client) {
 
     if (includeOdoDefective) {
       selectParts.push('is_odo_defective');
+    }
+
+    if (!includeDeletedAt) {
+      selectParts[0] = selectParts[0].replace(',\n    deleted_at', '');
     }
 
     const select = selectParts.join(', ');
@@ -1013,6 +1027,11 @@ async function selectVehicles(client) {
       shouldRetry = true;
     }
 
+    if (includeDeletedAt && isMissingVehiclesDeletedAtColumnError(error)) {
+      includeDeletedAt = false;
+      shouldRetry = true;
+    }
+
     if (!shouldRetry) {
       break;
     }
@@ -1022,29 +1041,31 @@ async function selectVehicles(client) {
     throw new Error(`Unable to load vehicles: ${attemptError.message}`);
   }
 
-  return (rows ?? []).map((vehicle) => ({
-    ...vehicle,
-    is_odo_defective: includeOdoDefective ? Boolean(vehicle.is_odo_defective) : false,
-    oil_change_reminder_enabled: includeOilReminder ? Boolean(vehicle.oil_change_reminder_enabled) : false,
-    oil_change_interval_km: includeOilReminder
-      ? (vehicle.oil_change_interval_km === null || typeof vehicle.oil_change_interval_km === 'undefined'
-        ? null
-        : Number(vehicle.oil_change_interval_km))
-      : null,
-    oil_change_interval_months: includeOilReminder
-      ? (vehicle.oil_change_interval_months === null || typeof vehicle.oil_change_interval_months === 'undefined'
-        ? null
-        : Number(vehicle.oil_change_interval_months))
-      : null,
-    oil_change_last_odometer: includeOilReminder
-      ? (vehicle.oil_change_last_odometer === null || typeof vehicle.oil_change_last_odometer === 'undefined'
-        ? null
-        : Number(vehicle.oil_change_last_odometer))
-      : null,
-    oil_change_last_changed_on: includeOilReminder
-      ? (vehicle.oil_change_last_changed_on || null)
-      : null,
-  }));
+  return (rows ?? [])
+    .filter((vehicle) => !includeDeletedAt || !vehicle.deleted_at)
+    .map((vehicle) => ({
+      ...vehicle,
+      is_odo_defective: includeOdoDefective ? Boolean(vehicle.is_odo_defective) : false,
+      oil_change_reminder_enabled: includeOilReminder ? Boolean(vehicle.oil_change_reminder_enabled) : false,
+      oil_change_interval_km: includeOilReminder
+        ? (vehicle.oil_change_interval_km === null || typeof vehicle.oil_change_interval_km === 'undefined'
+          ? null
+          : Number(vehicle.oil_change_interval_km))
+        : null,
+      oil_change_interval_months: includeOilReminder
+        ? (vehicle.oil_change_interval_months === null || typeof vehicle.oil_change_interval_months === 'undefined'
+          ? null
+          : Number(vehicle.oil_change_interval_months))
+        : null,
+      oil_change_last_odometer: includeOilReminder
+        ? (vehicle.oil_change_last_odometer === null || typeof vehicle.oil_change_last_odometer === 'undefined'
+          ? null
+          : Number(vehicle.oil_change_last_odometer))
+        : null,
+      oil_change_last_changed_on: includeOilReminder
+        ? (vehicle.oil_change_last_changed_on || null)
+        : null,
+    }));
 }
 
 function summarizePanayPricing(snapshotRows, syncRuns) {
@@ -2705,12 +2726,29 @@ export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {
 }
 
 export async function deleteLiveVehicle(client, vehicle) {
+  const vehicleId = vehicle.dbId || vehicle.id;
   const { error } = await client
     .from('vehicles')
-    .delete()
-    .eq('id', vehicle.dbId || vehicle.id);
+    .update({
+      status: 'inactive',
+      deleted_at: new Date().toISOString(),
+    })
+    .eq('id', vehicleId);
 
   if (error) {
+    if (isMissingVehiclesDeletedAtColumnError(error)) {
+      const { error: fallbackError } = await client
+        .from('vehicles')
+        .update({ status: 'inactive' })
+        .eq('id', vehicleId);
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      return;
+    }
+
     throw error;
   }
 }
