@@ -71,6 +71,8 @@ alter table public.incident_reports enable row level security;
 alter table public.maintenance_automation_settings enable row level security;
 alter table public.notifications enable row level security;
 alter table public.audit_logs enable row level security;
+alter table public.vehicle_types enable row level security;
+alter table public.roles enable row level security;
 
 drop policy if exists "profiles self or admin" on public.profiles;
 create policy "profiles self or admin"
@@ -735,3 +737,22 @@ with check (
   )
   or actor_id = auth.uid()
 );
+
+drop policy if exists "vehicle_types select" on public.vehicle_types;
+create policy "vehicle_types select"
+on public.vehicle_types
+for select
+using (auth.role() = 'authenticated');
+
+drop policy if exists "vehicle_types admin" on public.vehicle_types;
+create policy "vehicle_types admin"
+on public.vehicle_types
+for all
+using (public.has_role('admin') or public.has_role('approver'))
+with check (public.has_role('admin') or public.has_role('approver'));
+
+drop policy if exists "roles select" on public.roles;
+create policy "roles select"
+on public.roles
+for select
+using (auth.role() = 'authenticated');
