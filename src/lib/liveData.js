@@ -2686,33 +2686,10 @@ async function resolveVehicleTypeId(client, selectedVehicleType) {
     return existingType.id;
   }
 
-  const insertPayload = {
-    id: selectedVehicleType.id || undefined,
-    name: String(selectedVehicleType.name).trim(),
-    description: `${String(selectedVehicleType.name).trim()} vehicle`,
-  };
-  const { data: insertedType, error: insertTypeError } = await client
-    .from('vehicle_types')
-    .insert(insertPayload)
-    .select('id')
-    .single();
-
-  if (insertTypeError) {
-    const { data: retryType, error: retryTypeError } = await client
-      .from('vehicle_types')
-      .select('id')
-      .ilike('name', String(selectedVehicleType.name))
-      .limit(1)
-      .maybeSingle();
-
-    if (retryTypeError || !retryType?.id) {
-      throw insertTypeError;
-    }
-
-    return retryType.id;
-  }
-
-  return insertedType?.id || null;
+  const typeName = String(selectedVehicleType.name).trim();
+  throw new Error(
+    `Vehicle type "${typeName}" is not configured in the database yet. Run supabase/patch_add_motorcycle_vehicle_type.sql (or add this type in public.vehicle_types), then try again.`
+  );
 }
 
 export async function saveLiveVehicle(client, vehicleForm, vehicleTypeRecords) {

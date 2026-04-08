@@ -1311,7 +1311,7 @@ function App() {
   );
   const availableVehicleTypeRecords = useMemo(() => {
     const sourceRecords = vehicleTypeRecords.length ? vehicleTypeRecords : [];
-    const mergedRecords = [...sourceRecords, ...DEFAULT_VEHICLE_TYPE_RECORDS];
+    const mergedRecords = sourceRecords.length ? sourceRecords : DEFAULT_VEHICLE_TYPE_RECORDS;
     const seenNames = new Set();
 
     return mergedRecords.filter((type) => {
