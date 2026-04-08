@@ -772,10 +772,22 @@
 
 .settings-toolbar {
   align-items: flex-start;
+  justify-content: space-between;
+}
+
+.settings-toolbar-copy {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+  min-width: min(100%, 300px);
 }
 
 .settings-note {
   max-width: 62ch;
+}
+
+.settings-search-input {
+  width: min(100%, 420px);
 }
 
 .settings-layout {
@@ -2058,7 +2070,7 @@
 
 .audit-filter-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1.6fr) repeat(2, minmax(150px, 0.65fr)) auto;
+  grid-template-columns: repeat(2, minmax(150px, 220px)) auto;
   gap: 14px;
   align-items: end;
 }

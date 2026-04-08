@@ -7,6 +7,20 @@ import { formatDate } from '../utils/appHelpers';
 const AUDIT_ROWS_PER_PAGE = 8;
 const SETTINGS_ROWS_PER_PAGE = 8;
 
+const matchesTextQuery = (values, query) => {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return values
+    .filter((value) => value !== null && value !== undefined)
+    .map((value) => String(value).toLowerCase())
+    .join(' ')
+    .includes(normalizedQuery);
+};
+
 const CSV_TEMPLATES = {
   users: {
     filename: 'users-import-template.csv',
@@ -182,6 +196,10 @@ export default function AdminSettingsPage({
   const [usersCurrentPage, setUsersCurrentPage] = useState(1);
   const [driversCurrentPage, setDriversCurrentPage] = useState(1);
   const [vehiclesCurrentPage, setVehiclesCurrentPage] = useState(1);
+  const [branchesQuery, setBranchesQuery] = useState('');
+  const [usersQuery, setUsersQuery] = useState('');
+  const [driversQuery, setDriversQuery] = useState('');
+  const [vehiclesQuery, setVehiclesQuery] = useState('');
   const [selectedDriverDetails, setSelectedDriverDetails] = useState(null);
   const [selectedVehicleDetails, setSelectedVehicleDetails] = useState(null);
 
@@ -324,13 +342,36 @@ export default function AdminSettingsPage({
     }
   }, [auditCurrentPage, auditTotalPages]);
 
-  const branchesTotalPages = Math.max(1, Math.ceil(branchRecords.length / SETTINGS_ROWS_PER_PAGE));
-  const paginatedBranchRecords = useMemo(
-    () => branchRecords.slice((branchesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, branchesCurrentPage * SETTINGS_ROWS_PER_PAGE),
-    [branchRecords, branchesCurrentPage]
+  const filteredBranchRecords = useMemo(
+    () =>
+      branchRecords.filter((branch) =>
+        matchesTextQuery(
+          [
+            branch.code,
+            branch.name,
+            branch.address,
+            branch.isActive ? 'active' : 'inactive',
+            branch.assignedUsers,
+            branch.assignedVehicles,
+            branch.assignedDrivers,
+          ],
+          branchesQuery,
+        ),
+      ),
+    [branchRecords, branchesQuery],
   );
-  const branchesPageStart = branchRecords.length === 0 ? 0 : (branchesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
-  const branchesPageEnd = Math.min(branchesCurrentPage * SETTINGS_ROWS_PER_PAGE, branchRecords.length);
+
+  const branchesTotalPages = Math.max(1, Math.ceil(filteredBranchRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedBranchRecords = useMemo(
+    () => filteredBranchRecords.slice((branchesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, branchesCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [filteredBranchRecords, branchesCurrentPage],
+  );
+  const branchesPageStart = filteredBranchRecords.length === 0 ? 0 : (branchesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const branchesPageEnd = Math.min(branchesCurrentPage * SETTINGS_ROWS_PER_PAGE, filteredBranchRecords.length);
+
+  useEffect(() => {
+    setBranchesCurrentPage(1);
+  }, [branchesQuery]);
 
   useEffect(() => {
     if (branchesCurrentPage > branchesTotalPages) {
@@ -338,13 +379,25 @@ export default function AdminSettingsPage({
     }
   }, [branchesCurrentPage, branchesTotalPages]);
 
-  const usersTotalPages = Math.max(1, Math.ceil(userRecords.length / SETTINGS_ROWS_PER_PAGE));
-  const paginatedUserRecords = useMemo(
-    () => userRecords.slice((usersCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, usersCurrentPage * SETTINGS_ROWS_PER_PAGE),
-    [userRecords, usersCurrentPage]
+  const filteredUserRecords = useMemo(
+    () =>
+      userRecords.filter((user) =>
+        matchesTextQuery([user.name, user.email, user.role, user.branch], usersQuery),
+      ),
+    [userRecords, usersQuery],
   );
-  const usersPageStart = userRecords.length === 0 ? 0 : (usersCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
-  const usersPageEnd = Math.min(usersCurrentPage * SETTINGS_ROWS_PER_PAGE, userRecords.length);
+
+  const usersTotalPages = Math.max(1, Math.ceil(filteredUserRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedUserRecords = useMemo(
+    () => filteredUserRecords.slice((usersCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, usersCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [filteredUserRecords, usersCurrentPage],
+  );
+  const usersPageStart = filteredUserRecords.length === 0 ? 0 : (usersCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const usersPageEnd = Math.min(usersCurrentPage * SETTINGS_ROWS_PER_PAGE, filteredUserRecords.length);
+
+  useEffect(() => {
+    setUsersCurrentPage(1);
+  }, [usersQuery]);
 
   useEffect(() => {
     if (usersCurrentPage > usersTotalPages) {
@@ -352,13 +405,40 @@ export default function AdminSettingsPage({
     }
   }, [usersCurrentPage, usersTotalPages]);
 
-  const driversTotalPages = Math.max(1, Math.ceil(driverRecords.length / SETTINGS_ROWS_PER_PAGE));
-  const paginatedDriverRecords = useMemo(
-    () => driverRecords.slice((driversCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, driversCurrentPage * SETTINGS_ROWS_PER_PAGE),
-    [driverRecords, driversCurrentPage]
+  const filteredDriverRecords = useMemo(
+    () =>
+      driverRecords.filter((driver) =>
+        matchesTextQuery(
+          [
+            driver.fullName,
+            driver.employeeId,
+            driver.branch,
+            driver.status,
+            driver.licenseNumber,
+            driver.licenseExpiry,
+            driver.licenseRestrictions,
+            driver.restrictions,
+            driver.contactNumber,
+            driver.linkedAccountEmail,
+            driver.linkedAccountName,
+          ],
+          driversQuery,
+        ),
+      ),
+    [driverRecords, driversQuery],
   );
-  const driversPageStart = driverRecords.length === 0 ? 0 : (driversCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
-  const driversPageEnd = Math.min(driversCurrentPage * SETTINGS_ROWS_PER_PAGE, driverRecords.length);
+
+  const driversTotalPages = Math.max(1, Math.ceil(filteredDriverRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedDriverRecords = useMemo(
+    () => filteredDriverRecords.slice((driversCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, driversCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [filteredDriverRecords, driversCurrentPage],
+  );
+  const driversPageStart = filteredDriverRecords.length === 0 ? 0 : (driversCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const driversPageEnd = Math.min(driversCurrentPage * SETTINGS_ROWS_PER_PAGE, filteredDriverRecords.length);
+
+  useEffect(() => {
+    setDriversCurrentPage(1);
+  }, [driversQuery]);
 
   useEffect(() => {
     if (driversCurrentPage > driversTotalPages) {
@@ -366,13 +446,38 @@ export default function AdminSettingsPage({
     }
   }, [driversCurrentPage, driversTotalPages]);
 
-  const vehiclesTotalPages = Math.max(1, Math.ceil(vehicleRecords.length / SETTINGS_ROWS_PER_PAGE));
-  const paginatedVehicleRecords = useMemo(
-    () => vehicleRecords.slice((vehiclesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, vehiclesCurrentPage * SETTINGS_ROWS_PER_PAGE),
-    [vehicleRecords, vehiclesCurrentPage]
+  const filteredVehicleRecords = useMemo(
+    () =>
+      vehicleRecords.filter((vehicle) =>
+        matchesTextQuery(
+          [
+            vehicle.vehicleName,
+            vehicle.plateNumber,
+            vehicle.branch,
+            vehicle.status,
+            vehicle.type,
+            vehicle.fuelType,
+            vehicle.seatingCapacity,
+            vehicle.odometerCurrent,
+            vehicle.requiredRestrictions,
+          ],
+          vehiclesQuery,
+        ),
+      ),
+    [vehicleRecords, vehiclesQuery],
   );
-  const vehiclesPageStart = vehicleRecords.length === 0 ? 0 : (vehiclesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
-  const vehiclesPageEnd = Math.min(vehiclesCurrentPage * SETTINGS_ROWS_PER_PAGE, vehicleRecords.length);
+
+  const vehiclesTotalPages = Math.max(1, Math.ceil(filteredVehicleRecords.length / SETTINGS_ROWS_PER_PAGE));
+  const paginatedVehicleRecords = useMemo(
+    () => filteredVehicleRecords.slice((vehiclesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE, vehiclesCurrentPage * SETTINGS_ROWS_PER_PAGE),
+    [filteredVehicleRecords, vehiclesCurrentPage],
+  );
+  const vehiclesPageStart = filteredVehicleRecords.length === 0 ? 0 : (vehiclesCurrentPage - 1) * SETTINGS_ROWS_PER_PAGE + 1;
+  const vehiclesPageEnd = Math.min(vehiclesCurrentPage * SETTINGS_ROWS_PER_PAGE, filteredVehicleRecords.length);
+
+  useEffect(() => {
+    setVehiclesCurrentPage(1);
+  }, [vehiclesQuery]);
 
   useEffect(() => {
     if (vehiclesCurrentPage > vehiclesTotalPages) {
@@ -389,6 +494,14 @@ export default function AdminSettingsPage({
         title: 'Branches',
         subtitle: 'Manage the branch directory used by users, drivers, vehicles, and requests',
         note: 'Add branches here first, then assign them to user profiles, drivers, and vehicles.',
+        searchControl: (
+          <input
+            className="input settings-search-input"
+            placeholder="Search branch code, name, address, status..."
+            value={branchesQuery}
+            onChange={(event) => setBranchesQuery(event.target.value)}
+          />
+        ),
         action: (
           <button type="button" className="button button-primary" onClick={onAddBranch}>
             <AppIcon name="dashboard" className="button-icon" />
@@ -409,9 +522,9 @@ export default function AdminSettingsPage({
                 </tr>
               </thead>
               <tbody>
-                {branchRecords.length === 0 && (
+                {filteredBranchRecords.length === 0 && (
                   <tr>
-                    <td colSpan="5" className="empty-state">No branches available.</td>
+                    <td colSpan="5" className="empty-state">{branchesQuery.trim() ? 'No branches match your search.' : 'No branches available.'}</td>
                   </tr>
                 )}
                 {paginatedBranchRecords.map((branch) => (
@@ -448,9 +561,9 @@ export default function AdminSettingsPage({
           </div>
           <div className="request-pagination">
             <p className="request-pagination-copy">
-              {branchRecords.length === 0
+              {filteredBranchRecords.length === 0
                 ? 'No branches to show'
-                : `Showing ${branchesPageStart}-${branchesPageEnd} of ${branchRecords.length} branches`}
+                : `Showing ${branchesPageStart}-${branchesPageEnd} of ${filteredBranchRecords.length} branches`}
             </p>
             <div className="request-pagination-actions">
               <button
@@ -463,14 +576,14 @@ export default function AdminSettingsPage({
                 <span className="pagination-label-short">Prev</span>
               </button>
               <span className="request-page-indicator">
-                <span className="request-page-indicator-full">Page {branchRecords.length === 0 ? 0 : branchesCurrentPage} of {branchRecords.length === 0 ? 0 : branchesTotalPages}</span>
-                <span className="request-page-indicator-short">{branchRecords.length === 0 ? 0 : branchesCurrentPage}/{branchRecords.length === 0 ? 0 : branchesTotalPages}</span>
+                <span className="request-page-indicator-full">Page {filteredBranchRecords.length === 0 ? 0 : branchesCurrentPage} of {filteredBranchRecords.length === 0 ? 0 : branchesTotalPages}</span>
+                <span className="request-page-indicator-short">{filteredBranchRecords.length === 0 ? 0 : branchesCurrentPage}/{filteredBranchRecords.length === 0 ? 0 : branchesTotalPages}</span>
               </span>
               <button
                 type="button"
                 className="button button-secondary request-page-button pagination-nav-button"
                 onClick={() => setBranchesCurrentPage((page) => Math.min(branchesTotalPages, page + 1))}
-                disabled={branchesCurrentPage >= branchesTotalPages || branchRecords.length === 0}
+                disabled={branchesCurrentPage >= branchesTotalPages || filteredBranchRecords.length === 0}
               >
                 <span className="pagination-label-full">Next</span>
                 <span className="pagination-label-short">Next</span>
@@ -487,6 +600,14 @@ export default function AdminSettingsPage({
         title: 'Users',
         subtitle: 'Edit existing profiles. New auth users must still be created in Supabase Auth.',
         note: 'Email and role are shown for reference. Profile name and branch can be maintained here.',
+        searchControl: (
+          <input
+            className="input settings-search-input"
+            placeholder="Search name, email, role, or branch..."
+            value={usersQuery}
+            onChange={(event) => setUsersQuery(event.target.value)}
+          />
+        ),
         action: (
           <div className="row-actions">
             <button type="button" className="button button-primary" onClick={onAddUser}>
@@ -517,9 +638,9 @@ export default function AdminSettingsPage({
                 </tr>
               </thead>
               <tbody>
-                {userRecords.length === 0 && (
+                {filteredUserRecords.length === 0 && (
                   <tr>
-                    <td colSpan="5" className="empty-state">No users available.</td>
+                    <td colSpan="5" className="empty-state">{usersQuery.trim() ? 'No users match your search.' : 'No users available.'}</td>
                   </tr>
                 )}
                 {paginatedUserRecords.map((user) => (
@@ -553,9 +674,9 @@ export default function AdminSettingsPage({
           </div>
           <div className="request-pagination">
             <p className="request-pagination-copy">
-              {userRecords.length === 0
+              {filteredUserRecords.length === 0
                 ? 'No users to show'
-                : `Showing ${usersPageStart}-${usersPageEnd} of ${userRecords.length} users`}
+                : `Showing ${usersPageStart}-${usersPageEnd} of ${filteredUserRecords.length} users`}
             </p>
             <div className="request-pagination-actions">
               <button
@@ -568,14 +689,14 @@ export default function AdminSettingsPage({
                 <span className="pagination-label-short">Prev</span>
               </button>
               <span className="request-page-indicator">
-                <span className="request-page-indicator-full">Page {userRecords.length === 0 ? 0 : usersCurrentPage} of {userRecords.length === 0 ? 0 : usersTotalPages}</span>
-                <span className="request-page-indicator-short">{userRecords.length === 0 ? 0 : usersCurrentPage}/{userRecords.length === 0 ? 0 : usersTotalPages}</span>
+                <span className="request-page-indicator-full">Page {filteredUserRecords.length === 0 ? 0 : usersCurrentPage} of {filteredUserRecords.length === 0 ? 0 : usersTotalPages}</span>
+                <span className="request-page-indicator-short">{filteredUserRecords.length === 0 ? 0 : usersCurrentPage}/{filteredUserRecords.length === 0 ? 0 : usersTotalPages}</span>
               </span>
               <button
                 type="button"
                 className="button button-secondary request-page-button pagination-nav-button"
                 onClick={() => setUsersCurrentPage((page) => Math.min(usersTotalPages, page + 1))}
-                disabled={usersCurrentPage >= usersTotalPages || userRecords.length === 0}
+                disabled={usersCurrentPage >= usersTotalPages || filteredUserRecords.length === 0}
               >
                 <span className="pagination-label-full">Next</span>
                 <span className="pagination-label-short">Next</span>
@@ -592,6 +713,14 @@ export default function AdminSettingsPage({
         title: 'Drivers',
         subtitle: 'Availability, licensing, and branch assignment',
         note: 'Driver records here control request assignment choices and dispatch readiness.',
+        searchControl: (
+          <input
+            className="input settings-search-input"
+            placeholder="Search driver, employee ID, branch, status, license..."
+            value={driversQuery}
+            onChange={(event) => setDriversQuery(event.target.value)}
+          />
+        ),
         action: (
           <div className="row-actions">
             <button type="button" className="button button-primary" onClick={onAddDriver}>
@@ -622,9 +751,9 @@ export default function AdminSettingsPage({
                 </tr>
               </thead>
               <tbody>
-                {driverRecords.length === 0 && (
+                {filteredDriverRecords.length === 0 && (
                   <tr>
-                    <td colSpan="5" className="empty-state">No drivers available.</td>
+                    <td colSpan="5" className="empty-state">{driversQuery.trim() ? 'No drivers match your search.' : 'No drivers available.'}</td>
                   </tr>
                 )}
                 {paginatedDriverRecords.map((driver) => (
@@ -665,9 +794,9 @@ export default function AdminSettingsPage({
           </div>
           <div className="request-pagination">
             <p className="request-pagination-copy">
-              {driverRecords.length === 0
+              {filteredDriverRecords.length === 0
                 ? 'No drivers to show'
-                : `Showing ${driversPageStart}-${driversPageEnd} of ${driverRecords.length} drivers`}
+                : `Showing ${driversPageStart}-${driversPageEnd} of ${filteredDriverRecords.length} drivers`}
             </p>
             <div className="request-pagination-actions">
               <button
@@ -680,14 +809,14 @@ export default function AdminSettingsPage({
                 <span className="pagination-label-short">Prev</span>
               </button>
               <span className="request-page-indicator">
-                <span className="request-page-indicator-full">Page {driverRecords.length === 0 ? 0 : driversCurrentPage} of {driverRecords.length === 0 ? 0 : driversTotalPages}</span>
-                <span className="request-page-indicator-short">{driverRecords.length === 0 ? 0 : driversCurrentPage}/{driverRecords.length === 0 ? 0 : driversTotalPages}</span>
+                <span className="request-page-indicator-full">Page {filteredDriverRecords.length === 0 ? 0 : driversCurrentPage} of {filteredDriverRecords.length === 0 ? 0 : driversTotalPages}</span>
+                <span className="request-page-indicator-short">{filteredDriverRecords.length === 0 ? 0 : driversCurrentPage}/{filteredDriverRecords.length === 0 ? 0 : driversTotalPages}</span>
               </span>
               <button
                 type="button"
                 className="button button-secondary request-page-button pagination-nav-button"
                 onClick={() => setDriversCurrentPage((page) => Math.min(driversTotalPages, page + 1))}
-                disabled={driversCurrentPage >= driversTotalPages || driverRecords.length === 0}
+                disabled={driversCurrentPage >= driversTotalPages || filteredDriverRecords.length === 0}
               >
                 <span className="pagination-label-full">Next</span>
                 <span className="pagination-label-short">Next</span>
@@ -704,6 +833,14 @@ export default function AdminSettingsPage({
         title: 'Vehicles',
         subtitle: 'Fleet master records and assignment readiness',
         note: 'Vehicle status here feeds the requester and assignment availability workflow.',
+        searchControl: (
+          <input
+            className="input settings-search-input"
+            placeholder="Search vehicle, plate, branch, status, type..."
+            value={vehiclesQuery}
+            onChange={(event) => setVehiclesQuery(event.target.value)}
+          />
+        ),
         action: (
           <div className="row-actions">
             {typeof onAddVehicle === 'function' && (
@@ -741,9 +878,9 @@ export default function AdminSettingsPage({
                 </tr>
               </thead>
               <tbody>
-                {vehicleRecords.length === 0 && (
+                {filteredVehicleRecords.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="empty-state">No vehicles available.</td>
+                    <td colSpan="6" className="empty-state">{vehiclesQuery.trim() ? 'No vehicles match your search.' : 'No vehicles available.'}</td>
                   </tr>
                 )}
                 {paginatedVehicleRecords.map((vehicle) => (
@@ -783,9 +920,9 @@ export default function AdminSettingsPage({
           </div>
           <div className="request-pagination">
             <p className="request-pagination-copy">
-              {vehicleRecords.length === 0
+              {filteredVehicleRecords.length === 0
                 ? 'No vehicles to show'
-                : `Showing ${vehiclesPageStart}-${vehiclesPageEnd} of ${vehicleRecords.length} vehicles`}
+                : `Showing ${vehiclesPageStart}-${vehiclesPageEnd} of ${filteredVehicleRecords.length} vehicles`}
             </p>
             <div className="request-pagination-actions">
               <button
@@ -798,14 +935,14 @@ export default function AdminSettingsPage({
                 <span className="pagination-label-short">Prev</span>
               </button>
               <span className="request-page-indicator">
-                <span className="request-page-indicator-full">Page {vehicleRecords.length === 0 ? 0 : vehiclesCurrentPage} of {vehicleRecords.length === 0 ? 0 : vehiclesTotalPages}</span>
-                <span className="request-page-indicator-short">{vehicleRecords.length === 0 ? 0 : vehiclesCurrentPage}/{vehicleRecords.length === 0 ? 0 : vehiclesTotalPages}</span>
+                <span className="request-page-indicator-full">Page {filteredVehicleRecords.length === 0 ? 0 : vehiclesCurrentPage} of {filteredVehicleRecords.length === 0 ? 0 : vehiclesTotalPages}</span>
+                <span className="request-page-indicator-short">{filteredVehicleRecords.length === 0 ? 0 : vehiclesCurrentPage}/{filteredVehicleRecords.length === 0 ? 0 : vehiclesTotalPages}</span>
               </span>
               <button
                 type="button"
                 className="button button-secondary request-page-button pagination-nav-button"
                 onClick={() => setVehiclesCurrentPage((page) => Math.min(vehiclesTotalPages, page + 1))}
-                disabled={vehiclesCurrentPage >= vehiclesTotalPages || vehicleRecords.length === 0}
+                disabled={vehiclesCurrentPage >= vehiclesTotalPages || filteredVehicleRecords.length === 0}
               >
                 <span className="pagination-label-full">Next</span>
                 <span className="pagination-label-short">Next</span>
@@ -822,17 +959,19 @@ export default function AdminSettingsPage({
         title: 'Audit trail',
         subtitle: 'Admin history of session, request, dispatch, compliance, and settings activity',
         note: 'This log captures meaningful write actions and security/session events across the workspace.',
+        searchControl: (
+          <input
+            className="input settings-search-input"
+            placeholder="Search actor, action, request, vehicle, or detail..."
+            value={auditQuery}
+            onChange={(event) => setAuditQuery(event.target.value)}
+          />
+        ),
         action: null,
         table: (
           <>
             <div className="audit-toolbar">
               <div className="audit-filter-grid">
-                <input
-                  className="input audit-search-input"
-                  placeholder="Search actor, action, request, vehicle, or detail..."
-                  value={auditQuery}
-                  onChange={(event) => setAuditQuery(event.target.value)}
-                />
                 <label>
                   <span className="field-label">From</span>
                   <input
@@ -963,6 +1102,7 @@ export default function AdminSettingsPage({
       branchesCurrentPage,
       branchesPageEnd,
       branchesPageStart,
+      branchesQuery,
       branchesTotalPages,
       auditCategory,
       auditEndDate,
@@ -978,8 +1118,13 @@ export default function AdminSettingsPage({
       driversCurrentPage,
       driversPageEnd,
       driversPageStart,
+      driversQuery,
       driversTotalPages,
+      filteredBranchRecords,
       filteredAuditRecords,
+      filteredDriverRecords,
+      filteredUserRecords,
+      filteredVehicleRecords,
       onAddBranch,
       onAddUser,
       onAddDriver,
@@ -1006,11 +1151,13 @@ export default function AdminSettingsPage({
       usersCurrentPage,
       usersPageEnd,
       usersPageStart,
+      usersQuery,
       usersTotalPages,
       vehicleRecords,
       vehiclesCurrentPage,
       vehiclesPageEnd,
       vehiclesPageStart,
+      vehiclesQuery,
       vehiclesTotalPages,
     ],
   );
@@ -1241,7 +1388,10 @@ export default function AdminSettingsPage({
             ))}
           </div>
           <div className="toolbar settings-toolbar">
-            <p className="muted settings-note">{activePanel.note}</p>
+            <div className="settings-toolbar-copy">
+              <p className="muted settings-note">{activePanel.note}</p>
+              {activePanel.searchControl}
+            </div>
             {activePanel.action}
           </div>
           {activePanel.table}
