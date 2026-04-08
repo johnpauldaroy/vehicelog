@@ -47,6 +47,7 @@ export default function TripsPage({
   onApproveTripTicket,
 }) {
   const isGuard = mode === 'guard';
+  const isDriver = mode === 'driver';
   const [detailTripId, setDetailTripId] = useState('');
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -93,7 +94,7 @@ export default function TripsPage({
       onCheckoutTripChange(trip.id);
     }
 
-    if (!isGuard && ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)) {
+    if (!isGuard && isDriver && ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)) {
       onCheckinTripChange(trip.id);
     }
 
@@ -122,7 +123,7 @@ export default function TripsPage({
       };
     }
 
-    if (ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)) {
+    if (ACTIVE_TRIP_STATUSES.includes(trip.tripStatus) && isDriver) {
       return {
         icon: 'return',
         label: 'Return vehicle',
@@ -150,7 +151,7 @@ export default function TripsPage({
       ? 'history'
       : READY_FOR_CHECKOUT.includes(detailTrip.tripStatus)
       ? 'release'
-      : ACTIVE_TRIP_STATUSES.includes(detailTrip.tripStatus)
+      : ACTIVE_TRIP_STATUSES.includes(detailTrip.tripStatus) && isDriver
         ? 'return'
         : 'history'
     : null;
