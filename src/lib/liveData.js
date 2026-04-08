@@ -960,6 +960,51 @@ function isMissingVehiclesDeletedAtColumnError(error) {
   );
 }
 
+function isMissingDriversDeletedAtColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    (message.includes('drivers.deleted_at') || message.includes("'deleted_at'"))
+    && (message.includes('does not exist') || message.includes('schema cache'))
+  );
+}
+
+async function selectDrivers(client) {
+  let includeDeletedAt = true;
+  let rows = null;
+  let attemptError = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const select = includeDeletedAt
+      ? 'id, profile_id, full_name, status, branch_id, license_number, license_restrictions, license_expiry, employee_id, contact_number, deleted_at'
+      : 'id, profile_id, full_name, status, branch_id, license_number, license_restrictions, license_expiry, employee_id, contact_number';
+
+    const { data, error } = await client
+      .from('drivers')
+      .select(select);
+
+    if (!error) {
+      rows = data ?? [];
+      attemptError = null;
+      break;
+    }
+
+    attemptError = error;
+
+    if (includeDeletedAt && isMissingDriversDeletedAtColumnError(error)) {
+      includeDeletedAt = false;
+      continue;
+    }
+
+    break;
+  }
+
+  if (attemptError) {
+    throw new Error(`Unable to load drivers: ${attemptError.message}`);
+  }
+
+  return (rows || []).filter((driver) => !includeDeletedAt || !driver.deleted_at);
+}
+
 async function selectVehicles(client) {
   const coreSelect = `
     id,
@@ -1564,7 +1609,7 @@ export async function fetchLiveAppData(client) {
     requiredSelect('role assignments', client.from('user_roles').select('user_id, branch_id, role_id, roles(name)')),
     requiredSelect('vehicle types', client.from('vehicle_types').select('id, name')),
     selectVehicles(client),
-    requiredSelect('drivers', client.from('drivers').select('id, profile_id, full_name, status, branch_id, license_number, license_restrictions, license_expiry, employee_id, contact_number')),
+    selectDrivers(client),
     selectVehicleRequests(client),
     requiredSelect(
       'request passengers',
@@ -2582,12 +2627,29 @@ export async function saveLiveDriver(client, driverForm) {
 }
 
 export async function deleteLiveDriver(client, driver) {
+  const driverId = driver.dbId || driver.id;
   const { error } = await client
     .from('drivers')
-    .delete()
-    .eq('id', driver.dbId || driver.id);
+    .update({
+      status: 'inactive',
+      deleted_at: new Date().toISOString(),
+    })
+    .eq('id', driverId);
 
   if (error) {
+    if (isMissingDriversDeletedAtColumnError(error)) {
+      const { error: fallbackError } = await client
+        .from('drivers')
+        .update({ status: 'inactive' })
+        .eq('id', driverId);
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      return;
+    }
+
     throw error;
   }
 }
