@@ -2546,14 +2546,18 @@ export async function saveLiveDriver(client, driverForm) {
   };
 
   const query = driverForm.id
-    ? client.from('drivers').update(payload).eq('id', driverForm.id)
-    : client.from('drivers').insert(payload);
+    ? client.from('drivers').update(payload).eq('id', driverForm.id).select('id').single()
+    : client.from('drivers').insert(payload).select('id').single();
 
-  const { error } = await query;
+  const { data, error } = await query;
 
   if (error) {
     throw error;
   }
+
+  return {
+    id: data?.id || driverForm.id || '',
+  };
 }
 
 export async function deleteLiveDriver(client, driver) {

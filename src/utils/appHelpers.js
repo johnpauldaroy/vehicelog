@@ -39,12 +39,18 @@ export const PRINTABLE_REQUEST_STATUSES = new Set([
   'closed',
 ]);
 
+export const REQUEST_HIRED_DRIVER_OPTION_VALUE = '__hired_driver__';
+
 function padNumber(value) {
   return String(value).padStart(2, '0');
 }
 
 function toLocalDateTimeInputValue(date) {
   return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}T${padNumber(date.getHours())}:${padNumber(date.getMinutes())}`;
+}
+
+function toDateInputValue(date) {
+  return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
 }
 
 function getStartOfToday() {
@@ -224,6 +230,8 @@ export function createRequestForm() {
 
   const expectedReturn = new Date(departure);
   expectedReturn.setHours(expectedReturn.getHours() + 8);
+  const defaultHiredDriverExpiry = new Date(departure);
+  defaultHiredDriverExpiry.setFullYear(defaultHiredDriverExpiry.getFullYear() + 1);
 
   return {
     purpose: '',
@@ -233,6 +241,11 @@ export function createRequestForm() {
     passengerCount: '1',
     passengerNames: createPassengerNameSlots(1),
     assignedDriverId: '',
+    hiredDriverName: '',
+    hiredDriverLicenseNumber: '',
+    hiredDriverLicenseRestrictions: '',
+    hiredDriverLicenseExpiry: toDateInputValue(defaultHiredDriverExpiry),
+    hiredDriverContactNumber: '',
     assignedVehicleId: '',
     notes: '',
     fuelRequested: false,

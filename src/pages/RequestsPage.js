@@ -2,7 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
-import { canPrintRequestStatus, formatDate, getDriverAssignmentValidation } from '../utils/appHelpers';
+import {
+  canPrintRequestStatus,
+  formatDate,
+  getDriverAssignmentValidation,
+  REQUEST_HIRED_DRIVER_OPTION_VALUE,
+} from '../utils/appHelpers';
 
 export default function RequestsPage({
   mode,
@@ -57,15 +62,29 @@ export default function RequestsPage({
   const showsAssignmentActions = isAdmin || isApprover;
   const showsReadOnlyDetailAction = isGuard || isPumpStation;
   const canCreateRequest = !isGuard && !isPumpStation;
+  const canAddHiredDriver = isAdmin || isApprover;
   const [openActionMenuId, setOpenActionMenuId] = useState('');
   const [requestDateFrom, setRequestDateFrom] = useState('');
   const [requestDateTo, setRequestDateTo] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const actionMenuRef = useRef(null);
   const requestsPerPage = 6;
-  const selectedRequestDriver = driverOptions.find((driver) => driver.id === requestForm.assignedDriverId) || null;
+  const isHiredDriverSelected = requestForm.assignedDriverId === REQUEST_HIRED_DRIVER_OPTION_VALUE;
+  const selectedRequestDriver = isHiredDriverSelected
+    ? {
+        fullName: requestForm.hiredDriverName,
+        licenseRestrictions: requestForm.hiredDriverLicenseRestrictions,
+        licenseExpiry: requestForm.hiredDriverLicenseExpiry,
+      }
+    : (driverOptions.find((driver) => driver.id === requestForm.assignedDriverId) || null);
   const selectedRequestVehicle = vehicleOptions.find((vehicle) => vehicle.id === requestForm.assignedVehicleId) || null;
   const requestDriverValidation = getDriverAssignmentValidation(selectedRequestDriver, selectedRequestVehicle);
+  const hasMissingHiredDriverFields = isHiredDriverSelected
+    && (
+      !String(requestForm.hiredDriverName || '').trim()
+      || !String(requestForm.hiredDriverLicenseNumber || '').trim()
+      || !String(requestForm.hiredDriverLicenseExpiry || '').trim()
+    );
   const selectedApprovalDriver = requestApprovalDriverOptions.find(
     (driver) => driver.id === requestApprovalForm.assignedDriverId
   ) || null;
@@ -74,7 +93,10 @@ export default function RequestsPage({
   ) || null;
   const approvalDriverValidation = getDriverAssignmentValidation(selectedApprovalDriver, selectedApprovalVehicle);
   const canPrintSelectedRequest = showsAssignmentActions && canPrintRequestStatus(selectedRequestDetails?.status);
-  const isRequestSubmissionBlocked = Boolean(requestForm.assignedDriverId && !requestDriverValidation.isValid);
+  const isRequestSubmissionBlocked = Boolean(
+    (requestForm.assignedDriverId && !requestDriverValidation.isValid)
+    || hasMissingHiredDriverFields
+  );
   const showsUserFuelEditActions = !showsAssignmentActions && !isGuard && !isPumpStation;
   const showsActionColumn = showsAssignmentActions || showsUserFuelEditActions || showsReadOnlyDetailAction;
 
@@ -819,6 +841,11 @@ export default function RequestsPage({
                         {driver.fullName} ({driver.status})
                       </option>
                     ))}
+                    {canAddHiredDriver && (
+                      <option value={REQUEST_HIRED_DRIVER_OPTION_VALUE}>
+                        Hired driver (not on list)
+                      </option>
+                    )}
                   </select>
                 </label>
                 <label>
@@ -836,6 +863,58 @@ export default function RequestsPage({
                     ))}
                   </select>
                 </label>
+                {isHiredDriverSelected && (
+                  <div className="full-span detail-panel" style={{ background: 'rgba(0,0,0,0.02)' }}>
+                    <span className="field-label">Hired driver details</span>
+                    <div className="form-grid" style={{ marginTop: '12px' }}>
+                      <label>
+                        <span className="field-label">Full name</span>
+                        <input
+                          className="input"
+                          value={requestForm.hiredDriverName}
+                          onChange={(event) => onRequestFormChange('hiredDriverName', event.target.value)}
+                          placeholder="Driver full name"
+                        />
+                      </label>
+                      <label>
+                        <span className="field-label">License number</span>
+                        <input
+                          className="input"
+                          value={requestForm.hiredDriverLicenseNumber}
+                          onChange={(event) => onRequestFormChange('hiredDriverLicenseNumber', event.target.value)}
+                          placeholder="License number"
+                        />
+                      </label>
+                      <label>
+                        <span className="field-label">License restrictions</span>
+                        <input
+                          className="input"
+                          value={requestForm.hiredDriverLicenseRestrictions}
+                          onChange={(event) => onRequestFormChange('hiredDriverLicenseRestrictions', event.target.value)}
+                          placeholder="e.g. B2"
+                        />
+                      </label>
+                      <label>
+                        <span className="field-label">License expiry</span>
+                        <input
+                          className="input"
+                          type="date"
+                          value={requestForm.hiredDriverLicenseExpiry}
+                          onChange={(event) => onRequestFormChange('hiredDriverLicenseExpiry', event.target.value)}
+                        />
+                      </label>
+                      <label className="full-span">
+                        <span className="field-label">Contact number (optional)</span>
+                        <input
+                          className="input"
+                          value={requestForm.hiredDriverContactNumber}
+                          onChange={(event) => onRequestFormChange('hiredDriverContactNumber', event.target.value)}
+                          placeholder="Mobile number"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
                 {!requestDriverValidation.isValid && (
                   <div className="full-span">
                     {renderDriverValidationNotice(requestDriverValidation)}
@@ -924,8 +1003,12 @@ export default function RequestsPage({
                   </button>
                   <span className="muted">
                     {isRequestSubmissionBlocked
-                      ? 'Resolve the driver validation note before submitting this request.'
-                      : 'Only currently available drivers and vehicles are shown for selection.'}
+                      ? (hasMissingHiredDriverFields
+                        ? 'Complete required hired driver fields before submitting this request.'
+                        : 'Resolve the driver validation note before submitting this request.')
+                      : (canAddHiredDriver
+                        ? 'Only available drivers are listed, or add a hired driver not yet in the roster.'
+                        : 'Only currently available drivers and vehicles are shown for selection.')}
                   </span>
                 </div>
               </form>

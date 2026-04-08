@@ -53,6 +53,7 @@ import {
   normalizePassengerCount,
   pickCheckinDefaults,
   pickCheckoutDefaults,
+  REQUEST_HIRED_DRIVER_OPTION_VALUE,
   sortByLatestDate,
 } from './utils/appHelpers';
 
@@ -322,6 +323,12 @@ function parseBooleanCsvValue(value, fallback = false) {
 function generateTemporaryPassword() {
   const randomSeed = Math.random().toString(36).slice(2, 10);
   return `Temp!${randomSeed}9A`;
+}
+
+function generateHiredDriverEmployeeId() {
+  const timestampFragment = Date.now().toString().slice(-6);
+  const randomFragment = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `HIR-${timestampFragment}-${randomFragment}`;
 }
 
 function createUserSettingsForm(defaultBranchId = '') {
@@ -1265,6 +1272,7 @@ function App() {
   useEffect(() => {
     if (
       requestForm.assignedDriverId
+      && requestForm.assignedDriverId !== REQUEST_HIRED_DRIVER_OPTION_VALUE
       && !requestDriverOptions.some((driver) => driver.id === requestForm.assignedDriverId)
     ) {
       setRequestForm((current) => ({
@@ -2242,6 +2250,24 @@ function App() {
           [field]: value,
           ...(resetMunicipality ? { fuelQuoteMunicipality: '' } : {}),
           fuelAmountManuallyEdited: false,
+        };
+      }
+
+      if (field === 'assignedDriverId') {
+        if (value === REQUEST_HIRED_DRIVER_OPTION_VALUE) {
+          return {
+            ...current,
+            assignedDriverId: value,
+          };
+        }
+
+        return {
+          ...current,
+          assignedDriverId: value,
+          hiredDriverName: '',
+          hiredDriverLicenseNumber: '',
+          hiredDriverLicenseRestrictions: '',
+          hiredDriverContactNumber: '',
         };
       }
 
@@ -4324,7 +4350,14 @@ function App() {
     }
 
     const selectedVehicle = vehicleRecords.find((vehicle) => vehicle.id === requestForm.assignedVehicleId);
-    const selectedDriver = driverRecords.find((driver) => driver.id === requestForm.assignedDriverId);
+    const isHiredDriverSelected = requestForm.assignedDriverId === REQUEST_HIRED_DRIVER_OPTION_VALUE;
+    const canCreateHiredDriver = userMode === 'admin' || userMode === 'approver';
+    let selectedDriver = isHiredDriverSelected
+      ? null
+      : driverRecords.find((driver) => driver.id === requestForm.assignedDriverId);
+    let resolvedAssignedDriverId = isHiredDriverSelected ? '' : requestForm.assignedDriverId;
+    let hiredDriverPayload = null;
+    let hiredLocalDriver = null;
     const driverAssignmentValidation = getDriverAssignmentValidation(selectedDriver, selectedVehicle);
 
     if (
@@ -4338,20 +4371,72 @@ function App() {
       return;
     }
 
-    if (
-      requestForm.assignedDriverId
-      && (
-        String(selectedDriver?.status || '').toLowerCase() !== 'available'
-        || unavailableDriverIds.has(requestForm.assignedDriverId)
-      )
-    ) {
-      showToast('Choose a driver that is currently available.', 'warning', 'Driver unavailable');
-      return;
-    }
+    if (isHiredDriverSelected) {
+      if (!canCreateHiredDriver) {
+        showToast('Only admin/approver accounts can add hired drivers.', 'warning', 'Permission denied');
+        return;
+      }
 
-    if (requestForm.assignedDriverId && !driverAssignmentValidation.isValid) {
-      showToast(getDriverAssignmentValidationMessage(driverAssignmentValidation), 'warning', 'Driver validation');
-      return;
+      const hiredDriverName = String(requestForm.hiredDriverName || '').trim();
+      const hiredDriverLicenseNumber = String(requestForm.hiredDriverLicenseNumber || '').trim();
+      const hiredDriverLicenseRestrictions = String(requestForm.hiredDriverLicenseRestrictions || '').trim();
+      const hiredDriverLicenseExpiry = String(requestForm.hiredDriverLicenseExpiry || '').trim();
+      const hiredDriverContactNumber = String(requestForm.hiredDriverContactNumber || '').trim();
+
+      if (!hiredDriverName || !hiredDriverLicenseNumber || !hiredDriverLicenseExpiry) {
+        showToast('Complete hired driver name, license number, and license expiry.', 'warning', 'Missing hired driver details');
+        return;
+      }
+
+      const branchId = currentSessionUser.branchId || findBranchId(branchRecords, currentSessionUser.branch);
+
+      if (!branchId) {
+        showToast('Unable to resolve branch for the hired driver record.', 'warning', 'Branch required');
+        return;
+      }
+
+      const hiredDriverValidation = getDriverAssignmentValidation(
+        {
+          fullName: hiredDriverName,
+          licenseRestrictions: hiredDriverLicenseRestrictions,
+          licenseExpiry: hiredDriverLicenseExpiry,
+        },
+        selectedVehicle
+      );
+
+      if (!hiredDriverValidation.isValid) {
+        showToast(getDriverAssignmentValidationMessage(hiredDriverValidation), 'warning', 'Driver validation');
+        return;
+      }
+
+      hiredDriverPayload = {
+        id: '',
+        profileId: '',
+        branchId,
+        employeeId: generateHiredDriverEmployeeId(),
+        fullName: hiredDriverName,
+        contactNumber: hiredDriverContactNumber,
+        licenseNumber: hiredDriverLicenseNumber,
+        licenseRestrictions: hiredDriverLicenseRestrictions,
+        licenseExpiry: hiredDriverLicenseExpiry,
+        status: 'available',
+      };
+    } else {
+      if (
+        requestForm.assignedDriverId
+        && (
+          String(selectedDriver?.status || '').toLowerCase() !== 'available'
+          || unavailableDriverIds.has(requestForm.assignedDriverId)
+        )
+      ) {
+        showToast('Choose a driver that is currently available.', 'warning', 'Driver unavailable');
+        return;
+      }
+
+      if (requestForm.assignedDriverId && !driverAssignmentValidation.isValid) {
+        showToast(getDriverAssignmentValidationMessage(driverAssignmentValidation), 'warning', 'Driver validation');
+        return;
+      }
     }
 
     const forcedApproverId = userMode === 'approver'
@@ -4363,11 +4448,26 @@ function App() {
 
     if (supabase) {
       try {
+        if (hiredDriverPayload) {
+          const createdDriver = await saveLiveDriver(supabase, hiredDriverPayload);
+          resolvedAssignedDriverId = String(createdDriver?.id || '').trim();
+
+          if (!resolvedAssignedDriverId) {
+            throw new Error('Unable to create the hired driver record.');
+          }
+
+          selectedDriver = {
+            ...hiredDriverPayload,
+            id: resolvedAssignedDriverId,
+          };
+        }
+
         const requestNo = await createLiveRequest(
           supabase,
           currentSessionUser,
           {
             ...requestForm,
+            assignedDriverId: resolvedAssignedDriverId,
             passengerCount,
             passengerNames,
           },
@@ -4398,6 +4498,27 @@ function App() {
       return;
     }
 
+    if (hiredDriverPayload) {
+      resolvedAssignedDriverId = createId('drv');
+      selectedDriver = {
+        id: resolvedAssignedDriverId,
+        dbId: resolvedAssignedDriverId,
+        profileId: '',
+        fullName: hiredDriverPayload.fullName,
+        employeeId: hiredDriverPayload.employeeId,
+        branch: currentSessionUser.branch,
+        branchId: hiredDriverPayload.branchId,
+        status: 'available',
+        licenseNumber: hiredDriverPayload.licenseNumber,
+        licenseRestrictions: hiredDriverPayload.licenseRestrictions,
+        licenseExpiry: hiredDriverPayload.licenseExpiry,
+        contactNumber: hiredDriverPayload.contactNumber,
+        linkedAccountName: '',
+        linkedAccountEmail: '',
+      };
+      hiredLocalDriver = selectedDriver;
+    }
+
     const requestNo = createRequestNumber(requestRecords);
     const nextRequest = {
       id: createId('req'),
@@ -4415,7 +4536,7 @@ function App() {
       assignedVehicle: selectedVehicle?.vehicleName || 'Unassigned',
       assignedVehicleId: requestForm.assignedVehicleId || '',
       assignedDriver: selectedDriver?.fullName || 'Unassigned',
-      assignedDriverId: requestForm.assignedDriverId || '',
+      assignedDriverId: resolvedAssignedDriverId || '',
       fuelRequested: requestForm.fuelRequested,
       fuelAmount: Number(requestForm.fuelAmount || 0),
       fuelLiters: Number(requestForm.fuelLiters || 0),
@@ -4445,17 +4566,18 @@ function App() {
         )
       );
     }
-    if (requestForm.assignedDriverId) {
-      setDriverRecords((current) =>
-        current.map((driver) =>
-          driver.id === requestForm.assignedDriverId
+    if (resolvedAssignedDriverId || hiredLocalDriver) {
+      setDriverRecords((current) => {
+        const nextDrivers = hiredLocalDriver ? [hiredLocalDriver, ...current] : [...current];
+        return nextDrivers.map((driver) =>
+          driver.id === resolvedAssignedDriverId
             ? {
                 ...driver,
                 status: 'assigned',
               }
             : driver
-        )
-      );
+        );
+      });
     }
     appendAuditEntry({
       category: 'request',
