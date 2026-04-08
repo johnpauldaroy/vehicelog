@@ -150,6 +150,28 @@ function normalizeComparableText(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function findVehicleForTrip(vehicleRecords, trip) {
+  if (!trip) {
+    return null;
+  }
+
+  return vehicleRecords.find((vehicle) => {
+    if (trip.vehicleId && vehicle.id === trip.vehicleId) {
+      return true;
+    }
+
+    const tripVehicle = normalizeComparableText(trip.vehicle);
+    if (!tripVehicle) {
+      return false;
+    }
+
+    return (
+      normalizeComparableText(vehicle.vehicleName) === tripVehicle
+      || normalizeComparableText(vehicle.plateNumber) === tripVehicle
+    );
+  }) || null;
+}
+
 function normalizeCsvHeader(value) {
   return String(value || '')
     .trim()
@@ -2344,9 +2366,7 @@ function App() {
 
   function handleCheckoutTripChange(tripId) {
     const selectedTrip = visibleTripRecords.find((trip) => trip.id === tripId);
-    const selectedVehicleRecord = vehicleRecords.find(
-      (vehicle) => vehicle.vehicleName === selectedTrip?.vehicle
-    );
+    const selectedVehicleRecord = findVehicleForTrip(vehicleRecords, selectedTrip);
 
     setCheckoutForm((current) => ({
       ...current,
@@ -4460,9 +4480,7 @@ function App() {
 
     const tripToRelease = visibleTripRecords.find((trip) => trip.id === checkoutForm.tripId);
     const odometerOut = Number(checkoutForm.odometerOut);
-    const releaseVehicle = vehicleRecords.find(
-      (vehicle) => vehicle.id === tripToRelease?.vehicleId || vehicle.vehicleName === tripToRelease?.vehicle
-    );
+    const releaseVehicle = findVehicleForTrip(vehicleRecords, tripToRelease);
     const isOdoDefective = Boolean(releaseVehicle?.isOdoDefective);
     const resolvedOdometerOut = isOdoDefective ? null : odometerOut;
     const odometerOutLabel = isOdoDefective
@@ -4508,7 +4526,7 @@ function App() {
               dateOut: checkoutForm.dateOut,
               odometerOut: resolvedOdometerOut,
               fuelOut: checkoutForm.fuelOut,
-              conditionOut: checkoutForm.conditionOut,
+              conditionOut: checkoutForm.conditionOut || '',
             }
           : trip
       )
@@ -4579,9 +4597,7 @@ function App() {
 
     const tripToClose = visibleTripRecords.find((trip) => trip.id === checkinForm.tripId);
     const odometerIn = Number(checkinForm.odometerIn);
-    const returnVehicle = vehicleRecords.find(
-      (vehicle) => vehicle.id === tripToClose?.vehicleId || vehicle.vehicleName === tripToClose?.vehicle
-    );
+    const returnVehicle = findVehicleForTrip(vehicleRecords, tripToClose);
     const isOdoDefective = Boolean(returnVehicle?.isOdoDefective);
     const resolvedOdometerIn = isOdoDefective ? null : odometerIn;
 

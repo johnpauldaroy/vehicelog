@@ -5,6 +5,30 @@ import StatusBadge from '../components/StatusBadge';
 import { ACTIVE_TRIP_STATUSES, READY_FOR_CHECKOUT } from '../constants/appConfig';
 import { formatDate } from '../utils/appHelpers';
 
+function normalizeComparableText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function vehicleMatchesTrip(vehicle, trip) {
+  if (!vehicle || !trip) {
+    return false;
+  }
+
+  if (trip.vehicleId && vehicle.id === trip.vehicleId) {
+    return true;
+  }
+
+  const tripVehicle = normalizeComparableText(trip.vehicle);
+  if (!tripVehicle) {
+    return false;
+  }
+
+  return (
+    normalizeComparableText(vehicle.vehicleName) === tripVehicle
+    || normalizeComparableText(vehicle.plateNumber) === tripVehicle
+  );
+}
+
 export default function TripsPage({
   mode,
   tripRecords,
@@ -40,18 +64,14 @@ export default function TripsPage({
       return null;
     }
 
-    return vehicleRecords?.find(
-      (vehicle) => vehicle.id === selectedCheckoutTrip.vehicleId || vehicle.vehicleName === selectedCheckoutTrip.vehicle
-    ) || null;
+    return vehicleRecords?.find((vehicle) => vehicleMatchesTrip(vehicle, selectedCheckoutTrip)) || null;
   }, [selectedCheckoutTrip, vehicleRecords]);
   const selectedCheckinVehicle = useMemo(() => {
     if (!selectedCheckinTrip) {
       return null;
     }
 
-    return vehicleRecords?.find(
-      (vehicle) => vehicle.id === selectedCheckinTrip.vehicleId || vehicle.vehicleName === selectedCheckinTrip.vehicle
-    ) || null;
+    return vehicleRecords?.find((vehicle) => vehicleMatchesTrip(vehicle, selectedCheckinTrip)) || null;
   }, [selectedCheckinTrip, vehicleRecords]);
 
   useEffect(() => {
@@ -325,22 +345,23 @@ export default function TripsPage({
                         onChange={(event) => onCheckoutFieldChange('dateOut', event.target.value)}
                       />
                     </label>
-                    <label>
-                      <span className="field-label">
-                        Odometer out
-                        {selectedCheckoutVehicle?.isOdoDefective && (
-                          <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--brand-amber, #f59e0b)', fontWeight: '700', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: '99px' }}>DISABLED - NOT REQUIRED</span>
-                        )}
-                      </span>
-                      <input
-                        className="input"
-                        type="number"
-                        value={selectedCheckoutVehicle?.isOdoDefective ? '' : checkoutForm.odometerOut}
-                        onChange={(event) => onCheckoutFieldChange('odometerOut', event.target.value)}
-                        disabled={selectedCheckoutVehicle?.isOdoDefective}
-                        placeholder={selectedCheckoutVehicle?.isOdoDefective ? 'Odometer disabled for this vehicle' : 'Current odometer'}
-                      />
-                    </label>
+                    {selectedCheckoutVehicle?.isOdoDefective ? (
+                      <div className="trip-action-info">
+                        <span className="field-label">Odometer out</span>
+                        <p>Skipped for this vehicle (odometer disabled).</p>
+                      </div>
+                    ) : (
+                      <label>
+                        <span className="field-label">Odometer out</span>
+                        <input
+                          className="input"
+                          type="number"
+                          value={checkoutForm.odometerOut}
+                          onChange={(event) => onCheckoutFieldChange('odometerOut', event.target.value)}
+                          placeholder="Current odometer"
+                        />
+                      </label>
+                    )}
                     <label>
                       <span className="field-label">Fuel level out</span>
                       <select
@@ -358,15 +379,6 @@ export default function TripsPage({
                       <span className="field-label">Assigned trip</span>
                       <p>{actionTrip.vehicle} is assigned to {actionTrip.driver}.</p>
                     </div>
-                    <label className="full-span">
-                      <span className="field-label">Condition Notes</span>
-                      <textarea
-                        className="input textarea"
-                        placeholder="Add additional notes about the vehicle condition..."
-                        value={checkoutForm.conditionOut}
-                        onChange={(event) => onCheckoutFieldChange('conditionOut', event.target.value)}
-                      />
-                    </label>
                     <div className="full-span form-actions">
                       <button
                         type="submit"
@@ -390,22 +402,23 @@ export default function TripsPage({
                         onChange={(event) => onCheckinFieldChange('dateIn', event.target.value)}
                       />
                     </label>
-                    <label>
-                      <span className="field-label">
-                        Odometer in
-                        {selectedCheckinVehicle?.isOdoDefective && (
-                          <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--brand-amber, #f59e0b)', fontWeight: '700', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: '99px' }}>DISABLED - NOT REQUIRED</span>
-                        )}
-                      </span>
-                      <input
-                        className="input"
-                        type="number"
-                        value={selectedCheckinVehicle?.isOdoDefective ? '' : checkinForm.odometerIn}
-                        onChange={(event) => onCheckinFieldChange('odometerIn', event.target.value)}
-                        disabled={selectedCheckinVehicle?.isOdoDefective}
-                        placeholder={selectedCheckinVehicle?.isOdoDefective ? 'Odometer disabled for this vehicle' : (selectedCheckinTrip?.odometerOut ? `Above ${selectedCheckinTrip.odometerOut}` : 'Final odometer')}
-                      />
-                    </label>
+                    {selectedCheckinVehicle?.isOdoDefective ? (
+                      <div className="trip-action-info">
+                        <span className="field-label">Odometer in</span>
+                        <p>Skipped for this vehicle (odometer disabled).</p>
+                      </div>
+                    ) : (
+                      <label>
+                        <span className="field-label">Odometer in</span>
+                        <input
+                          className="input"
+                          type="number"
+                          value={checkinForm.odometerIn}
+                          onChange={(event) => onCheckinFieldChange('odometerIn', event.target.value)}
+                          placeholder={selectedCheckinTrip?.odometerOut ? `Above ${selectedCheckinTrip.odometerOut}` : 'Final odometer'}
+                        />
+                      </label>
+                    )}
                     <label>
                       <span className="field-label">Fuel level in</span>
                       <select

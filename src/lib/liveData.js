@@ -2037,7 +2037,7 @@ export async function checkoutLiveTrip(client, trip, checkoutForm, odometerOut) 
       date_out: checkoutForm.dateOut,
       odometer_out: hasOdometerOut ? normalizedOdometerOut : null,
       fuel_out: checkoutForm.fuelOut,
-      condition_out: checkoutForm.conditionOut,
+      condition_out: checkoutForm.conditionOut || '',
     })
     .eq('id', trip.dbId);
 

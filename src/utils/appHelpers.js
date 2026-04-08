@@ -53,6 +53,32 @@ function getStartOfToday() {
   return now;
 }
 
+function normalizeComparableText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function findVehicleForTrip(vehicleRecords, trip) {
+  if (!trip) {
+    return null;
+  }
+
+  return vehicleRecords.find((vehicle) => {
+    if (trip.vehicleId && vehicle.id === trip.vehicleId) {
+      return true;
+    }
+
+    const tripVehicle = normalizeComparableText(trip.vehicle);
+    if (!tripVehicle) {
+      return false;
+    }
+
+    return (
+      normalizeComparableText(vehicle.vehicleName) === tripVehicle
+      || normalizeComparableText(vehicle.plateNumber) === tripVehicle
+    );
+  }) || null;
+}
+
 export function normalizePassengerCount(value) {
   const parsedValue = Number.parseInt(value, 10);
 
@@ -227,7 +253,7 @@ export function createRequestForm() {
 
 export function pickCheckoutDefaults(tripRecords, vehicleRecords, readyStatuses) {
   const selectedTrip = tripRecords.find((trip) => readyStatuses.includes(trip.tripStatus));
-  const vehicle = vehicleRecords.find((entry) => entry.vehicleName === selectedTrip?.vehicle);
+  const vehicle = findVehicleForTrip(vehicleRecords, selectedTrip);
   const now = new Date();
   now.setSeconds(0, 0);
 
@@ -240,7 +266,6 @@ export function pickCheckoutDefaults(tripRecords, vehicleRecords, readyStatuses)
         ? String(vehicle.odometerCurrent)
         : '',
     fuelOut: selectedTrip?.fuelOut || '3/4',
-    conditionOut: 'No visible damage. Spare tire and OR/CR confirmed.',
     checklist: {
       engine: true,
       fluids: true,
