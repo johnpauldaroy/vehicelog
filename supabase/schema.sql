@@ -135,6 +135,7 @@ create table if not exists public.vehicles (
   fuel_type text,
   seating_capacity integer,
   odometer_current numeric(12,2) not null default 0,
+  is_odo_defective boolean not null default false,
   oil_change_reminder_enabled boolean not null default false,
   oil_change_interval_km integer check (oil_change_interval_km is null or oil_change_interval_km >= 0),
   oil_change_interval_months integer check (oil_change_interval_months is null or oil_change_interval_months >= 0),
