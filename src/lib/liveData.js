@@ -2001,6 +2001,10 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     throw new Error('No admin approver account is available for this branch.');
   }
 
+  if (!selectedVehicleId) {
+    throw new Error('Select a vehicle before submitting the trip request.');
+  }
+
   await Promise.all([
     assertVehicleIsAvailable(client, selectedVehicleId),
     assertDriverIsAvailable(client, selectedDriverId),
@@ -2220,6 +2224,10 @@ export async function reviewLiveRequest(client, request, sessionUser, nextStatus
   }
 
   if (nextStatus === 'Approved') {
+    if (!request.assignedVehicleId || !nextAssignedDriverId) {
+      throw new Error('Assign both vehicle and driver before approving this request.');
+    }
+
     if (nextAssignedDriverId && nextAssignedDriverId !== previousAssignedDriverId) {
       await assertDriverIsAvailable(client, nextAssignedDriverId);
     }
@@ -2455,6 +2463,10 @@ export async function updateLiveRequestDriverAssignment(client, request, nextDri
 export async function updateLiveRequestVehicleAssignment(client, request, nextVehicleId) {
   const previousVehicleId = request.assignedVehicleId || null;
   const vehicleId = nextVehicleId || null;
+
+  if (!vehicleId) {
+    throw new Error('Select a vehicle before saving the assignment.');
+  }
 
   await assertDriverMatchesVehicleRestrictions(client, request.assignedDriverId || null, vehicleId);
 

@@ -2851,9 +2851,24 @@ function App() {
       return false;
     }
 
+    const nextAssignedDriverId = approvalDetails?.assignedDriverId ?? request.assignedDriverId;
+    const nextAssignedVehicleId = request.assignedVehicleId;
+
+    if (nextStatus === 'Approved') {
+      if (!nextAssignedVehicleId) {
+        showToast('Assign a vehicle before approving this request.', 'warning', 'Vehicle required');
+        return false;
+      }
+
+      if (!nextAssignedDriverId) {
+        showToast('Assign a driver before approving this request.', 'warning', 'Driver required');
+        return false;
+      }
+    }
+
     if (nextStatus === 'Approved' && approvalDetails) {
       const selectedDriver = driverRecords.find(
-        (driver) => driver.id === (approvalDetails.assignedDriverId || request.assignedDriverId || '')
+        (driver) => driver.id === nextAssignedDriverId
       );
       const validation = getDriverAssignmentValidation(selectedDriver, selectedRequestApprovalVehicle);
 
@@ -2895,7 +2910,6 @@ function App() {
       }
     }
 
-    const nextAssignedDriverId = approvalDetails?.assignedDriverId ?? request.assignedDriverId;
     const nextAssignedDriver = driverRecords.find((driver) => driver.id === nextAssignedDriverId);
     const previousAssignedDriverId = request.assignedDriverId;
     const approvedAt = nextStatus === 'Approved'
@@ -3116,6 +3130,11 @@ function App() {
     event.preventDefault();
 
     if (!selectedAssignmentRequest) {
+      return;
+    }
+
+    if (!assignmentVehicleId) {
+      showToast('Select a vehicle before saving the assignment.', 'warning', 'Vehicle required');
       return;
     }
 
@@ -4420,12 +4439,14 @@ function App() {
     let hiredLocalDriver = null;
     const driverAssignmentValidation = getDriverAssignmentValidation(selectedDriver, selectedVehicle);
 
+    if (!requestForm.assignedVehicleId || !selectedVehicle) {
+      showToast('Select a vehicle before submitting the trip request.', 'warning', 'Vehicle required');
+      return;
+    }
+
     if (
-      requestForm.assignedVehicleId
-      && (
-        selectedVehicle?.status !== 'available'
-        || unavailableVehicleIds.has(requestForm.assignedVehicleId)
-      )
+      selectedVehicle.status !== 'available'
+      || unavailableVehicleIds.has(requestForm.assignedVehicleId)
     ) {
       showToast('Choose a vehicle that is currently available.', 'warning', 'Vehicle unavailable');
       return;

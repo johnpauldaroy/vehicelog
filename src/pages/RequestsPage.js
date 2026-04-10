@@ -93,8 +93,10 @@ export default function RequestsPage({
   ) || null;
   const approvalDriverValidation = getDriverAssignmentValidation(selectedApprovalDriver, selectedApprovalVehicle);
   const canPrintSelectedRequest = showsAssignmentActions && canPrintRequestStatus(selectedRequestDetails?.status);
+  const isVehicleMissingInRequestForm = !requestForm.assignedVehicleId;
   const isRequestSubmissionBlocked = Boolean(
-    (requestForm.assignedDriverId && !requestDriverValidation.isValid)
+    isVehicleMissingInRequestForm
+    || (requestForm.assignedDriverId && !requestDriverValidation.isValid)
     || hasMissingHiredDriverFields
   );
   const showsUserFuelEditActions = !showsAssignmentActions && !isGuard && !isPumpStation;
@@ -147,6 +149,9 @@ export default function RequestsPage({
   const canEditDriverInPendingDetails = canReviewRequests && selectedRequestDetails?.status === 'Pending Approval';
   const canEditDriverInCheckedOutDetails = canReviewRequests && selectedRequestDetails?.status === 'Checked Out';
   const canEditDriverInDetails = canEditDriverInPendingDetails || canEditDriverInCheckedOutDetails;
+  const isApprovalBlockedByMissingVehicle = canReviewRequests
+    && selectedRequestDetails?.status === 'Pending Approval'
+    && !selectedRequestDetails?.assignedVehicleId;
   const canOpenRequestDetailsModal = Boolean(selectedRequestDetails);
 
   function renderDriverValidationNotice(validation) {
@@ -581,7 +586,7 @@ export default function RequestsPage({
                                             View details
                                           </button>
                                         )}
-                                        {!isVehicleAssignmentLocked && isAdmin && (
+                                        {!isVehicleAssignmentLocked && showsAssignmentActions && (
                                           <button
                                             type="button"
                                             className="action-menu-item"
@@ -854,8 +859,9 @@ export default function RequestsPage({
                     className="input"
                     value={requestForm.assignedVehicleId}
                     onChange={(event) => onRequestFormChange('assignedVehicleId', event.target.value)}
+                    required
                   >
-                    <option value="">No vehicle selected</option>
+                    <option value="">Select a vehicle</option>
                     {vehicleOptions.map((vehicle) => (
                       <option key={vehicle.id} value={vehicle.id}>
                         {vehicle.vehicleName} ({vehicle.plateNumber})
@@ -1003,7 +1009,9 @@ export default function RequestsPage({
                   </button>
                   <span className="muted">
                     {isRequestSubmissionBlocked
-                      ? (hasMissingHiredDriverFields
+                      ? (isVehicleMissingInRequestForm
+                        ? 'Select a vehicle before submitting this request.'
+                        : hasMissingHiredDriverFields
                         ? 'Complete required hired driver fields before submitting this request.'
                         : 'Resolve the driver validation note before submitting this request.')
                       : (canAddHiredDriver
@@ -1389,6 +1397,7 @@ export default function RequestsPage({
                     type="button"
                     className="button button-primary button-solid"
                     onClick={handleApproveFromDetails}
+                    disabled={isApprovalBlockedByMissingVehicle}
                   >
                     Approve request
                   </button>
@@ -1399,6 +1408,9 @@ export default function RequestsPage({
                   >
                     Reject request
                   </button>
+                  {isApprovalBlockedByMissingVehicle && (
+                    <span className="muted">Assign a vehicle first before approving this request.</span>
+                  )}
                 </div>
               )}
             </section>
@@ -1440,8 +1452,9 @@ export default function RequestsPage({
                     className="input"
                     value={assignmentVehicleId}
                     onChange={(event) => onAssignmentVehicleChange(event.target.value)}
+                    required
                   >
-                    <option value="">No vehicle selected</option>
+                    <option value="">Select a vehicle</option>
                     {assignmentVehicleOptions.map((vehicle) => (
                       <option key={vehicle.id} value={vehicle.id}>
                         {vehicle.vehicleName} ({vehicle.plateNumber})
