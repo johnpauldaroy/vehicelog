@@ -53,6 +53,33 @@
   - `0 * * * *`
 - SQL helper script: `supabase/schedule_notify_oil_change_reminders.sql`
 
+## `notify-driver-license-expirations`
+- Scheduled job (daily trigger, daily dedupe).
+- Scans active drivers and flags licenses that are:
+  - already expired
+  - expiring within a configurable lead window (`DRIVER_LICENSE_REMINDER_LEAD_DAYS`, default `30`)
+- Creates in-app notifications for:
+  - all admins
+  - branch approvers of the driver branch
+  - the linked driver account (`drivers.profile_id`) when present
+- Uses daily dedupe via notification keys:
+  - `source_key = driver-license:<driver_id>:expiry:<license_expiry>`
+  - `source_date = <today in configured timezone>`
+- Returns run summary payload:
+  - `scanned`, `due`, `expired`, `expiring_soon`, `recipients`, `inserted`, `skipped_deduped`, `errors`
+
+### Required runtime secrets for `notify-driver-license-expirations`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `DRIVER_LICENSE_REMINDER_TOKEN` (optional shared secret for scheduled/manual trigger auth)
+- `DRIVER_LICENSE_REMINDER_TIMEZONE` (optional; defaults to `Asia/Manila`)
+- `DRIVER_LICENSE_REMINDER_LEAD_DAYS` (optional; defaults to `30`)
+
+### Suggested schedule
+- Daily invocation via Supabase cron:
+  - `30 0 * * *`
+- SQL helper script: `supabase/schedule_notify_driver_license_expirations.sql`
+
 ## Suggested Provider
 - Resend for email delivery.
 - Supabase cron plus Edge Functions for scheduled jobs.
