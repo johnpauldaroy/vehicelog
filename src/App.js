@@ -1176,6 +1176,19 @@ function App() {
 
     return vehicleRecords.filter((vehicle) => isVehicleInApproverScope(vehicle));
   }, [isVehicleInApproverScope, userMode, vehicleRecords]);
+  const settingsDriverRecords = useMemo(() => {
+    if (userMode !== 'approver') {
+      return driverRecords;
+    }
+
+    if (approverManagedBranchId) {
+      return driverRecords.filter((driver) => String(driver.branchId || '') === String(approverManagedBranchId));
+    }
+
+    return driverRecords.filter(
+      (driver) => normalizeComparableText(driver.branch) === normalizeComparableText(currentSessionUser.branch)
+    );
+  }, [approverManagedBranchId, currentSessionUser.branch, driverRecords, userMode]);
 
   const unavailableDriverIds = useMemo(() => {
     const ids = new Set();
@@ -1337,9 +1350,22 @@ function App() {
     () => buildBranchSelectOptions(branchOptions, userSettingsForm.branchId, userSettingsForm.branchName),
     [branchOptions, userSettingsForm.branchId, userSettingsForm.branchName]
   );
+  const driverBranchScopeOptions = useMemo(() => {
+    if (userMode !== 'approver') {
+      return branchOptions;
+    }
+
+    const scopedBranches = branchOptions.filter((branch) => (
+      approverManagedBranchId
+        ? branch.id === approverManagedBranchId
+        : normalizeComparableText(branch.name) === normalizeComparableText(currentSessionUser.branch)
+    ));
+
+    return scopedBranches.length ? scopedBranches : branchOptions;
+  }, [approverManagedBranchId, branchOptions, currentSessionUser.branch, userMode]);
   const driverBranchOptions = useMemo(
-    () => buildBranchSelectOptions(branchOptions, driverSettingsForm.branchId, driverSettingsForm.branchName),
-    [branchOptions, driverSettingsForm.branchId, driverSettingsForm.branchName]
+    () => buildBranchSelectOptions(driverBranchScopeOptions, driverSettingsForm.branchId, driverSettingsForm.branchName),
+    [driverBranchScopeOptions, driverSettingsForm.branchId, driverSettingsForm.branchName]
   );
   const driverLinkedProfileIds = useMemo(
     () => new Set(driverRecords.map((driver) => driver.profileId).filter(Boolean)),
@@ -3526,6 +3552,10 @@ function App() {
   }
 
   function handleOpenDriverSettingsModal(driver = null) {
+    const defaultDriverBranchId = userMode === 'approver'
+      ? approverManagedBranchId || findBranchId(branchRecords, currentSessionUser.branch)
+      : (branchOptions[0]?.id || '');
+
     setDriverSettingsForm(
       driver
         ? {
@@ -3533,7 +3563,9 @@ function App() {
             profileId: driver.profileId || '',
             fullName: driver.fullName,
             employeeId: driver.employeeId,
-            branchId: driver.branchId || findBranchId(branchRecords, driver.branch),
+            branchId: driver.branchId
+              || defaultDriverBranchId
+              || findBranchId(branchRecords, driver.branch),
             branchName: driver.branch,
             status: driver.status,
             licenseNumber: driver.licenseNumber,
@@ -3541,7 +3573,7 @@ function App() {
             licenseExpiry: driver.licenseExpiry,
             contactNumber: driver.contactNumber || '',
           }
-        : createDriverSettingsForm(branchOptions[0]?.id || '')
+        : createDriverSettingsForm(defaultDriverBranchId)
     );
     setDriverSettingsModalOpen(true);
   }
@@ -5436,10 +5468,10 @@ function App() {
           <AdminSettingsPage
             branchRecords={branchRecords}
             userRecords={userRecords}
-            driverRecords={driverRecords}
+            driverRecords={settingsDriverRecords}
             vehicleRecords={settingsVehicleRecords}
             auditRecords={auditRecords}
-            visibleTabKeys={userMode === 'approver' ? ['vehicles'] : undefined}
+            visibleTabKeys={userMode === 'approver' ? ['drivers', 'vehicles'] : undefined}
             onAddBranch={() => handleOpenBranchSettingsModal()}
             onEditBranch={handleOpenBranchSettingsModal}
             onDeleteBranch={handleDeleteBranch}
@@ -5751,7 +5783,12 @@ function App() {
                   </label>
                   <label>
                     <span className="field-label">Branch</span>
-                    <select className="input" value={driverSettingsForm.branchId} onChange={(event) => handleDriverSettingsFieldChange('branchId', event.target.value)}>
+                    <select
+                      className="input"
+                      value={driverSettingsForm.branchId}
+                      onChange={(event) => handleDriverSettingsFieldChange('branchId', event.target.value)}
+                      disabled={userMode === 'approver'}
+                    >
                       {driverBranchOptions.map((branch) => (
                         <option key={branch.id} value={branch.id}>{branch.name}</option>
                       ))}
