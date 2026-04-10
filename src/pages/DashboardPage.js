@@ -51,6 +51,36 @@ function getRequestSortValue(request) {
   return 0;
 }
 
+const BRANCH_LOAD_DISPLAY_ORDER = [
+  'headoffice',
+  'barbaza',
+  'culasi',
+  'sibalom',
+  'sanjose',
+  'balasan',
+  'barotacviejo',
+  'caticlan',
+  'molo',
+  'kalibo',
+  'janiuay',
+  'calinog',
+  'sara',
+  'presidentroxas',
+];
+
+const BRANCH_LOAD_DISPLAY_ORDER_INDEX = BRANCH_LOAD_DISPLAY_ORDER.reduce((map, key, index) => {
+  map.set(key, index);
+  return map;
+}, new Map());
+
+function normalizeBranchLoadOrderKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\bbranch\b/g, '')
+    .replace(/\bmain\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
 export default function DashboardPage({
   mode,
   currentUser,
@@ -638,14 +668,31 @@ export default function DashboardPage({
     },
   ];
 
-  const branchLoadItems = filteredBranches.map((branch) => ({
-    label: branch.name,
-    value: branch.utilization,
-    valueLabel: `${branch.utilization}%`,
-    helper: 'Fleet committed',
-    tone: branch.utilization >= 80 ? 'red' : branch.utilization >= 60 ? 'amber' : 'blue',
-    icon: 'vehicles',
-  }));
+  const branchLoadItems = filteredBranches
+    .map((branch) => ({
+      label: branch.name,
+      value: branch.utilization,
+      valueLabel: `${branch.utilization}%`,
+      helper: 'Fleet committed',
+      tone: branch.utilization >= 80 ? 'red' : branch.utilization >= 60 ? 'amber' : 'blue',
+      icon: 'vehicles',
+    }))
+    .sort((left, right) => {
+      const leftKey = normalizeBranchLoadOrderKey(left.label);
+      const rightKey = normalizeBranchLoadOrderKey(right.label);
+      const leftIndex = BRANCH_LOAD_DISPLAY_ORDER_INDEX.has(leftKey)
+        ? BRANCH_LOAD_DISPLAY_ORDER_INDEX.get(leftKey)
+        : Number.MAX_SAFE_INTEGER;
+      const rightIndex = BRANCH_LOAD_DISPLAY_ORDER_INDEX.has(rightKey)
+        ? BRANCH_LOAD_DISPLAY_ORDER_INDEX.get(rightKey)
+        : Number.MAX_SAFE_INTEGER;
+
+      if (leftIndex !== rightIndex) {
+        return leftIndex - rightIndex;
+      }
+
+      return left.label.localeCompare(right.label);
+    });
 
   const requestStatusItems = [
     {
@@ -841,7 +888,7 @@ export default function DashboardPage({
               <h4>Branch utilization</h4>
               <p>Compares branch load so dispatch can spot capacity pressure early.</p>
             </div>
-            <BranchUtilizationBoard items={branchLoadItems} ariaLabel="Branch utilization ranking" />
+            <BranchUtilizationBoard items={branchLoadItems} ariaLabel="Branch utilization ranking" sortMode="input" />
           </div>
         </SectionCard>
       </div>

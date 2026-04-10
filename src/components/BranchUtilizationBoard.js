@@ -28,28 +28,30 @@ function toneToColor(tone) {
   return '#4f72d6';
 }
 
-export default function BranchUtilizationBoard({ items, ariaLabel }) {
-  const rankedItems = [...items].sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
+export default function BranchUtilizationBoard({ items, ariaLabel, sortMode = 'value_desc' }) {
+  const valueRankedItems = [...items].sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
+  const displayItems = sortMode === 'input' ? [...items] : valueRankedItems;
+  const barCanvasHeight = Math.max(260, displayItems.length * 36);
 
-  if (!rankedItems.length) {
+  if (!displayItems.length) {
     return <div className="empty-state-panel">No branch utilization data is available for the current filters.</div>;
   }
 
-  const leadBranch = rankedItems[0];
+  const leadBranch = valueRankedItems[0];
   const averageUtilization = Math.round(
-    rankedItems.reduce((sum, item) => sum + (Number(item.value) || 0), 0) / rankedItems.length
+    valueRankedItems.reduce((sum, item) => sum + (Number(item.value) || 0), 0) / valueRankedItems.length
   );
 
   const barData = {
-    labels: rankedItems.map((item) => item.label),
+    labels: displayItems.map((item) => item.label),
     datasets: [
       {
         label: 'Utilization',
-        data: rankedItems.map((item) => Math.max(0, Number(item.value) || 0)),
+        data: displayItems.map((item) => Math.max(0, Number(item.value) || 0)),
         borderRadius: 999,
         borderSkipped: false,
         borderWidth: 0,
-        backgroundColor: rankedItems.map((item) => toneToColor(item.tone || 'blue')),
+        backgroundColor: displayItems.map((item) => toneToColor(item.tone || 'blue')),
         maxBarThickness: 24,
       },
     ],
@@ -95,6 +97,7 @@ export default function BranchUtilizationBoard({ items, ariaLabel }) {
       },
       y: {
         ticks: {
+          autoSkip: false,
           color: '#3b4a6b',
           font: {
             size: 12,
@@ -111,7 +114,7 @@ export default function BranchUtilizationBoard({ items, ariaLabel }) {
     },
   };
 
-  const pressureCounts = rankedItems.reduce(
+  const pressureCounts = valueRankedItems.reduce(
     (accumulator, item) => {
       const label = getPressureLabel(item.value);
       accumulator[label] += 1;
@@ -184,7 +187,7 @@ export default function BranchUtilizationBoard({ items, ariaLabel }) {
             <h5>Branch load ranking</h5>
             <p>Utilization percentage by branch.</p>
           </div>
-          <div className="utilization-chart-canvas">
+          <div className="utilization-chart-canvas" style={{ height: `${barCanvasHeight}px` }}>
             <Bar data={barData} options={barOptions} />
           </div>
         </article>
