@@ -426,7 +426,7 @@ export default function RequestsPage({
               </div>
             )}
             {canCreateRequest && (
-              <button type="button" className="button button-primary" onClick={onOpenRequestModal}>
+              <button type="button" className="button button-primary request-create-button" onClick={onOpenRequestModal}>
                 <AppIcon name="requests" className="button-icon" />
                 {isAdmin ? 'New request' : 'Create request'}
               </button>
@@ -926,19 +926,19 @@ export default function RequestsPage({
                     {renderDriverValidationNotice(requestDriverValidation)}
                   </div>
                 )}
-                <div className="full-span" style={{ marginTop: '8px', padding: '12px', background: 'rgba(0,0,0,0.02)', borderRadius: '12px' }}>
-                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                <div className="full-span request-fuel-panel">
+                  <label className="checkbox-label request-fuel-toggle">
                     <input
                       type="checkbox"
                       checked={requestForm.fuelRequested}
                       onChange={(event) => onRequestFormChange('fuelRequested', event.target.checked)}
                       style={{ width: '18px', height: '18px' }}
                     />
-                    <span style={{ fontWeight: '600', color: 'var(--text-strong)' }}>Request Fuel Authorization?</span>
+                    <span className="request-fuel-toggle-copy">Request Fuel Authorization?</span>
                   </label>
                   
                   {requestForm.fuelRequested && (
-                    <div className="form-grid" style={{ marginTop: '16px', gridTemplateColumns: '1fr 1fr 1fr' }}>
+                    <div className="form-grid request-fuel-grid">
                       <label>
                         <span className="field-label">Fuel Product</span>
                         <select
@@ -974,11 +974,10 @@ export default function RequestsPage({
                       <label>
                         <span className="field-label">Estimated Range (KM)</span>
                         <input
-                          className="input"
+                          className="input request-fuel-readonly"
                           type="number"
                           value={requestForm.estimatedKms}
                           readOnly
-                          style={{ background: 'rgba(0,0,0,0.05)', fontWeight: '600' }}
                         />
                       </label>
                       <label className="full-span">
