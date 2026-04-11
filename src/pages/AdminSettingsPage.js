@@ -169,6 +169,7 @@ export default function AdminSettingsPage({
   driverRecords,
   vehicleRecords,
   auditRecords,
+  importProgress,
   visibleTabKeys,
   onAddBranch,
   onEditBranch,
@@ -202,6 +203,32 @@ export default function AdminSettingsPage({
   const [vehiclesQuery, setVehiclesQuery] = useState('');
   const [selectedDriverDetails, setSelectedDriverDetails] = useState(null);
   const [selectedVehicleDetails, setSelectedVehicleDetails] = useState(null);
+  const normalizedImportScope = String(importProgress?.scope || '').trim().toLowerCase();
+  const anyImportInProgress = Boolean(importProgress?.isActive);
+  const importTotal = Math.max(0, Number(importProgress?.total || 0));
+  const importProcessed = Math.min(importTotal, Math.max(0, Number(importProgress?.processed || 0)));
+  const importPercent = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importLabel = String(importProgress?.label || 'Importing CSV');
+
+  const renderImportProgress = useCallback((scope) => {
+    if (!anyImportInProgress || normalizedImportScope !== scope) {
+      return null;
+    }
+
+    return (
+      <div className="settings-import-progress" role="status" aria-live="polite">
+        <div className="settings-import-progress-meta">
+          <span className="settings-import-progress-label">{importLabel}</span>
+          <span className="settings-import-progress-value">
+            {importProcessed}/{importTotal} ({importPercent}%)
+          </span>
+        </div>
+        <div className="progress-track">
+          <div className="progress-fill" style={{ width: `${importPercent}%` }} />
+        </div>
+      </div>
+    );
+  }, [anyImportInProgress, importLabel, importPercent, importProcessed, importTotal, normalizedImportScope]);
 
   const openCsvPicker = useCallback((onImport) => {
     if (typeof onImport !== 'function') {
@@ -609,19 +636,27 @@ export default function AdminSettingsPage({
           />
         ),
         action: (
-          <div className="row-actions">
-            <button type="button" className="button button-primary" onClick={onAddUser}>
-              <AppIcon name="user" className="button-icon" />
-              Add user
-            </button>
-            <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('users')}>
-              <AppIcon name="download" className="button-icon" />
-              Template
-            </button>
-            <button type="button" className="button button-secondary" onClick={() => openCsvPicker(onImportUsersCsv)}>
-              <AppIcon name="reports" className="button-icon" />
-              Import CSV
-            </button>
+          <div className="settings-action-stack">
+            <div className="row-actions">
+              <button type="button" className="button button-primary" onClick={onAddUser}>
+                <AppIcon name="user" className="button-icon" />
+                Add user
+              </button>
+              <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('users')}>
+                <AppIcon name="download" className="button-icon" />
+                Template
+              </button>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => openCsvPicker(onImportUsersCsv)}
+                disabled={anyImportInProgress}
+              >
+                <AppIcon name="reports" className="button-icon" />
+                {normalizedImportScope === 'users' && anyImportInProgress ? 'Importing...' : 'Import CSV'}
+              </button>
+            </div>
+            {renderImportProgress('users')}
           </div>
         ),
         table: (
@@ -722,19 +757,27 @@ export default function AdminSettingsPage({
           />
         ),
         action: (
-          <div className="row-actions">
-            <button type="button" className="button button-primary" onClick={onAddDriver}>
-              <AppIcon name="people" className="button-icon" />
-              Add driver
-            </button>
-            <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('drivers')}>
-              <AppIcon name="download" className="button-icon" />
-              Template
-            </button>
-            <button type="button" className="button button-secondary" onClick={() => openCsvPicker(onImportDriversCsv)}>
-              <AppIcon name="reports" className="button-icon" />
-              Import CSV
-            </button>
+          <div className="settings-action-stack">
+            <div className="row-actions">
+              <button type="button" className="button button-primary" onClick={onAddDriver}>
+                <AppIcon name="people" className="button-icon" />
+                Add driver
+              </button>
+              <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('drivers')}>
+                <AppIcon name="download" className="button-icon" />
+                Template
+              </button>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => openCsvPicker(onImportDriversCsv)}
+                disabled={anyImportInProgress}
+              >
+                <AppIcon name="reports" className="button-icon" />
+                {normalizedImportScope === 'drivers' && anyImportInProgress ? 'Importing...' : 'Import CSV'}
+              </button>
+            </div>
+            {renderImportProgress('drivers')}
           </div>
         ),
         table: (
@@ -842,25 +885,33 @@ export default function AdminSettingsPage({
           />
         ),
         action: (
-          <div className="row-actions">
-            {typeof onAddVehicle === 'function' && (
-              <button type="button" className="button button-primary" onClick={onAddVehicle}>
-                <AppIcon name="vehicles" className="button-icon" />
-                Add vehicle
-              </button>
-            )}
-            {typeof onImportVehiclesCsv === 'function' && (
-              <>
-                <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('vehicles')}>
-                  <AppIcon name="download" className="button-icon" />
-                  Template
+          <div className="settings-action-stack">
+            <div className="row-actions">
+              {typeof onAddVehicle === 'function' && (
+                <button type="button" className="button button-primary" onClick={onAddVehicle}>
+                  <AppIcon name="vehicles" className="button-icon" />
+                  Add vehicle
                 </button>
-                <button type="button" className="button button-secondary" onClick={() => openCsvPicker(onImportVehiclesCsv)}>
-                  <AppIcon name="reports" className="button-icon" />
-                  Import CSV
-                </button>
-              </>
-            )}
+              )}
+              {typeof onImportVehiclesCsv === 'function' && (
+                <>
+                  <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('vehicles')}>
+                    <AppIcon name="download" className="button-icon" />
+                    Template
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => openCsvPicker(onImportVehiclesCsv)}
+                    disabled={anyImportInProgress}
+                  >
+                    <AppIcon name="reports" className="button-icon" />
+                    {normalizedImportScope === 'vehicles' && anyImportInProgress ? 'Importing...' : 'Import CSV'}
+                  </button>
+                </>
+              )}
+            </div>
+            {renderImportProgress('vehicles')}
           </div>
         ),
         table: (
@@ -1140,6 +1191,9 @@ export default function AdminSettingsPage({
       onImportDriversCsv,
       onImportUsersCsv,
       onImportVehiclesCsv,
+      anyImportInProgress,
+      normalizedImportScope,
+      renderImportProgress,
       downloadCsvTemplate,
       openCsvPicker,
       paginatedBranchRecords,

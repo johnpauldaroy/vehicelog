@@ -551,6 +551,7 @@ function App() {
   const [requestApprovalForm, setRequestApprovalForm] = useState(() => createRequestApprovalForm());
   const [rejectionRemarks, setRejectionRemarks] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('all');
+  const [vehicleBranchFilter, setVehicleBranchFilter] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileOverflowNavOpen, setMobileOverflowNavOpen] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
@@ -589,6 +590,13 @@ function App() {
   const [requestForm, setRequestForm] = useState(createRequestForm);
   const [checkoutForm, setCheckoutForm] = useState(() => pickCheckoutDefaults([], [], READY_FOR_CHECKOUT));
   const [checkinForm, setCheckinForm] = useState(() => pickCheckinDefaults([], ACTIVE_TRIP_STATUSES));
+  const [settingsImportProgress, setSettingsImportProgress] = useState({
+    scope: '',
+    label: '',
+    processed: 0,
+    total: 0,
+    isActive: false,
+  });
   const [toast, setToast] = useState(null);
   const cachedSessionUserRef = useRef(initialCachedSessionUser);
   const isSigningOutRef = useRef(false);
@@ -1142,13 +1150,39 @@ function App() {
     [branchScopedRequestRecords]
   );
 
+  const fleetVehicleBranchOptions = useMemo(() => {
+    const branchNames = new Set();
+
+    branchRecords.forEach((branch) => {
+      const branchName = String(branch?.name || '').trim();
+      if (branchName) {
+        branchNames.add(branchName);
+      }
+    });
+
+    vehicleRecords.forEach((vehicle) => {
+      const branchName = String(vehicle?.branch || '').trim();
+      if (branchName) {
+        branchNames.add(branchName);
+      }
+    });
+
+    return Array.from(branchNames).sort((left, right) => left.localeCompare(right));
+  }, [branchRecords, vehicleRecords]);
   const filteredVehicles = useMemo(() => {
-    if (vehicleFilter === 'all') {
-      return vehicleRecords;
+    let records = vehicleRecords;
+
+    if (vehicleFilter !== 'all') {
+      records = records.filter((vehicle) => vehicle.status === vehicleFilter);
     }
 
-    return vehicleRecords.filter((vehicle) => vehicle.status === vehicleFilter);
-  }, [vehicleFilter, vehicleRecords]);
+    if (vehicleBranchFilter) {
+      const normalizedSelectedBranch = normalizeComparableText(vehicleBranchFilter);
+      records = records.filter((vehicle) => normalizeComparableText(vehicle.branch) === normalizedSelectedBranch);
+    }
+
+    return records;
+  }, [vehicleBranchFilter, vehicleFilter, vehicleRecords]);
   const branchScopedTripRecords = useMemo(() => {
     if (userMode === 'admin') {
       return tripRecords;
@@ -2185,6 +2219,46 @@ function App() {
       title,
       message,
       tone,
+    });
+  }
+
+  function startSettingsImportProgress(scope, total, label) {
+    setSettingsImportProgress({
+      scope,
+      label,
+      processed: 0,
+      total: Math.max(0, Number(total) || 0),
+      isActive: true,
+    });
+  }
+
+  function setSettingsImportProgressStep(scope, processed) {
+    setSettingsImportProgress((current) => {
+      if (!current.isActive || current.scope !== scope) {
+        return current;
+      }
+
+      const total = Math.max(0, Number(current.total) || 0);
+      const nextProcessed = Math.max(0, Number(processed) || 0);
+
+      return {
+        ...current,
+        processed: total ? Math.min(nextProcessed, total) : nextProcessed,
+      };
+    });
+  }
+
+  function finishSettingsImportProgress(scope) {
+    setSettingsImportProgress((current) => {
+      if (current.scope !== scope) {
+        return current;
+      }
+
+      return {
+        ...current,
+        isActive: false,
+        processed: Math.max(current.processed, current.total),
+      };
     });
   }
 
@@ -4145,80 +4219,90 @@ function App() {
       return;
     }
 
-    const usersByEmail = new Map(
-      userRecords
-        .filter((user) => user.email)
-        .map((user) => [normalizeComparableText(user.email), user])
-    );
-    const errors = [];
-    let createdCount = 0;
-    let updatedCount = 0;
+    const importScope = 'users';
+    startSettingsImportProgress(importScope, rows.length, 'Importing users CSV');
 
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-      const row = rows[rowIndex];
-      const name = getCsvValue(row, ['full_name', 'name']);
-      const email = normalizeComparableText(getCsvValue(row, ['email']));
-      const roleLabel = normalizeRoleLabel(getCsvValue(row, ['role']));
-      const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
-      const branch = resolveBranchFromCsvToken(branchToken);
-      const existingUser = usersByEmail.get(email);
-
-      if (!name || !email || !roleLabel || !branch) {
-        errors.push(`Row ${rowIndex + 2}: missing/invalid name, email, role, or branch.`);
-        continue;
-      }
-
-      try {
-        if (existingUser?.id) {
-          await updateLiveProfile(supabase, {
-            id: existingUser.id,
-            name,
-            email,
-            role: roleLabel,
-            branchId: branch.id,
-          });
-          updatedCount += 1;
-        } else {
-          const password = getCsvValue(row, ['password', 'temporary_password']) || generateTemporaryPassword();
-          await createLiveUser(supabase, {
-            name,
-            email,
-            role: roleLabel,
-            branchId: branch.id,
-            password,
-            confirmPassword: password,
-          });
-          createdCount += 1;
-        }
-      } catch (error) {
-        errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import user.'}`);
-      }
-    }
-
-    let refreshErrorMessage = '';
     try {
-      await refreshLiveData(currentSessionUser);
-    } catch (error) {
-      refreshErrorMessage = error.message || 'Live data refresh failed after import.';
-    }
-    appendAuditEntry({
-      category: 'user',
-      action: 'Imported users CSV',
-      target: `${createdCount + updatedCount} row(s)`,
-      details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
-    });
+      const usersByEmail = new Map(
+        userRecords
+          .filter((user) => user.email)
+          .map((user) => [normalizeComparableText(user.email), user])
+      );
+      const errors = [];
+      let createdCount = 0;
+      let updatedCount = 0;
 
-    if (refreshErrorMessage) {
-      showToast(`Users import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
-      return;
-    }
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+        const name = getCsvValue(row, ['full_name', 'name']);
+        const email = normalizeComparableText(getCsvValue(row, ['email']));
+        const roleLabel = normalizeRoleLabel(getCsvValue(row, ['role']));
+        const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
+        const branch = resolveBranchFromCsvToken(branchToken);
+        const existingUser = usersByEmail.get(email);
 
-    if (errors.length) {
-      showToast(`Users import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
-      return;
-    }
+        if (!name || !email || !roleLabel || !branch) {
+          errors.push(`Row ${rowIndex + 2}: missing/invalid name, email, role, or branch.`);
+          setSettingsImportProgressStep(importScope, rowIndex + 1);
+          continue;
+        }
 
-    showToast(`Users CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+        try {
+          if (existingUser?.id) {
+            await updateLiveProfile(supabase, {
+              id: existingUser.id,
+              name,
+              email,
+              role: roleLabel,
+              branchId: branch.id,
+            });
+            updatedCount += 1;
+          } else {
+            const password = getCsvValue(row, ['password', 'temporary_password']) || generateTemporaryPassword();
+            await createLiveUser(supabase, {
+              name,
+              email,
+              role: roleLabel,
+              branchId: branch.id,
+              password,
+              confirmPassword: password,
+            });
+            createdCount += 1;
+          }
+        } catch (error) {
+          errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import user.'}`);
+        } finally {
+          setSettingsImportProgressStep(importScope, rowIndex + 1);
+        }
+      }
+
+      let refreshErrorMessage = '';
+      try {
+        await refreshLiveData(currentSessionUser);
+      } catch (error) {
+        refreshErrorMessage = error.message || 'Live data refresh failed after import.';
+      }
+      appendAuditEntry({
+        category: 'user',
+        action: 'Imported users CSV',
+        target: `${createdCount + updatedCount} row(s)`,
+        details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
+      });
+
+      if (refreshErrorMessage) {
+        showToast(`Users import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
+        return;
+      }
+
+      if (errors.length) {
+        showToast(`Users import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
+        return;
+      }
+
+      showToast(`Users CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+    } finally {
+      finishSettingsImportProgress(importScope);
+    }
   }
 
   async function handleImportDriversCsv(file) {
@@ -4238,89 +4322,99 @@ function App() {
       return;
     }
 
-    const driversByEmployeeId = new Map(
-      driverRecords
-        .filter((driver) => driver.employeeId)
-        .map((driver) => [normalizeComparableText(driver.employeeId), driver])
-    );
-    const usersByEmail = new Map(
-      userRecords
-        .filter((user) => user.email)
-        .map((user) => [normalizeComparableText(user.email), user])
-    );
-    const errors = [];
-    let createdCount = 0;
-    let updatedCount = 0;
+    const importScope = 'drivers';
+    startSettingsImportProgress(importScope, rows.length, 'Importing drivers CSV');
 
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-      const row = rows[rowIndex];
-      const fullName = getCsvValue(row, ['full_name', 'name']);
-      const employeeId = getCsvValue(row, ['employee_id', 'employee_no', 'employee']);
-      const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
-      const branch = resolveBranchFromCsvToken(branchToken);
-      const licenseNumber = getCsvValue(row, ['license_number']);
-      const licenseExpiry = getCsvValue(row, ['license_expiry']);
-      const contactNumber = getCsvValue(row, ['contact_number', 'contact']);
-      const licenseRestrictions = getCsvValue(row, ['license_restrictions', 'restrictions']);
-      const status = normalizeDriverStatus(getCsvValue(row, ['status']));
-      const profileEmail = normalizeComparableText(getCsvValue(row, ['profile_email', 'linked_email']));
-      const profileId = profileEmail ? (usersByEmail.get(profileEmail)?.id || '') : '';
-      const existingDriver = driversByEmployeeId.get(normalizeComparableText(employeeId));
-
-      if (!fullName || !employeeId || !branch || !licenseNumber || !licenseExpiry) {
-        errors.push(`Row ${rowIndex + 2}: missing/invalid full_name, employee_id, branch, license_number, or license_expiry.`);
-        continue;
-      }
-
-      try {
-        await saveLiveDriver(supabase, {
-          id: existingDriver?.id || '',
-          profileId,
-          fullName,
-          employeeId,
-          branchId: branch.id,
-          branchName: branch.name,
-          status,
-          licenseNumber,
-          licenseRestrictions,
-          licenseExpiry,
-          contactNumber,
-        });
-
-        if (existingDriver?.id) {
-          updatedCount += 1;
-        } else {
-          createdCount += 1;
-        }
-      } catch (error) {
-        errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import driver.'}`);
-      }
-    }
-
-    let refreshErrorMessage = '';
     try {
-      await refreshLiveData(currentSessionUser);
-    } catch (error) {
-      refreshErrorMessage = error.message || 'Live data refresh failed after import.';
-    }
-    appendAuditEntry({
-      category: 'driver',
-      action: 'Imported drivers CSV',
-      target: `${createdCount + updatedCount} row(s)`,
-      details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
-    });
+      const driversByEmployeeId = new Map(
+        driverRecords
+          .filter((driver) => driver.employeeId)
+          .map((driver) => [normalizeComparableText(driver.employeeId), driver])
+      );
+      const usersByEmail = new Map(
+        userRecords
+          .filter((user) => user.email)
+          .map((user) => [normalizeComparableText(user.email), user])
+      );
+      const errors = [];
+      let createdCount = 0;
+      let updatedCount = 0;
 
-    if (refreshErrorMessage) {
-      showToast(`Drivers import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
-      return;
-    }
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+        const fullName = getCsvValue(row, ['full_name', 'name']);
+        const employeeId = getCsvValue(row, ['employee_id', 'employee_no', 'employee']);
+        const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
+        const branch = resolveBranchFromCsvToken(branchToken);
+        const licenseNumber = getCsvValue(row, ['license_number']);
+        const licenseExpiry = getCsvValue(row, ['license_expiry']);
+        const contactNumber = getCsvValue(row, ['contact_number', 'contact']);
+        const licenseRestrictions = getCsvValue(row, ['license_restrictions', 'restrictions']);
+        const status = normalizeDriverStatus(getCsvValue(row, ['status']));
+        const profileEmail = normalizeComparableText(getCsvValue(row, ['profile_email', 'linked_email']));
+        const profileId = profileEmail ? (usersByEmail.get(profileEmail)?.id || '') : '';
+        const existingDriver = driversByEmployeeId.get(normalizeComparableText(employeeId));
 
-    if (errors.length) {
-      showToast(`Drivers import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
-      return;
-    }
+        if (!fullName || !employeeId || !branch || !licenseNumber || !licenseExpiry) {
+          errors.push(`Row ${rowIndex + 2}: missing/invalid full_name, employee_id, branch, license_number, or license_expiry.`);
+          setSettingsImportProgressStep(importScope, rowIndex + 1);
+          continue;
+        }
 
-    showToast(`Drivers CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+        try {
+          await saveLiveDriver(supabase, {
+            id: existingDriver?.id || '',
+            profileId,
+            fullName,
+            employeeId,
+            branchId: branch.id,
+            branchName: branch.name,
+            status,
+            licenseNumber,
+            licenseRestrictions,
+            licenseExpiry,
+            contactNumber,
+          });
+
+          if (existingDriver?.id) {
+            updatedCount += 1;
+          } else {
+            createdCount += 1;
+          }
+        } catch (error) {
+          errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import driver.'}`);
+        } finally {
+          setSettingsImportProgressStep(importScope, rowIndex + 1);
+        }
+      }
+
+      let refreshErrorMessage = '';
+      try {
+        await refreshLiveData(currentSessionUser);
+      } catch (error) {
+        refreshErrorMessage = error.message || 'Live data refresh failed after import.';
+      }
+      appendAuditEntry({
+        category: 'driver',
+        action: 'Imported drivers CSV',
+        target: `${createdCount + updatedCount} row(s)`,
+        details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
+      });
+
+      if (refreshErrorMessage) {
+        showToast(`Drivers import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
+        return;
+      }
+
+      if (errors.length) {
+        showToast(`Drivers import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
+        return;
+      }
+
+      showToast(`Drivers CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+    } finally {
+      finishSettingsImportProgress(importScope);
+    }
   }
 
   async function handleImportVehiclesCsv(file) {
@@ -4345,87 +4439,97 @@ function App() {
       return;
     }
 
-    const vehiclesByPlate = new Map(
-      vehicleRecords
-        .filter((vehicle) => vehicle.plateNumber)
-        .map((vehicle) => [normalizeComparableText(vehicle.plateNumber), vehicle])
-    );
-    const errors = [];
-    let createdCount = 0;
-    let updatedCount = 0;
+    const importScope = 'vehicles';
+    startSettingsImportProgress(importScope, rows.length, 'Importing vehicles CSV');
 
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-      const row = rows[rowIndex];
-      const vehicleName = getCsvValue(row, ['vehicle_name', 'name']);
-      const plateNumber = getCsvValue(row, ['plate_number', 'plate']);
-      const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
-      const typeToken = getCsvValue(row, ['type_id', 'type_name', 'vehicle_type', 'type']);
-      const branch = resolveBranchFromCsvToken(branchToken);
-      const vehicleType = resolveVehicleTypeFromCsvToken(typeToken);
-      const existingVehicle = vehiclesByPlate.get(normalizeComparableText(plateNumber));
-
-      if (!vehicleName || !plateNumber || !branch || !vehicleType) {
-        errors.push(`Row ${rowIndex + 2}: missing/invalid vehicle_name, plate_number, branch, or type.`);
-        continue;
-      }
-
-      try {
-        await saveLiveVehicle(supabase, {
-          id: existingVehicle?.id || '',
-          vehicleName,
-          plateNumber,
-          branchId: branch.id,
-          branchName: branch.name,
-          typeId: vehicleType.id,
-          status: normalizeVehicleStatus(getCsvValue(row, ['status'])),
-          fuelType: getCsvValue(row, ['fuel_type']) || 'Diesel',
-          seatingCapacity: getCsvValue(row, ['seating_capacity']) || '0',
-          odometerCurrent: getCsvValue(row, ['odometer_current']) || '0',
-          registrationExpiry: getCsvValue(row, ['registration_expiry']) || null,
-          insuranceExpiry: getCsvValue(row, ['insurance_expiry']) || null,
-          requiredRestrictions: getCsvValue(row, ['required_restrictions']),
-          isOdoDefective: parseBooleanCsvValue(getCsvValue(row, ['is_odo_defective']), false),
-          oilChangeReminderEnabled: parseBooleanCsvValue(getCsvValue(row, ['oil_change_reminder_enabled']), false),
-          oilChangeIntervalKm: getCsvValue(row, ['oil_change_interval_km']),
-          oilChangeIntervalMonths: getCsvValue(row, ['oil_change_interval_months']),
-          oilChangeLastOdometer: getCsvValue(row, ['oil_change_last_odometer']),
-          oilChangeLastChangedOn: getCsvValue(row, ['oil_change_last_changed_on']) || null,
-        }, availableVehicleTypeRecords);
-
-        if (existingVehicle?.id) {
-          updatedCount += 1;
-        } else {
-          createdCount += 1;
-        }
-      } catch (error) {
-        errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import vehicle.'}`);
-      }
-    }
-
-    let refreshErrorMessage = '';
     try {
-      await refreshLiveData(currentSessionUser);
-    } catch (error) {
-      refreshErrorMessage = error.message || 'Live data refresh failed after import.';
-    }
-    appendAuditEntry({
-      category: 'vehicle',
-      action: 'Imported vehicles CSV',
-      target: `${createdCount + updatedCount} row(s)`,
-      details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
-    });
+      const vehiclesByPlate = new Map(
+        vehicleRecords
+          .filter((vehicle) => vehicle.plateNumber)
+          .map((vehicle) => [normalizeComparableText(vehicle.plateNumber), vehicle])
+      );
+      const errors = [];
+      let createdCount = 0;
+      let updatedCount = 0;
 
-    if (refreshErrorMessage) {
-      showToast(`Vehicles import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
-      return;
-    }
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
+        const vehicleName = getCsvValue(row, ['vehicle_name', 'name']);
+        const plateNumber = getCsvValue(row, ['plate_number', 'plate']);
+        const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
+        const typeToken = getCsvValue(row, ['type_id', 'type_name', 'vehicle_type', 'type']);
+        const branch = resolveBranchFromCsvToken(branchToken);
+        const vehicleType = resolveVehicleTypeFromCsvToken(typeToken);
+        const existingVehicle = vehiclesByPlate.get(normalizeComparableText(plateNumber));
 
-    if (errors.length) {
-      showToast(`Vehicles import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
-      return;
-    }
+        if (!vehicleName || !plateNumber || !branch || !vehicleType) {
+          errors.push(`Row ${rowIndex + 2}: missing/invalid vehicle_name, plate_number, branch, or type.`);
+          setSettingsImportProgressStep(importScope, rowIndex + 1);
+          continue;
+        }
 
-    showToast(`Vehicles CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+        try {
+          await saveLiveVehicle(supabase, {
+            id: existingVehicle?.id || '',
+            vehicleName,
+            plateNumber,
+            branchId: branch.id,
+            branchName: branch.name,
+            typeId: vehicleType.id,
+            status: normalizeVehicleStatus(getCsvValue(row, ['status'])),
+            fuelType: getCsvValue(row, ['fuel_type']) || 'Diesel',
+            seatingCapacity: getCsvValue(row, ['seating_capacity']) || '0',
+            odometerCurrent: getCsvValue(row, ['odometer_current']) || '0',
+            registrationExpiry: getCsvValue(row, ['registration_expiry']) || null,
+            insuranceExpiry: getCsvValue(row, ['insurance_expiry']) || null,
+            requiredRestrictions: getCsvValue(row, ['required_restrictions']),
+            isOdoDefective: parseBooleanCsvValue(getCsvValue(row, ['is_odo_defective']), false),
+            oilChangeReminderEnabled: parseBooleanCsvValue(getCsvValue(row, ['oil_change_reminder_enabled']), false),
+            oilChangeIntervalKm: getCsvValue(row, ['oil_change_interval_km']),
+            oilChangeIntervalMonths: getCsvValue(row, ['oil_change_interval_months']),
+            oilChangeLastOdometer: getCsvValue(row, ['oil_change_last_odometer']),
+            oilChangeLastChangedOn: getCsvValue(row, ['oil_change_last_changed_on']) || null,
+          }, availableVehicleTypeRecords);
+
+          if (existingVehicle?.id) {
+            updatedCount += 1;
+          } else {
+            createdCount += 1;
+          }
+        } catch (error) {
+          errors.push(`Row ${rowIndex + 2}: ${error.message || 'Unable to import vehicle.'}`);
+        } finally {
+          setSettingsImportProgressStep(importScope, rowIndex + 1);
+        }
+      }
+
+      let refreshErrorMessage = '';
+      try {
+        await refreshLiveData(currentSessionUser);
+      } catch (error) {
+        refreshErrorMessage = error.message || 'Live data refresh failed after import.';
+      }
+      appendAuditEntry({
+        category: 'vehicle',
+        action: 'Imported vehicles CSV',
+        target: `${createdCount + updatedCount} row(s)`,
+        details: `Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}.`,
+      });
+
+      if (refreshErrorMessage) {
+        showToast(`Vehicles import saved but ${refreshErrorMessage}`, 'warning', 'CSV import');
+        return;
+      }
+
+      if (errors.length) {
+        showToast(`Vehicles import finished with errors. Created ${createdCount}, updated ${updatedCount}, failed ${errors.length}. ${errors[0]}`, 'warning', 'CSV import');
+        return;
+      }
+
+      showToast(`Vehicles CSV imported. Created ${createdCount}, updated ${updatedCount}.`, 'success', 'CSV import');
+    } finally {
+      finishSettingsImportProgress(importScope);
+    }
   }
 
   async function handleRequestSubmit(event) {
@@ -5445,6 +5549,9 @@ function App() {
           <VehiclesPage
             vehicleFilter={vehicleFilter}
             setVehicleFilter={setVehicleFilter}
+            vehicleBranchFilter={vehicleBranchFilter}
+            setVehicleBranchFilter={setVehicleBranchFilter}
+            vehicleBranchOptions={fleetVehicleBranchOptions}
             filteredVehicles={filteredVehicles}
             selectedVehicle={selectedVehicle}
             selectedVehicleTrips={selectedVehicleTrips}
@@ -5471,6 +5578,7 @@ function App() {
             driverRecords={settingsDriverRecords}
             vehicleRecords={settingsVehicleRecords}
             auditRecords={auditRecords}
+            importProgress={settingsImportProgress}
             visibleTabKeys={userMode === 'approver' ? ['drivers', 'vehicles'] : undefined}
             onAddBranch={() => handleOpenBranchSettingsModal()}
             onEditBranch={handleOpenBranchSettingsModal}

@@ -12,6 +12,9 @@ import {
 export default function VehiclesPage({
   vehicleFilter,
   setVehicleFilter,
+  vehicleBranchFilter,
+  setVehicleBranchFilter,
+  vehicleBranchOptions,
   filteredVehicles,
   selectedVehicle,
   selectedVehicleTrips,
@@ -167,7 +170,7 @@ export default function VehiclesPage({
       )}
 
       <div className="content-grid-tight">
-        <SectionCard title="Fleet list" subtitle="Filtered results for the selected status">
+        <SectionCard title="Fleet list" subtitle="Filtered results for the selected status and branch">
           <div className="toolbar">
             <div className="chip-row">
               {['all', 'available', 'reserved', 'in_use', 'maintenance', 'inactive'].map((filter) => (
@@ -180,6 +183,24 @@ export default function VehiclesPage({
                   {formatStatusLabel(filter)}
                 </button>
               ))}
+            </div>
+            <div className="toolbar-controls">
+              <div className="toolbar-control-group">
+                <label className="toolbar-label" htmlFor="vehicle-branch-filter">Branch</label>
+                <select
+                  id="vehicle-branch-filter"
+                  className="input"
+                  value={vehicleBranchFilter}
+                  onChange={(event) => setVehicleBranchFilter(event.target.value)}
+                >
+                  <option value="">All branches</option>
+                  {vehicleBranchOptions.map((branchName) => (
+                    <option key={branchName} value={branchName}>
+                      {branchName}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -200,7 +221,7 @@ export default function VehiclesPage({
                 {filteredVehicles.length === 0 && (
                   <tr>
                     <td colSpan="7" className="empty-state">
-                      No vehicles match the current status filter.
+                      No vehicles match the current filters.
                     </td>
                   </tr>
                 )}

@@ -790,6 +790,43 @@
   width: min(100%, 420px);
 }
 
+.settings-action-stack {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.settings-import-progress {
+  width: min(100%, 360px);
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-soft);
+  background: rgba(248, 250, 255, 0.95);
+}
+
+.settings-import-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.76rem;
+}
+
+.settings-import-progress-label {
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.settings-import-progress-value {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.settings-import-progress .progress-track {
+  margin-top: 8px;
+  height: 8px;
+}
+
 .settings-layout {
   display: grid;
   gap: 18px;
@@ -3177,6 +3214,19 @@
 
   .profile-card {
     min-width: 0;
+    width: 100%;
+  }
+
+  .settings-action-stack {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .settings-action-stack .row-actions {
+    justify-content: flex-start;
+  }
+
+  .settings-import-progress {
     width: 100%;
   }
 }
