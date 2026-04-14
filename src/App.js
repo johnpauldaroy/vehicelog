@@ -621,6 +621,7 @@ function App() {
         ? 'driver'
       : 'requester';
   const canManageVehicleSettings = userMode === 'admin' || userMode === 'approver';
+  const canManageDriverSettings = userMode === 'admin' || userMode === 'approver';
   const approverManagedBranchId = useMemo(() => {
     if (userMode !== 'approver') {
       return '';
@@ -648,6 +649,21 @@ function App() {
     }
 
     return normalizeComparableText(vehicle.branch) === normalizeComparableText(currentSessionUser.branch);
+  }, [approverManagedBranchId, currentSessionUser.branch, userMode]);
+  const isDriverInApproverScope = useCallback((driver) => {
+    if (!driver) {
+      return false;
+    }
+
+    if (userMode !== 'approver') {
+      return true;
+    }
+
+    if (approverManagedBranchId && driver.branchId) {
+      return String(driver.branchId) === String(approverManagedBranchId);
+    }
+
+    return normalizeComparableText(driver.branch) === normalizeComparableText(currentSessionUser.branch);
   }, [approverManagedBranchId, currentSessionUser.branch, userMode]);
 
   const currentDriverRecord = useMemo(() => {
@@ -1215,14 +1231,8 @@ function App() {
       return driverRecords;
     }
 
-    if (approverManagedBranchId) {
-      return driverRecords.filter((driver) => String(driver.branchId || '') === String(approverManagedBranchId));
-    }
-
-    return driverRecords.filter(
-      (driver) => normalizeComparableText(driver.branch) === normalizeComparableText(currentSessionUser.branch)
-    );
-  }, [approverManagedBranchId, currentSessionUser.branch, driverRecords, userMode]);
+    return driverRecords.filter((driver) => isDriverInApproverScope(driver));
+  }, [driverRecords, isDriverInApproverScope, userMode]);
 
   const unavailableDriverIds = useMemo(() => {
     const ids = new Set();
@@ -2011,16 +2021,17 @@ function App() {
       case 'settings':
         if (userMode === 'approver') {
           return {
-            kicker: 'Vehicle settings',
-            title: 'Manage your branch fleet settings.',
+            kicker: 'Branch settings',
+            title: 'Manage branch drivers and vehicles.',
             description:
-              'Add and edit vehicles assigned to your branch to keep dispatch and compliance data accurate.',
+              'Set up driver and vehicle records assigned to your branch to keep dispatch and compliance data accurate.',
             primaryAction: actionFor('settings', 'Open settings'),
             secondaryAction: actionFor('requests', 'Back to requests'),
             spotlights: [
+              { label: 'Branch drivers', value: settingsDriverRecords.length, helper: currentSessionUser.branch, icon: 'people' },
               { label: 'Branch vehicles', value: settingsVehicleRecords.length, helper: currentSessionUser.branch, icon: 'vehicles' },
-              { label: 'Available', value: settingsVehicleRecords.filter((vehicle) => vehicle.status === 'available').length, helper: 'Ready for assignment', icon: 'check' },
-              { label: 'Maintenance', value: settingsVehicleRecords.filter((vehicle) => vehicle.status === 'maintenance').length, helper: 'Needs service follow-up', icon: 'wrench' },
+              { label: 'Driver available', value: settingsDriverRecords.filter((driver) => driver.status === 'available').length, helper: 'Ready for assignment', icon: 'check' },
+              { label: 'Vehicle maintenance', value: settingsVehicleRecords.filter((vehicle) => vehicle.status === 'maintenance').length, helper: 'Needs service follow-up', icon: 'wrench' },
             ],
           };
         }
@@ -2189,6 +2200,7 @@ function App() {
     branchScopedRequestStatusSummary,
     calendarTripStatusSummary,
     tripsPageTripStatusSummary,
+    settingsDriverRecords,
     settingsVehicleRecords,
     selectedView,
     todayShortLabel,
@@ -2441,6 +2453,10 @@ function App() {
   }
 
   function handleDriverSettingsFieldChange(field, value) {
+    if (userMode === 'approver' && field === 'branchId') {
+      return;
+    }
+
     setDriverSettingsForm((current) => ({
       ...current,
       [field]: value,
@@ -3626,8 +3642,23 @@ function App() {
   }
 
   function handleOpenDriverSettingsModal(driver = null) {
+    if (!canManageDriverSettings) {
+      showToast('Only admins and approvers can manage driver settings.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && !approverManagedBranchId) {
+      showToast('Your approver account needs a branch assignment before editing drivers.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && driver && !isDriverInApproverScope(driver)) {
+      showToast('You can only edit drivers assigned to your branch.', 'warning', 'Permission denied');
+      return;
+    }
+
     const defaultDriverBranchId = userMode === 'approver'
-      ? approverManagedBranchId || findBranchId(branchRecords, currentSessionUser.branch)
+      ? approverManagedBranchId
       : (branchOptions[0]?.id || '');
 
     setDriverSettingsForm(
@@ -3637,9 +3668,13 @@ function App() {
             profileId: driver.profileId || '',
             fullName: driver.fullName,
             employeeId: driver.employeeId,
-            branchId: driver.branchId
-              || defaultDriverBranchId
-              || findBranchId(branchRecords, driver.branch),
+            branchId: userMode === 'approver'
+              ? approverManagedBranchId
+              : (
+                  driver.branchId
+                  || defaultDriverBranchId
+                  || findBranchId(branchRecords, driver.branch)
+                ),
             branchName: driver.branch,
             status: driver.status,
             licenseNumber: driver.licenseNumber,
@@ -3659,7 +3694,33 @@ function App() {
   async function handleDriverSettingsSubmit(event) {
     event.preventDefault();
 
-    if (!driverSettingsForm.fullName.trim() || !driverSettingsForm.employeeId.trim()) {
+    if (!canManageDriverSettings) {
+      showToast('Only admins and approvers can manage driver settings.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && !approverManagedBranchId) {
+      showToast('Your approver account needs a branch assignment before editing drivers.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && driverSettingsForm.id) {
+      const existingDriver = driverRecords.find((driver) => driver.id === driverSettingsForm.id);
+
+      if (!isDriverInApproverScope(existingDriver)) {
+        showToast('You can only edit drivers assigned to your branch.', 'warning', 'Permission denied');
+        return;
+      }
+    }
+
+    const scopedDriverSettingsForm = userMode === 'approver'
+      ? {
+          ...driverSettingsForm,
+          branchId: approverManagedBranchId,
+        }
+      : driverSettingsForm;
+
+    if (!scopedDriverSettingsForm.fullName.trim() || !scopedDriverSettingsForm.employeeId.trim()) {
       showToast('Enter the driver name and employee ID.', 'warning', 'Missing details');
       return;
     }
@@ -3670,14 +3731,14 @@ function App() {
     }
 
     try {
-      await saveLiveDriver(supabase, driverSettingsForm);
+      await saveLiveDriver(supabase, scopedDriverSettingsForm);
       await refreshLiveData(currentSessionUser);
       appendAuditEntry({
         category: 'driver',
-        action: driverSettingsForm.id ? 'Updated driver record' : 'Created driver record',
-        target: driverSettingsForm.fullName.trim(),
-        branch: branchOptions.find((branch) => branch.id === driverSettingsForm.branchId)?.name || currentSessionUser.branch,
-        details: `Saved driver ${driverSettingsForm.fullName.trim()} in live mode.`,
+        action: scopedDriverSettingsForm.id ? 'Updated driver record' : 'Created driver record',
+        target: scopedDriverSettingsForm.fullName.trim(),
+        branch: branchOptions.find((branch) => branch.id === scopedDriverSettingsForm.branchId)?.name || currentSessionUser.branch,
+        details: `Saved driver ${scopedDriverSettingsForm.fullName.trim()} in live mode.`,
       });
       showToast('Driver record updated.', 'success', 'Settings saved');
       handleCloseDriverSettingsModal();
@@ -3687,6 +3748,21 @@ function App() {
   }
 
   async function handleDeleteDriver(driver) {
+    if (!canManageDriverSettings) {
+      showToast('Only admins and approvers can delete driver records.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && !approverManagedBranchId) {
+      showToast('Your approver account needs a branch assignment before deleting drivers.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && !isDriverInApproverScope(driver)) {
+      showToast('You can only delete drivers assigned to your branch.', 'warning', 'Permission denied');
+      return;
+    }
+
     if (!window.confirm(`Delete driver "${driver.fullName}"? This cannot be undone.`)) {
       return;
     }
@@ -4310,6 +4386,16 @@ function App() {
       return;
     }
 
+    if (!canManageDriverSettings) {
+      showToast('Only admins and approvers can import drivers via CSV.', 'warning', 'Permission denied');
+      return;
+    }
+
+    if (userMode === 'approver' && !approverManagedBranchId) {
+      showToast('Your approver account needs a branch assignment before importing drivers.', 'warning', 'Permission denied');
+      return;
+    }
+
     if (!supabase) {
       showToast('Supabase is required for driver CSV import.', 'danger', 'Import failed');
       return;
@@ -4336,6 +4422,9 @@ function App() {
           .filter((user) => user.email)
           .map((user) => [normalizeComparableText(user.email), user])
       );
+      const approverBranchRecord = userMode === 'approver'
+        ? branchRecords.find((branch) => String(branch.id) === String(approverManagedBranchId)) || null
+        : null;
       const errors = [];
       let createdCount = 0;
       let updatedCount = 0;
@@ -4345,7 +4434,10 @@ function App() {
         const fullName = getCsvValue(row, ['full_name', 'name']);
         const employeeId = getCsvValue(row, ['employee_id', 'employee_no', 'employee']);
         const branchToken = getCsvValue(row, ['branch_id', 'branch_code', 'branch_name', 'branch']);
-        const branch = resolveBranchFromCsvToken(branchToken);
+        const parsedBranch = resolveBranchFromCsvToken(branchToken);
+        const branch = userMode === 'approver' && !branchToken
+          ? approverBranchRecord
+          : parsedBranch;
         const licenseNumber = getCsvValue(row, ['license_number']);
         const licenseExpiry = getCsvValue(row, ['license_expiry']);
         const contactNumber = getCsvValue(row, ['contact_number', 'contact']);
@@ -4354,6 +4446,16 @@ function App() {
         const profileEmail = normalizeComparableText(getCsvValue(row, ['profile_email', 'linked_email']));
         const profileId = profileEmail ? (usersByEmail.get(profileEmail)?.id || '') : '';
         const existingDriver = driversByEmployeeId.get(normalizeComparableText(employeeId));
+
+        if (
+          userMode === 'approver'
+          && branch
+          && String(branch.id) !== String(approverManagedBranchId)
+        ) {
+          errors.push(`Row ${rowIndex + 2}: approver imports can only target your assigned branch.`);
+          setSettingsImportProgressStep(importScope, rowIndex + 1);
+          continue;
+        }
 
         if (!fullName || !employeeId || !branch || !licenseNumber || !licenseExpiry) {
           errors.push(`Row ${rowIndex + 2}: missing/invalid full_name, employee_id, branch, license_number, or license_expiry.`);
