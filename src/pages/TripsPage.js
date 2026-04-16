@@ -375,15 +375,10 @@ export default function TripsPage({
 
                 {!isGuard && detailMode === 'release' && actionTrip && (
                   <form className="form-grid" onSubmit={onCheckoutSubmit}>
-                    <label>
+                    <div className="trip-action-info">
                       <span className="field-label">Date and time out</span>
-                      <input
-                        className="input"
-                        type="datetime-local"
-                        value={checkoutForm.dateOut}
-                        onChange={(event) => onCheckoutFieldChange('dateOut', event.target.value)}
-                      />
-                    </label>
+                      <p>Captured automatically using real-time date and time when you click Release vehicle.</p>
+                    </div>
                     {selectedCheckoutVehicle?.isOdoDefective ? (
                       <div className="trip-action-info">
                         <span className="field-label">Odometer out</span>
@@ -432,15 +427,10 @@ export default function TripsPage({
 
                 {!isGuard && detailMode === 'return' && actionTrip && (
                   <form className="form-grid" onSubmit={onCheckinSubmit}>
-                    <label>
+                    <div className="trip-action-info">
                       <span className="field-label">Date and time in</span>
-                      <input
-                        className="input"
-                        type="datetime-local"
-                        value={checkinForm.dateIn}
-                        onChange={(event) => onCheckinFieldChange('dateIn', event.target.value)}
-                      />
-                    </label>
+                      <p>Captured automatically using real-time date and time when you click Return vehicle.</p>
+                    </div>
                     {selectedCheckinVehicle?.isOdoDefective ? (
                       <div className="trip-action-info">
                         <span className="field-label">Odometer in</span>

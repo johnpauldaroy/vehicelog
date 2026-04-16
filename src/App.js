@@ -4920,6 +4920,11 @@ function App() {
     event.preventDefault();
 
     const tripToRelease = visibleTripRecords.find((trip) => trip.id === checkoutForm.tripId);
+    const releaseTimestamp = new Date().toISOString();
+    const checkoutPayload = {
+      ...checkoutForm,
+      dateOut: releaseTimestamp,
+    };
     const odometerOut = Number(checkoutForm.odometerOut);
     const releaseVehicle = findVehicleForTrip(vehicleRecords, tripToRelease);
     const isOdoDefective = Boolean(releaseVehicle?.isOdoDefective);
@@ -4940,7 +4945,7 @@ function App() {
 
     if (supabase) {
       try {
-        await checkoutLiveTrip(supabase, tripToRelease, checkoutForm, resolvedOdometerOut);
+        await checkoutLiveTrip(supabase, tripToRelease, checkoutPayload, resolvedOdometerOut);
         await refreshLiveData(currentSessionUser);
         appendAuditEntry({
           category: 'trip',
@@ -4964,7 +4969,7 @@ function App() {
           ? {
               ...trip,
               tripStatus: 'Checked Out',
-              dateOut: checkoutForm.dateOut,
+              dateOut: releaseTimestamp,
               odometerOut: resolvedOdometerOut,
               fuelOut: checkoutForm.fuelOut,
               conditionOut: checkoutForm.conditionOut || '',
@@ -5037,6 +5042,11 @@ function App() {
     event.preventDefault();
 
     const tripToClose = visibleTripRecords.find((trip) => trip.id === checkinForm.tripId);
+    const returnTimestamp = new Date().toISOString();
+    const checkinPayload = {
+      ...checkinForm,
+      dateIn: returnTimestamp,
+    };
     const odometerIn = Number(checkinForm.odometerIn);
     const returnVehicle = findVehicleForTrip(vehicleRecords, tripToClose);
     const isOdoDefective = Boolean(returnVehicle?.isOdoDefective);
@@ -5059,7 +5069,7 @@ function App() {
 
     if (supabase) {
       try {
-        await checkinLiveTrip(supabase, tripToClose, checkinForm, resolvedOdometerIn);
+        await checkinLiveTrip(supabase, tripToClose, checkinPayload, resolvedOdometerIn);
         await refreshLiveData(currentSessionUser);
         appendAuditEntry({
           category: 'trip',
@@ -5083,8 +5093,8 @@ function App() {
           ? {
               ...trip,
               tripStatus: 'Returned',
-              actualReturnDatetime: checkinForm.dateIn,
-              dateIn: checkinForm.dateIn,
+              actualReturnDatetime: returnTimestamp,
+              dateIn: returnTimestamp,
               odometerIn: resolvedOdometerIn,
               fuelIn: checkinForm.fuelIn,
               remarks: checkinForm.remarks,
