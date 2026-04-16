@@ -149,6 +149,8 @@ export default function RequestsPage({
   const canEditDriverInPendingDetails = canReviewRequests && selectedRequestDetails?.status === 'Pending Approval';
   const canEditDriverInCheckedOutDetails = canReviewRequests && selectedRequestDetails?.status === 'Checked Out';
   const canEditDriverInDetails = canEditDriverInPendingDetails || canEditDriverInCheckedOutDetails;
+  const canShowStandaloneFuelSaveAction = canEditFuelInDetails
+    && !(canReviewRequests && selectedRequestDetails?.status === 'Pending Approval');
   const isApprovalBlockedByMissingVehicle = canReviewRequests
     && selectedRequestDetails?.status === 'Pending Approval'
     && !selectedRequestDetails?.assignedVehicleId;
@@ -1368,7 +1370,7 @@ export default function RequestsPage({
                   </button>
                 </div>
               )}
-              {canEditFuelInDetails && (
+              {canShowStandaloneFuelSaveAction && (
                 <div className="form-actions request-detail-actions">
                   <button
                     type="button"
