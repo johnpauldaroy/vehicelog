@@ -157,7 +157,7 @@ export default function TripsPage({
       return {
         icon: 'release',
         label: 'Release vehicle',
-        className: 'button button-primary row-action-button trip-action-button',
+        className: 'button button-checkout row-action-button trip-action-button',
       };
     }
 
@@ -165,7 +165,7 @@ export default function TripsPage({
       return {
         icon: 'return',
         label: 'Return vehicle',
-        className: 'button button-success row-action-button trip-action-button',
+        className: 'button button-return row-action-button trip-action-button',
       };
     }
 
@@ -416,7 +416,7 @@ export default function TripsPage({
                     <div className="full-span form-actions">
                       <button
                         type="submit"
-                        className="button button-primary button-solid"
+                        className="button button-checkout button-solid"
                         disabled={!checkoutForm.tripId}
                       >
                         Release vehicle
@@ -481,7 +481,7 @@ export default function TripsPage({
                     <div className="full-span form-actions">
                       <button
                         type="submit"
-                        className="button button-success button-solid"
+                        className="button button-return button-solid"
                         disabled={!checkinForm.tripId}
                       >
                         Return vehicle

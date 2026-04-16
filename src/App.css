@@ -1177,6 +1177,28 @@
   box-shadow: 0 18px 32px rgba(47, 159, 99, 0.26);
 }
 
+.button-checkout {
+  background: linear-gradient(135deg, #2f7fd8, #1f4ea9);
+  color: var(--text-inverse);
+  box-shadow: 0 16px 28px rgba(47, 127, 216, 0.22);
+}
+
+.button-checkout:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px rgba(47, 127, 216, 0.28);
+}
+
+.button-return {
+  background: linear-gradient(135deg, #f29a2e, #d97706);
+  color: var(--text-inverse);
+  box-shadow: 0 16px 28px rgba(217, 119, 6, 0.24);
+}
+
+.button-return:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px rgba(217, 119, 6, 0.3);
+}
+
 .button-tertiary {
   background: var(--bg-subtle);
 }
@@ -1999,6 +2021,11 @@
   color: var(--success-text);
 }
 
+.status-checkout {
+  background: #dfeafb;
+  color: #1f4f9b;
+}
+
 .status-amber {
   background: var(--warning-soft);
   color: var(--warning-text);
@@ -2012,6 +2039,11 @@
 .status-blue {
   background: var(--bg-accent-soft);
   color: var(--bg-accent-strong);
+}
+
+.status-returned {
+  background: #dff5e8;
+  color: #1f7a4f;
 }
 
 .status-purple {
@@ -3183,6 +3215,8 @@
 
   /* Buttons: minimum tap target on mobile */
   .button-primary,
+  .button-checkout,
+  .button-return,
   .button-success,
   .button-secondary,
   .button-danger {
@@ -4763,6 +4797,8 @@
   }
 
   .button-primary,
+  .button-checkout,
+  .button-return,
   .button-success,
   .button-secondary,
   .button-danger {
