@@ -1677,6 +1677,7 @@ export async function fetchLiveAppData(client) {
         completed_date,
         provider,
         amount,
+        remarks,
         status
       `)
     ),
@@ -1944,6 +1945,7 @@ export async function fetchLiveAppData(client) {
     completedDate: entry.completed_date,
     provider: entry.provider || '-',
     amount: Number(entry.amount || 0),
+    remarks: entry.remarks || '',
     status: entry.status,
   }));
 
@@ -2906,6 +2908,7 @@ export async function saveLiveMaintenance(client, maintenanceForm) {
     completed_date: maintenanceForm.completedDate || null,
     provider: maintenanceForm.provider.trim(),
     amount: Number(maintenanceForm.amount || 0),
+    remarks: maintenanceForm.remarks?.trim() || null,
     status: maintenanceForm.status,
   };
 

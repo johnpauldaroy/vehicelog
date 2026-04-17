@@ -286,7 +286,7 @@ export default function CompliancePage({
                                       vehicle: entry.vehicle,
                                       branch: entry.branch,
                                       branchId: entry.branchId,
-                                      maintenanceType: 'Oil change',
+                                      maintenanceType: 'Oil Change',
                                       scheduleDate: today,
                                       completedDate: '',
                                       provider: '',

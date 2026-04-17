@@ -89,6 +89,38 @@ const DEFAULT_VEHICLE_TYPE_RECORDS = [
 ];
 
 const LICENSE_RESTRICTION_OPTIONS = ['A', 'A1', 'B', 'B1', 'B2', 'C', 'D', 'BE'];
+const MAINTENANCE_TYPE_OPTIONS = [
+  'Oil Change',
+  'Tire Rotation',
+  'Brake Repair',
+  'Engine Check',
+  'General Service',
+  'Fuel Filter Replacement',
+  'Electrical Repair',
+  'Fluid Check/Top-up',
+  'Battery Replacement',
+  'Scheduled Maintenance',
+  'AC Repair',
+  'Other Repair',
+  'Air Filter Replacement',
+  'Cabin Air Filter Replacement',
+  'Brake Pad Replacement',
+  'Brake Fluid Replacement',
+  'Transmission Service',
+  'Coolant Flush',
+  'Wheel Alignment',
+  'Wheel Balancing',
+  'Spark Plug Replacement',
+  'Suspension Inspection',
+  'Steering System Inspection',
+  'Drive Belt Replacement',
+  'Timing Belt/Chain Service',
+  'Clutch Service',
+  'Injector Cleaning',
+  'Preventive Maintenance Inspection',
+  'Safety Inspection',
+  'Diagnostic Scan',
+];
 
 function normalizeRestrictionSelection(value) {
   return Array.from(
@@ -420,6 +452,7 @@ function createMaintenanceForm(defaultVehicleId = '', defaultBranchId = '') {
     provider: '',
     amount: '0',
     status: 'Pending',
+    remarks: '',
   };
 }
 
@@ -3872,6 +3905,7 @@ function App() {
         provider: maintenance.provider || '',
         amount: String(maintenance.amount ?? 0),
         status: maintenance.status,
+        remarks: maintenance.remarks || '',
       });
       setMaintenanceModalOpen(true);
       return;
@@ -3943,6 +3977,7 @@ function App() {
       provider: maintenanceForm.provider.trim(),
       amount: Number(maintenanceForm.amount || 0),
       status: maintenanceForm.status,
+      remarks: maintenanceForm.remarks.trim(),
     };
 
     setMaintenanceRecords((current) =>
@@ -6357,10 +6392,17 @@ function App() {
                     <span className="field-label">Maintenance type</span>
                     <input 
                       className="input" 
-                      placeholder="e.g. Oil Change, Tire Check"
+                      list="maintenance-type-options"
+                      placeholder="Select or type maintenance type"
                       value={maintenanceForm.maintenanceType} 
                       onChange={(event) => handleMaintenanceFieldChange('maintenanceType', event.target.value)} 
                     />
+                    <datalist id="maintenance-type-options">
+                      {MAINTENANCE_TYPE_OPTIONS.map((type) => (
+                        <option key={type} value={type} />
+                      ))}
+                    </datalist>
+                    <span className="muted">Use a standard type from the list, or type a custom maintenance type.</span>
                   </label>
                   <label>
                     <span className="field-label">Provider</span>
@@ -6409,6 +6451,15 @@ function App() {
                       min="0"
                       value={maintenanceForm.amount} 
                       onChange={(event) => handleMaintenanceFieldChange('amount', event.target.value)} 
+                    />
+                  </label>
+                  <label className="full-span">
+                    <span className="field-label">Remarks</span>
+                    <textarea
+                      className="input textarea"
+                      placeholder="Add notes about the maintenance work done or findings"
+                      value={maintenanceForm.remarks}
+                      onChange={(event) => handleMaintenanceFieldChange('remarks', event.target.value)}
                     />
                   </label>
                   <div className="full-span form-actions">
