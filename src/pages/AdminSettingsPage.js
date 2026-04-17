@@ -209,6 +209,8 @@ export default function AdminSettingsPage({
   const importProcessed = Math.min(importTotal, Math.max(0, Number(importProgress?.processed || 0)));
   const importPercent = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
   const importLabel = String(importProgress?.label || 'Importing CSV');
+  const canManageUsers = typeof onAddUser === 'function' || typeof onEditUser === 'function' || typeof onDeleteUser === 'function';
+  const canImportUsers = typeof onImportUsersCsv === 'function';
 
   const renderImportProgress = useCallback((scope) => {
     if (!anyImportInProgress || normalizedImportScope !== scope) {
@@ -625,8 +627,12 @@ export default function AdminSettingsPage({
         label: 'Users',
         count: userRecords.length,
         title: 'Users',
-        subtitle: 'Edit existing profiles. New auth users must still be created in Supabase Auth.',
-        note: 'Email and role are shown for reference. Profile name and branch can be maintained here.',
+        subtitle: canManageUsers
+          ? 'Edit existing profiles. New auth users must still be created in Supabase Auth.'
+          : 'View branch user profiles, roles, and assignments.',
+        note: canManageUsers
+          ? 'Email and role are shown for reference. Profile name and branch can be maintained here.'
+          : 'User records are read-only for this role.',
         searchControl: (
           <input
             className="input settings-search-input"
@@ -635,30 +641,36 @@ export default function AdminSettingsPage({
             onChange={(event) => setUsersQuery(event.target.value)}
           />
         ),
-        action: (
+        action: (canManageUsers || canImportUsers) ? (
           <div className="settings-action-stack">
             <div className="row-actions">
-              <button type="button" className="button button-primary" onClick={onAddUser}>
-                <AppIcon name="user" className="button-icon" />
-                Add user
-              </button>
-              <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('users')}>
-                <AppIcon name="download" className="button-icon" />
-                Template
-              </button>
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={() => openCsvPicker(onImportUsersCsv)}
-                disabled={anyImportInProgress}
-              >
-                <AppIcon name="reports" className="button-icon" />
-                {normalizedImportScope === 'users' && anyImportInProgress ? 'Importing...' : 'Import CSV'}
-              </button>
+              {typeof onAddUser === 'function' && (
+                <button type="button" className="button button-primary" onClick={onAddUser}>
+                  <AppIcon name="user" className="button-icon" />
+                  Add user
+                </button>
+              )}
+              {canImportUsers && (
+                <>
+                  <button type="button" className="button button-secondary" onClick={() => downloadCsvTemplate('users')}>
+                    <AppIcon name="download" className="button-icon" />
+                    Template
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => openCsvPicker(onImportUsersCsv)}
+                    disabled={anyImportInProgress}
+                  >
+                    <AppIcon name="reports" className="button-icon" />
+                    {normalizedImportScope === 'users' && anyImportInProgress ? 'Importing...' : 'Import CSV'}
+                  </button>
+                </>
+              )}
             </div>
             {renderImportProgress('users')}
           </div>
-        ),
+        ) : null,
         table: (
           <>
           <div className="table-wrap">
@@ -693,13 +705,20 @@ export default function AdminSettingsPage({
                     <td data-label="Branch">{user.branch}</td>
                     <td data-label="Action">
                       <div className="row-actions">
-                        <button type="button" className="button button-secondary row-action-button" onClick={() => onEditUser(user)}>
-                          Edit
-                        </button>
-                        <button type="button" className="button button-danger row-action-button" onClick={() => onDeleteUser(user)}>
-                          <AppIcon name="trash" className="button-icon" />
-                          Delete
-                        </button>
+                        {typeof onEditUser === 'function' && (
+                          <button type="button" className="button button-secondary row-action-button" onClick={() => onEditUser(user)}>
+                            Edit
+                          </button>
+                        )}
+                        {typeof onDeleteUser === 'function' && (
+                          <button type="button" className="button button-danger row-action-button" onClick={() => onDeleteUser(user)}>
+                            <AppIcon name="trash" className="button-icon" />
+                            Delete
+                          </button>
+                        )}
+                        {typeof onEditUser !== 'function' && typeof onDeleteUser !== 'function' && (
+                          <span className="cell-subtle">View only</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1207,6 +1226,8 @@ export default function AdminSettingsPage({
       usersPageStart,
       usersQuery,
       usersTotalPages,
+      canImportUsers,
+      canManageUsers,
       vehicleRecords,
       vehiclesCurrentPage,
       vehiclesPageEnd,

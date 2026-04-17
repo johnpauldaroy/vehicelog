@@ -1234,6 +1234,19 @@ function App() {
 
     return driverRecords.filter((driver) => isDriverInApproverScope(driver));
   }, [driverRecords, isDriverInApproverScope, userMode]);
+  const settingsUserRecords = useMemo(() => {
+    if (userMode !== 'approver') {
+      return userRecords;
+    }
+
+    return userRecords.filter((user) => {
+      if (approverManagedBranchId && user.branchId) {
+        return String(user.branchId) === String(approverManagedBranchId);
+      }
+
+      return normalizeComparableText(user.branch) === normalizeComparableText(currentSessionUser.branch);
+    });
+  }, [approverManagedBranchId, currentSessionUser.branch, userMode, userRecords]);
 
   const unavailableDriverIds = useMemo(() => {
     const ids = new Set();
@@ -2023,16 +2036,16 @@ function App() {
         if (userMode === 'approver') {
           return {
             kicker: 'Branch settings',
-            title: 'Manage branch drivers and vehicles.',
+            title: 'View branch users, drivers, and vehicles.',
             description:
-              'Set up driver and vehicle records assigned to your branch to keep dispatch and compliance data accurate.',
+              'Review branch user profiles plus driver and vehicle records assigned to your branch.',
             primaryAction: actionFor('settings', 'Open settings'),
             secondaryAction: actionFor('requests', 'Back to requests'),
             spotlights: [
+              { label: 'Branch users', value: settingsUserRecords.length, helper: currentSessionUser.branch, icon: 'user' },
               { label: 'Branch drivers', value: settingsDriverRecords.length, helper: currentSessionUser.branch, icon: 'people' },
               { label: 'Branch vehicles', value: settingsVehicleRecords.length, helper: currentSessionUser.branch, icon: 'vehicles' },
               { label: 'Driver available', value: settingsDriverRecords.filter((driver) => driver.status === 'available').length, helper: 'Ready for assignment', icon: 'check' },
-              { label: 'Vehicle maintenance', value: settingsVehicleRecords.filter((vehicle) => vehicle.status === 'maintenance').length, helper: 'Needs service follow-up', icon: 'wrench' },
             ],
           };
         }
@@ -2202,6 +2215,7 @@ function App() {
     calendarTripStatusSummary,
     tripsPageTripStatusSummary,
     settingsDriverRecords,
+    settingsUserRecords,
     settingsVehicleRecords,
     selectedView,
     todayShortLabel,
@@ -5723,19 +5737,19 @@ function App() {
         {selectedView === 'settings' && (
           <AdminSettingsPage
             branchRecords={branchRecords}
-            userRecords={userRecords}
+            userRecords={settingsUserRecords}
             driverRecords={settingsDriverRecords}
             vehicleRecords={settingsVehicleRecords}
             auditRecords={auditRecords}
             importProgress={settingsImportProgress}
-            visibleTabKeys={userMode === 'approver' ? ['drivers', 'vehicles'] : undefined}
+            visibleTabKeys={userMode === 'approver' ? ['users', 'drivers', 'vehicles'] : undefined}
             onAddBranch={() => handleOpenBranchSettingsModal()}
             onEditBranch={handleOpenBranchSettingsModal}
             onDeleteBranch={handleDeleteBranch}
-            onAddUser={() => handleOpenUserSettingsModal()}
-            onEditUser={handleOpenUserSettingsModal}
-            onDeleteUser={handleDeleteUser}
-            onImportUsersCsv={handleImportUsersCsv}
+            onAddUser={userMode === 'admin' ? () => handleOpenUserSettingsModal() : undefined}
+            onEditUser={userMode === 'admin' ? handleOpenUserSettingsModal : undefined}
+            onDeleteUser={userMode === 'admin' ? handleDeleteUser : undefined}
+            onImportUsersCsv={userMode === 'admin' ? handleImportUsersCsv : undefined}
             onAddDriver={() => handleOpenDriverSettingsModal()}
             onEditDriver={handleOpenDriverSettingsModal}
             onDeleteDriver={handleDeleteDriver}
