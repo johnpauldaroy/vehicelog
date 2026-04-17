@@ -10,6 +10,7 @@ import {
   checkoutLiveTrip,
   createLiveUser,
   createLiveRequest,
+  deactivateLiveWebPushSubscription,
   deleteLiveBranch,
   deleteLiveDriver,
   deleteLiveProfile,
@@ -22,6 +23,7 @@ import {
   saveLiveIncident,
   saveLiveMaintenance,
   saveLiveVehicle,
+  saveLiveWebPushSubscription,
   updateLiveProfile,
   updateLiveRequestDriverAssignment,
   updateLiveRequestFuelValues,
@@ -29,6 +31,11 @@ import {
   uploadIncidentPhoto,
 } from './lib/liveData';
 import { supabase } from './lib/supabaseClient';
+import {
+  ensureWebPushSubscription,
+  isWebPushSupported,
+  unsubscribeWebPushSubscription,
+} from './lib/webPushClient';
 import AdminSettingsPage from './pages/AdminSettingsPage';
 import CompliancePage from './pages/CompliancePage';
 import DashboardPage from './pages/DashboardPage';
@@ -61,6 +68,7 @@ const TOAST_DISMISS_MS = 4200;
 const LIVE_BOOTSTRAP_TIMEOUT_MS = 12000;
 const SESSION_PROFILE_TIMEOUT_MS = 20000;
 const SESSION_CACHE_KEY = 'vehiclelog.sessionUser';
+const WEB_PUSH_PUBLIC_KEY = String(process.env.REACT_APP_WEB_PUSH_VAPID_PUBLIC_KEY || '').trim();
 const EMPTY_SESSION_USER = {
   id: '',
   name: '',
@@ -182,6 +190,11 @@ function buildBranchSelectOptions(branches, selectedBranchId, selectedBranchName
 
 function normalizeComparableText(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function toSortableTime(value) {
+  const parsedTime = Date.parse(String(value || ''));
+  return Number.isFinite(parsedTime) ? parsedTime : 0;
 }
 
 function findVehicleForTrip(vehicleRecords, trip) {
@@ -591,6 +604,8 @@ function App() {
   const [isMobileViewport, setIsMobileViewport] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth <= 768 : false
   );
+  const [topbarNotificationsOpen, setTopbarNotificationsOpen] = useState(false);
+  const [tripDetailFocus, setTripDetailFocus] = useState(null);
   const [branchRecords, setBranchRecords] = useState([]);
   const [userRecords, setUserRecords] = useState([]);
   const [requestRecords, setRequestRecords] = useState([]);
@@ -633,6 +648,8 @@ function App() {
   });
   const [toast, setToast] = useState(null);
   const cachedSessionUserRef = useRef(initialCachedSessionUser);
+  const pushSubscriptionSyncRef = useRef({ userId: '', promise: null });
+  const topbarNotificationsRef = useRef(null);
   const isSigningOutRef = useRef(false);
   const expectedSessionUserIdRef = useRef('');
   const sessionHydrationRef = useRef({ userId: '', promise: null });
@@ -818,6 +835,36 @@ function App() {
 
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (!topbarNotificationsOpen || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (!topbarNotificationsRef.current) {
+        return;
+      }
+
+      if (!topbarNotificationsRef.current.contains(event.target)) {
+        setTopbarNotificationsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setTopbarNotificationsOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [topbarNotificationsOpen]);
 
   const applySessionUser = useCallback((liveUser) => {
     const normalizedSessionUser = {
@@ -1093,6 +1140,52 @@ function App() {
     };
   }, [clearAppData, hydrateAuthenticatedSession, tryRestoreCachedSessionUser]);
 
+  useEffect(() => {
+    if (!supabase || !isAuthenticated || !currentSessionUser.id) {
+      return undefined;
+    }
+
+    if (!WEB_PUSH_PUBLIC_KEY || !isWebPushSupported()) {
+      return undefined;
+    }
+
+    if (
+      pushSubscriptionSyncRef.current.userId === currentSessionUser.id
+      && pushSubscriptionSyncRef.current.promise
+    ) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const syncPromise = (async () => {
+      const result = await ensureWebPushSubscription(WEB_PUSH_PUBLIC_KEY);
+
+      if (isCancelled || result.status !== 'subscribed' || !result.subscription) {
+        return;
+      }
+
+      await saveLiveWebPushSubscription(supabase, result.subscription, navigator.userAgent || '');
+    })()
+      .catch(() => {
+        // Keep push registration best-effort without blocking workspace load.
+      })
+      .finally(() => {
+        if (pushSubscriptionSyncRef.current.promise === syncPromise) {
+          pushSubscriptionSyncRef.current = { userId: '', promise: null };
+        }
+      });
+
+    pushSubscriptionSyncRef.current = {
+      userId: currentSessionUser.id,
+      promise: syncPromise,
+    };
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentSessionUser.id, isAuthenticated]);
+
   const visibleRequestRecords = useMemo(() => {
     if (userMode === 'admin') {
       return requestRecords;
@@ -1141,7 +1234,7 @@ function App() {
         return departureTime;
       }
 
-      const requestNoMatch = String(request.requestNo || '').match(/^VR-(\d{4})-(\d{4})-(\d{3})$/);
+      const requestNoMatch = String(request.requestNo || '').match(/^VR-(\d{4})-(\d{4})-(\d+)$/);
 
       if (requestNoMatch) {
         return Number(`${requestNoMatch[1]}${requestNoMatch[2]}${requestNoMatch[3]}`);
@@ -1718,6 +1811,10 @@ function App() {
   const activeNavItem = availableNavItems.find((item) => item.id === selectedView) || availableNavItems[0];
 
   useEffect(() => {
+    setTopbarNotificationsOpen(false);
+  }, [selectedView]);
+
+  useEffect(() => {
     if (!isAdminMobileNavMode) {
       setMobileOverflowNavOpen(false);
     }
@@ -1772,6 +1869,242 @@ function App() {
       }).format(operationsDay),
     [operationsDay]
   );
+
+  const topbarActionNotifications = useMemo(() => {
+    const items = [];
+    const canReviewRequests = userMode === 'admin' || userMode === 'approver';
+    const canUpdateFuel = userMode === 'driver' || userMode === 'requester';
+    const canManageTrips = ['admin', 'approver', 'driver'].includes(userMode);
+    const nowTimestamp = Date.now();
+    const normalizedSessionName = normalizeComparableText(currentSessionUser.name);
+    const normalizedDriverName = normalizeComparableText(currentDriverRecord?.fullName);
+
+    if (canReviewRequests) {
+      visibleRequestRecords.forEach((request) => {
+        if (request.status !== 'Pending Approval') {
+          return;
+        }
+
+        const departureTime = toSortableTime(request.departureDatetime || request.createdAt);
+        const requestNo = request.requestNo || 'Request';
+
+        items.push({
+          id: `request-review-${request.id}`,
+          requestId: request.id,
+          title: `${requestNo} is waiting for approval`,
+          detail: `${request.requestedBy || 'Unknown requester'} to ${request.destination || 'Unspecified destination'}`,
+          view: 'requests',
+          search: request.requestNo || '',
+          tone: 'warning',
+          priority: 90,
+          timestamp: departureTime,
+          timestampLabel: departureTime
+            ? `Departure ${formatDate(request.departureDatetime || request.createdAt, true)}`
+            : 'Open request queue',
+          actionLabel: 'Open request queue',
+        });
+      });
+    }
+
+    if (canUpdateFuel) {
+      visibleRequestRecords.forEach((request) => {
+        if (!request.fuelRequested || !['Pending Approval', 'Ready for Release'].includes(request.status)) {
+          return;
+        }
+
+        const isOwnedByCurrentUser = request.requestedById && currentSessionUser.id
+          ? String(request.requestedById) === String(currentSessionUser.id)
+          : normalizeComparableText(request.requestedBy) === normalizedSessionName;
+        const isAssignedToCurrentDriver = (currentDriverRecord?.id && request.assignedDriverId)
+          ? String(request.assignedDriverId) === String(currentDriverRecord.id)
+          : false;
+        const isAssignedNameMatch = Boolean(normalizedSessionName) && normalizeComparableText(request.assignedDriver) === normalizedSessionName;
+        const isAssignedDriverNameMatch = Boolean(normalizedDriverName) && normalizeComparableText(request.assignedDriver) === normalizedDriverName;
+
+        if (!isOwnedByCurrentUser && !isAssignedToCurrentDriver && !isAssignedNameMatch && !isAssignedDriverNameMatch) {
+          return;
+        }
+
+        const requestNo = request.requestNo || 'Request';
+        const departureTime = toSortableTime(request.departureDatetime || request.createdAt);
+
+        items.push({
+          id: `request-fuel-${request.id}`,
+          requestId: request.id,
+          title: `${requestNo} has fuel details pending`,
+          detail: `Fuel authorization for ${request.destination || 'this route'} can still be updated.`,
+          view: 'requests',
+          search: request.requestNo || '',
+          tone: request.status === 'Ready for Release' ? 'info' : 'warning',
+          priority: 64,
+          timestamp: departureTime,
+          timestampLabel: departureTime
+            ? `Departure ${formatDate(request.departureDatetime || request.createdAt, true)}`
+            : 'Open fuel details',
+          actionLabel: 'Open fuel details',
+        });
+      });
+    }
+
+    if (canManageTrips) {
+      visibleTripRecords.forEach((trip) => {
+        const tripStatus = String(trip.tripStatus || '');
+        const requestNo = trip.requestNo || 'Trip';
+        const expectedReturnTime = toSortableTime(trip.expectedReturn || trip.createdAt);
+        const normalizedTripDriver = normalizeComparableText(trip.driver);
+        const isTripAssignedToCurrentDriver = (currentDriverRecord?.id && trip.driverId)
+          ? String(trip.driverId) === String(currentDriverRecord.id)
+          : (
+            (Boolean(normalizedSessionName) && normalizedTripDriver === normalizedSessionName)
+            || (Boolean(normalizedDriverName) && normalizedTripDriver === normalizedDriverName)
+          );
+        const needsDriverReturnReminder = userMode === 'driver'
+          && isTripAssignedToCurrentDriver
+          && ['Checked Out', 'In Transit', 'Overdue'].includes(tripStatus)
+          && expectedReturnTime > 0
+          && expectedReturnTime <= nowTimestamp;
+
+        if (needsDriverReturnReminder) {
+          items.push({
+            id: `driver-return-reminder-${trip.id}`,
+            tripId: trip.id,
+            title: `${requestNo} needs immediate return`,
+            detail: `You still need to return ${trip.vehicle || 'your assigned vehicle'} for branch closure.`,
+            view: 'trips',
+            tone: 'danger',
+            priority: 115,
+            timestamp: expectedReturnTime,
+            timestampLabel: `Expected return ${formatDate(trip.expectedReturn || trip.createdAt, true)}`,
+            actionLabel: 'Return vehicle now',
+          });
+          return;
+        }
+
+        if (READY_FOR_CHECKOUT.includes(tripStatus)) {
+          const targetTime = toSortableTime(trip.expectedReturn || trip.departureDatetime || trip.createdAt);
+
+          items.push({
+            id: `trip-release-${trip.id}`,
+            tripId: trip.id,
+            title: `${requestNo} is ready for release`,
+            detail: `${trip.vehicle || 'Vehicle'} | ${trip.driver || 'Driver not assigned'}`,
+            view: 'trips',
+            tone: 'warning',
+            priority: 82,
+            timestamp: targetTime,
+            timestampLabel: targetTime ? `Due ${formatDate(trip.expectedReturn || trip.departureDatetime || trip.createdAt, true)}` : 'Open trip actions',
+            actionLabel: 'Open trip actions',
+          });
+          return;
+        }
+
+        if (tripStatus === 'Overdue') {
+          const overdueTime = toSortableTime(trip.expectedReturn || trip.createdAt);
+
+          items.push({
+            id: `trip-overdue-${trip.id}`,
+            tripId: trip.id,
+            title: `${requestNo} is overdue`,
+            detail: `${trip.vehicle || 'Vehicle'} has passed the expected return time.`,
+            view: 'trips',
+            tone: 'danger',
+            priority: 100,
+            timestamp: overdueTime,
+            timestampLabel: overdueTime ? `Expected return ${formatDate(trip.expectedReturn, true)}` : 'Needs immediate follow-up',
+            actionLabel: 'Resolve overdue trip',
+          });
+          return;
+        }
+
+        if (userMode === 'admin' && tripStatus === 'Returned') {
+          const returnedTime = toSortableTime(trip.actualReturnDatetime || trip.updatedAt || trip.createdAt);
+
+          items.push({
+            id: `trip-returned-${trip.id}`,
+            tripId: trip.id,
+            title: `${requestNo} is waiting for ticket approval`,
+            detail: `Returned by ${trip.driver || 'assigned driver'}.`,
+            view: 'trips',
+            tone: 'warning',
+            priority: 78,
+            timestamp: returnedTime,
+            timestampLabel: returnedTime ? `Returned ${formatDate(trip.actualReturnDatetime || trip.updatedAt || trip.createdAt, true)}` : 'Open trip details',
+            actionLabel: 'Approve trip ticket',
+          });
+        }
+      });
+    }
+
+    notificationFeed.forEach((notice) => {
+      const tone = String(notice.tone || '').toLowerCase();
+      if (!['danger', 'warning'].includes(tone)) {
+        return;
+      }
+
+      const sourceKey = String(notice.sourceKey || '').toLowerCase();
+      const view = sourceKey.includes('trip')
+        ? 'trips'
+        : sourceKey.includes('request')
+          ? 'requests'
+          : sourceKey.includes('incident') || sourceKey.includes('maintenance') || sourceKey.includes('vehicle')
+            ? 'compliance'
+            : 'dashboard';
+      const noticeTime = toSortableTime(notice.sourceDate || notice.createdAt);
+
+      items.push({
+        id: `feed-${notice.id}`,
+        title: notice.title || 'Operations alert',
+        detail: notice.detail || 'Review this alert in the workspace.',
+        view,
+        tone,
+        priority: tone === 'danger' ? 92 : 74,
+        timestamp: noticeTime,
+        timestampLabel: noticeTime ? formatDate(notice.sourceDate || notice.createdAt, true) : 'Open related view',
+        actionLabel: 'Open related view',
+      });
+    });
+
+    const uniqueItems = [];
+    const seenIds = new Set();
+
+    items.forEach((item) => {
+      if (!item || !item.id || seenIds.has(item.id)) {
+        return;
+      }
+
+      seenIds.add(item.id);
+      uniqueItems.push(item);
+    });
+
+    return uniqueItems
+      .sort((left, right) => {
+        const priorityDelta = right.priority - left.priority;
+
+        if (priorityDelta !== 0) {
+          return priorityDelta;
+        }
+
+        const timestampDelta = right.timestamp - left.timestamp;
+
+        if (timestampDelta !== 0) {
+          return timestampDelta;
+        }
+
+        return String(left.title || '').localeCompare(String(right.title || ''));
+      });
+  }, [
+    currentDriverRecord?.fullName,
+    currentDriverRecord?.id,
+    currentSessionUser.id,
+    currentSessionUser.name,
+    notificationFeed,
+    userMode,
+    visibleRequestRecords,
+    visibleTripRecords,
+  ]);
+
+  const topbarNotificationCount = topbarActionNotifications.length;
+  const topbarNotificationCountLabel = topbarNotificationCount > 99 ? '99+' : String(topbarNotificationCount);
 
   const heroContent = useMemo(() => {
     const actionFor = (view, label) => ({ view, label });
@@ -5301,12 +5634,32 @@ function App() {
   async function handleLogout() {
     const emailToRemember = currentSessionUser.email;
     const currentUserName = currentSessionUser.name;
+    const hadSessionUserId = Boolean(currentSessionUser.id);
+
+    if (supabase && hadSessionUserId && WEB_PUSH_PUBLIC_KEY && isWebPushSupported()) {
+      try {
+        await deactivateLiveWebPushSubscription(supabase);
+      } catch (_error) {
+        // Continue logout flow even when push deactivation is unavailable.
+      }
+    }
+
+    if (WEB_PUSH_PUBLIC_KEY && isWebPushSupported()) {
+      try {
+        await unsubscribeWebPushSubscription();
+      } catch (_error) {
+        // Continue logout flow even when local push unsubscribe fails.
+      }
+    }
 
     isSigningOutRef.current = true;
+    pushSubscriptionSyncRef.current = { userId: '', promise: null };
     setMobileNavOpen(false);
     setRequestModalOpen(false);
     setActiveView('dashboard');
     setIsPasswordVisible(false);
+    setTopbarNotificationsOpen(false);
+    setTripDetailFocus(null);
     setToast(null);
     setLoginError('');
     expectedSessionUserIdRef.current = '';
@@ -5441,6 +5794,52 @@ function App() {
     }
 
     setActiveView(action);
+  }
+
+  function handleTopbarNotificationToggle() {
+    setTopbarNotificationsOpen((open) => !open);
+  }
+
+  function handleTopbarNotificationAction(notification) {
+    if (!notification) {
+      return;
+    }
+
+    setTopbarNotificationsOpen(false);
+    const normalizedRequestId = String(notification.requestId || '').trim();
+    const normalizedTripId = String(notification.tripId || '').trim();
+    const targetRequest = normalizedRequestId
+      ? visibleRequestRecords.find((request) => String(request.id || '').trim() === normalizedRequestId)
+      : null;
+    const targetTrip = normalizedTripId
+      ? visibleTripRecords.find((trip) => String(trip.id || '').trim() === normalizedTripId)
+      : null;
+
+    if (notification.view === 'requests' && notification.search) {
+      setRequestSearch(notification.search);
+    }
+
+    if (targetRequest) {
+      setActiveView('requests');
+      handleOpenRequestDetails(targetRequest);
+      return;
+    }
+
+    const fallbackView = defaultNavView || selectedView;
+    const nextView = availableNavItems.some((item) => item.id === notification.view)
+      ? notification.view
+      : fallbackView;
+
+    if (targetTrip) {
+      setTripDetailFocus({
+        token: createId('trip-focus'),
+        tripId: targetTrip.id,
+      });
+    }
+
+    if (nextView) {
+      setActiveView(nextView);
+    }
   }
 
   if (!isAuthenticated) {
@@ -5601,6 +6000,58 @@ function App() {
           </div>
 
           <div className="topbar-right">
+            <div className="topbar-notification-shell" ref={topbarNotificationsRef}>
+              <button
+                type="button"
+                className="button button-secondary topbar-notifications-button"
+                aria-label={topbarNotificationCount > 0 ? `${topbarNotificationCount} action notifications` : 'No action notifications'}
+                aria-expanded={topbarNotificationsOpen}
+                aria-haspopup="dialog"
+                onClick={handleTopbarNotificationToggle}
+              >
+                <AppIcon name="alerts" className="button-icon" />
+                <span className="topbar-button-label">Alerts</span>
+                {topbarNotificationCount > 0 && (
+                  <span className="topbar-notification-badge" aria-hidden="true">
+                    {topbarNotificationCountLabel}
+                  </span>
+                )}
+              </button>
+              {topbarNotificationsOpen && (
+                <section className="topbar-notification-popover" role="dialog" aria-label="Action notifications">
+                  <div className="topbar-notification-head">
+                    <strong>Need action</strong>
+                    <span>
+                      {topbarNotificationCount > 0
+                        ? `${topbarNotificationCount} active item${topbarNotificationCount === 1 ? '' : 's'}`
+                        : 'No pending actions right now'}
+                    </span>
+                  </div>
+                  <div className="topbar-notification-list">
+                    {topbarNotificationCount === 0 && (
+                      <p className="topbar-notification-empty">You are all caught up.</p>
+                    )}
+                    {topbarActionNotifications.map((notification) => (
+                      <button
+                        type="button"
+                        key={notification.id}
+                        className={`topbar-notification-item topbar-notification-item-${notification.tone}`}
+                        onClick={() => handleTopbarNotificationAction(notification)}
+                      >
+                        <div className="topbar-notification-item-head">
+                          <strong>{notification.title}</strong>
+                          <span>{notification.actionLabel}</span>
+                        </div>
+                        <p>{notification.detail}</p>
+                        {notification.timestampLabel && (
+                          <span className="topbar-notification-item-meta">{notification.timestampLabel}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
             <button
               type="button"
               className="button button-secondary topbar-profile"
@@ -5726,6 +6177,10 @@ function App() {
             onCheckoutChecklistChange={handleCheckoutChecklistChange}
             onCheckinChecklistChange={handleCheckinChecklistChange}
             onApproveTripTicket={handleApproveTripTicket}
+            tripDetailFocus={tripDetailFocus}
+            onTripDetailFocusHandled={(token) => {
+              setTripDetailFocus((current) => (current?.token === token ? null : current));
+            }}
           />
         )}
         {selectedView === 'calendar' && (

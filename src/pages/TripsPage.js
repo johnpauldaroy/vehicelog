@@ -48,6 +48,8 @@ export default function TripsPage({
   onCheckinTripChange,
   onCheckinSubmit,
   onApproveTripTicket,
+  tripDetailFocus,
+  onTripDetailFocusHandled,
 }) {
   const isGuard = mode === 'guard';
   const isDriver = mode === 'driver';
@@ -89,6 +91,60 @@ export default function TripsPage({
       setDetailModalOpen(false);
     }
   }, [detailTrip, detailTripId]);
+
+  useEffect(() => {
+    if (!tripDetailFocus?.token || !tripDetailFocus?.tripId) {
+      return;
+    }
+
+    const targetTrip = tripRecords.find((trip) => String(trip.id || '') === String(tripDetailFocus.tripId));
+
+    if (targetTrip) {
+      setDetailTripId(targetTrip.id);
+
+      if (!isGuard && READY_FOR_CHECKOUT.includes(targetTrip.tripStatus)) {
+        onCheckoutTripChange(targetTrip.id);
+      }
+
+      if (!isGuard && ACTIVE_TRIP_STATUSES.includes(targetTrip.tripStatus)) {
+        const normalizePersonNameForFocus = (value) =>
+          normalizeComparableText(value)
+            .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
+            .replace(/[.,]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const tripDriver = normalizePersonNameForFocus(targetTrip.driver);
+        const candidateNames = [currentUserName, currentDriverName]
+          .map((name) => normalizePersonNameForFocus(name))
+          .filter(Boolean);
+        const isTripAssignedToCurrentUser = Boolean(
+          (currentDriverId && targetTrip.driverId && String(targetTrip.driverId) === String(currentDriverId))
+          || (tripDriver && candidateNames.some((name) => name === tripDriver))
+        );
+
+        if (isDriver || isTripAssignedToCurrentUser) {
+          onCheckinTripChange(targetTrip.id);
+        }
+      }
+
+      setDetailModalOpen(true);
+    }
+
+    if (typeof onTripDetailFocusHandled === 'function') {
+      onTripDetailFocusHandled(tripDetailFocus.token);
+    }
+  }, [
+    currentDriverId,
+    currentDriverName,
+    currentUserName,
+    isDriver,
+    isGuard,
+    onCheckinTripChange,
+    onCheckoutTripChange,
+    onTripDetailFocusHandled,
+    tripDetailFocus,
+    tripRecords,
+  ]);
 
   function openTripDetails(trip) {
     setDetailTripId(trip.id);

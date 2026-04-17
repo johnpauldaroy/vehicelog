@@ -48,6 +48,32 @@ This app is configured as a PWA with an installable manifest and a production se
    - App shell loads
    - Live data requests require reconnection (expected for v1)
 
+## Web Push Notifications Setup
+
+This project now supports browser push notifications for all in-app `notifications` rows.
+
+1. Run SQL migrations in Supabase SQL Editor:
+   - `supabase/patch_add_web_push_notifications.sql`
+2. Deploy Edge Functions:
+   - `manage-web-push-subscription`
+   - `dispatch-web-push-notifications`
+3. Configure Edge Function secrets:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY` (for `manage-web-push-subscription`)
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `WEB_PUSH_VAPID_PUBLIC_KEY`
+   - `WEB_PUSH_VAPID_PRIVATE_KEY`
+   - `WEB_PUSH_VAPID_SUBJECT` (example: `mailto:admin@yourdomain.com`)
+   - `WEB_PUSH_DISPATCH_TOKEN` (optional)
+4. Configure frontend env:
+   - `REACT_APP_WEB_PUSH_VAPID_PUBLIC_KEY`
+5. Enable dispatcher schedule:
+   - Run `supabase/schedule_dispatch_web_push_notifications.sql` and replace placeholders.
+
+Notes:
+- Service worker registration is production-only in this app, so push is available in deployed builds (or `npm run build` + static serve).
+- Existing historical notifications are marked as already dispatched to avoid back-filling old pushes on initial rollout.
+
 See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
 ### `npm run eject`

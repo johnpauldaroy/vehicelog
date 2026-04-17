@@ -42,7 +42,7 @@ function getRequestSortValue(request) {
     return departureTime;
   }
 
-  const requestNoMatch = String(request?.requestNo || '').match(/^VR-(\d{4})-(\d{4})-(\d{3})$/);
+  const requestNoMatch = String(request?.requestNo || '').match(/^VR-(\d{4})-(\d{4})-(\d+)$/);
 
   if (requestNoMatch) {
     return Number(`${requestNoMatch[1]}${requestNoMatch[2]}${requestNoMatch[3]}`);

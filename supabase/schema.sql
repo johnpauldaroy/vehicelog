@@ -647,6 +647,8 @@ create table if not exists public.notifications (
   source_date date,
   is_read boolean not null default false,
   read_at timestamptz,
+  push_dispatched_at timestamptz,
+  push_dispatch_error text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   created_by uuid
@@ -654,7 +656,25 @@ create table if not exists public.notifications (
 
 alter table public.notifications
   add column if not exists source_key text,
-  add column if not exists source_date date;
+  add column if not exists source_date date,
+  add column if not exists push_dispatched_at timestamptz,
+  add column if not exists push_dispatch_error text;
+
+create table if not exists public.web_push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  endpoint text not null,
+  p256dh_key text not null,
+  auth_key text not null,
+  content_encoding text not null default 'aes128gcm',
+  expiration_time timestamptz,
+  user_agent text,
+  is_active boolean not null default true,
+  last_seen_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deactivated_at timestamptz
+);
 
 create table if not exists public.audit_logs (
   id uuid primary key default gen_random_uuid(),
@@ -685,6 +705,13 @@ create index if not exists idx_notifications_user_read on public.notifications(u
 create unique index if not exists idx_notifications_daily_source_dedupe
   on public.notifications(user_id, source_key, source_date)
   where source_key is not null and source_date is not null;
+create index if not exists idx_notifications_push_pending
+  on public.notifications(push_dispatched_at, created_at desc)
+  where push_dispatched_at is null;
+create unique index if not exists idx_web_push_subscriptions_endpoint_unique
+  on public.web_push_subscriptions(endpoint);
+create index if not exists idx_web_push_subscriptions_user_active
+  on public.web_push_subscriptions(user_id, is_active, last_seen_at desc);
 create index if not exists idx_audit_logs_target_created on public.audit_logs(target_table, target_id, created_at desc);
 
 drop trigger if exists on_auth_user_created on auth.users;
@@ -757,3 +784,8 @@ create trigger set_incident_reports_updated_at before update on public.incident_
 
 drop trigger if exists set_notifications_updated_at on public.notifications;
 create trigger set_notifications_updated_at before update on public.notifications for each row execute function public.set_updated_at();
+
+drop trigger if exists set_web_push_subscriptions_updated_at on public.web_push_subscriptions;
+create trigger set_web_push_subscriptions_updated_at
+before update on public.web_push_subscriptions
+for each row execute function public.set_updated_at();

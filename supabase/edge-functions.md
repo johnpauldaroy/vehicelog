@@ -80,6 +80,42 @@
   - `30 0 * * *`
 - SQL helper script: `supabase/schedule_notify_driver_license_expirations.sql`
 
+## `manage-web-push-subscription`
+- Triggered from authenticated browser clients.
+- Registers or deactivates device-level web push subscriptions for the current session user.
+- Uses endpoint-level upsert so shared devices are reassigned to the latest logged-in account.
+- Intended actions:
+  - `upsert` when browser permission is granted and a subscription exists
+  - `deactivate` on logout (endpoint-specific or all active subscriptions for the caller)
+
+### Required runtime secrets for `manage-web-push-subscription`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+## `dispatch-web-push-notifications`
+- Scheduled worker for browser push dispatch.
+- Scans `notifications` where `push_dispatched_at is null`.
+- Sends web push payloads to active rows in `web_push_subscriptions` for each notification recipient (`notifications.user_id`).
+- Marks each processed notification with:
+  - `push_dispatched_at`
+  - `push_dispatch_error` (`null`, `partial_failure:*`, `delivery_failed:*`, or `no_active_subscriptions`)
+- Automatically deactivates expired subscriptions when endpoints return 404/410.
+
+### Required runtime secrets for `dispatch-web-push-notifications`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `WEB_PUSH_VAPID_PUBLIC_KEY`
+- `WEB_PUSH_VAPID_PRIVATE_KEY`
+- `WEB_PUSH_VAPID_SUBJECT` (optional; defaults to `mailto:ops@vehiclelog.local`)
+- `WEB_PUSH_DISPATCH_TOKEN` (optional shared secret for scheduled/manual trigger auth)
+- `WEB_PUSH_TTL_SECONDS` (optional; defaults to `3600`)
+
+### Suggested schedule
+- Every minute via Supabase cron:
+  - `* * * * *`
+- SQL helper script: `supabase/schedule_dispatch_web_push_notifications.sql`
+
 ## Suggested Provider
 - Resend for email delivery.
 - Supabase cron plus Edge Functions for scheduled jobs.

@@ -66,6 +66,7 @@ const EMPTY_PANAY_FUEL_PRICING = {
   stationCount: 0,
   topStations: [],
 };
+const REQUEST_NO_INSERT_MAX_RETRIES = 12;
 
 function extractEmbeddedRoleName(roleValue) {
   if (Array.isArray(roleValue)) {
@@ -113,11 +114,76 @@ function deriveRequestStatus(request, trip) {
   return request.status;
 }
 
-function formatRequestNumber(date, sequenceNumber) {
+function getRequestNumberPrefix(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  return `VR-${year}-${month}${day}-${String(sequenceNumber).padStart(3, '0')}`;
+  return `VR-${year}-${month}${day}-`;
+}
+
+function formatRequestNumber(date, sequenceNumber) {
+  return `${getRequestNumberPrefix(date)}${String(sequenceNumber).padStart(3, '0')}`;
+}
+
+function parseRequestNumberSequence(requestNo, prefix) {
+  const normalizedRequestNo = String(requestNo || '').trim();
+  const normalizedPrefix = String(prefix || '').trim();
+
+  if (!normalizedRequestNo || !normalizedPrefix || !normalizedRequestNo.startsWith(normalizedPrefix)) {
+    return 0;
+  }
+
+  const sequencePortion = normalizedRequestNo.slice(normalizedPrefix.length);
+  const parsedSequence = Number.parseInt(sequencePortion, 10);
+
+  return Number.isFinite(parsedSequence) ? parsedSequence : 0;
+}
+
+function buildCollisionSafeRequestSequence(date, attempt = 0) {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  const millis = String(date.getMilliseconds()).padStart(3, '0');
+  const attemptSuffix = String(Math.max(0, attempt) % 100).padStart(2, '0');
+  return Number.parseInt(`${hours}${minutes}${seconds}${millis}${attemptSuffix}`, 10);
+}
+
+function isRequestNumberUniqueConstraintError(error) {
+  const normalizedCode = String(error?.code || '').trim().toLowerCase();
+  const normalizedMessage = String(error?.message || '').trim().toLowerCase();
+  const normalizedDetails = String(error?.details || '').trim().toLowerCase();
+  const normalizedHint = String(error?.hint || '').trim().toLowerCase();
+  const isUniqueViolation = normalizedCode === '23505'
+    || normalizedMessage.includes('duplicate key value violates unique constraint');
+  const referencesRequestNo = normalizedMessage.includes('request_no')
+    || normalizedDetails.includes('request_no')
+    || normalizedHint.includes('request_no')
+    || normalizedMessage.includes('request_no_key')
+    || normalizedDetails.includes('request_no_key');
+
+  return isUniqueViolation && referencesRequestNo;
+}
+
+async function generateNextRequestNumber(client, date, fallbackSequence = 1) {
+  const normalizedFallback = Number.isFinite(Number(fallbackSequence))
+    ? Math.max(1, Math.floor(Number(fallbackSequence)))
+    : 1;
+  const requestNoPrefix = getRequestNumberPrefix(date);
+  const { data, error } = await client
+    .from('vehicle_requests')
+    .select('request_no')
+    .like('request_no', `${requestNoPrefix}%`);
+
+  if (error) {
+    return formatRequestNumber(date, normalizedFallback);
+  }
+
+  const highestExistingSequence = (Array.isArray(data) ? data : []).reduce((highest, row) => (
+    Math.max(highest, parseRequestNumberSequence(row?.request_no, requestNoPrefix))
+  ), 0);
+  const nextSequence = Math.max(normalizedFallback, highestExistingSequence + 1);
+
+  return formatRequestNumber(date, nextSequence);
 }
 
 function canSyncTripAssignment(tripStatus) {
@@ -2008,8 +2074,66 @@ export async function fetchLiveAppData(client) {
   };
 }
 
-export async function createLiveRequest(client, currentSessionUser, requestForm, existingCount, options = {}) {
-  const requestNo = formatRequestNumber(new Date(), existingCount + 1);
+export async function saveLiveWebPushSubscription(client, subscription, userAgent = '') {
+  const normalizedEndpoint = String(subscription?.endpoint || '').trim();
+  const normalizedP256dh = String(subscription?.keys?.p256dh || '').trim();
+  const normalizedAuth = String(subscription?.keys?.auth || '').trim();
+
+  if (!normalizedEndpoint || !normalizedP256dh || !normalizedAuth) {
+    throw new Error('A complete web push subscription is required before it can be saved.');
+  }
+
+  const payload = {
+    action: 'upsert',
+    userAgent: String(userAgent || '').trim(),
+    subscription: {
+      endpoint: normalizedEndpoint,
+      expirationTime: subscription?.expirationTime || null,
+      contentEncoding: String(subscription?.contentEncoding || 'aes128gcm'),
+      keys: {
+        p256dh: normalizedP256dh,
+        auth: normalizedAuth,
+      },
+    },
+  };
+  const { data, error } = await client.functions.invoke('manage-web-push-subscription', {
+    body: payload,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to save the web push subscription.');
+  }
+
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data;
+}
+
+export async function deactivateLiveWebPushSubscription(client, endpoint = '') {
+  const payload = {
+    action: 'deactivate',
+    endpoint: String(endpoint || '').trim(),
+  };
+  const { data, error } = await client.functions.invoke('manage-web-push-subscription', {
+    body: payload,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to deactivate web push subscriptions.');
+  }
+
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+
+  return data;
+}
+
+export async function createLiveRequest(client, currentSessionUser, requestForm, existingCount = 0, options = {}) {
+  const requestDate = new Date();
+  const requestNoPrefix = getRequestNumberPrefix(requestDate);
   const selectedVehicleId = requestForm.assignedVehicleId || null;
   const selectedDriverId = requestForm.assignedDriverId || null;
   const forcedApproverId = String(options?.forcedApproverId || '').trim() || null;
@@ -2044,8 +2168,7 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     assertDriverMatchesVehicleRestrictions(client, selectedDriverId, selectedVehicleId),
   ]);
 
-  const requestInsertPayload = {
-    request_no: requestNo,
+  const requestInsertPayloadBase = {
     requested_by: currentSessionUser.id,
     branch_id: currentSessionUser.branchId,
     purpose: requestForm.purpose.trim(),
@@ -2075,10 +2198,41 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     created_by: currentSessionUser.id,
   };
 
-  const { data: insertedRequest, error } = await insertVehicleRequest(client, requestInsertPayload);
+  let minimumSequence = Number.isFinite(Number(existingCount))
+    ? Math.max(1, Math.floor(Number(existingCount)) + 1)
+    : 1;
+  let requestNo = await generateNextRequestNumber(client, requestDate, minimumSequence);
+  let insertedRequest = null;
 
-  if (error) {
-    throw error;
+  for (let attempt = 0; attempt < REQUEST_NO_INSERT_MAX_RETRIES; attempt += 1) {
+    const { data, error } = await insertVehicleRequest(client, {
+      ...requestInsertPayloadBase,
+      request_no: requestNo,
+    });
+
+    if (!error) {
+      insertedRequest = data;
+      break;
+    }
+
+    if (!isRequestNumberUniqueConstraintError(error)) {
+      throw error;
+    }
+
+    if (attempt === REQUEST_NO_INSERT_MAX_RETRIES - 1) {
+      throw new Error('Unable to allocate a unique request number. Please submit the request again.');
+    }
+
+    minimumSequence = Math.max(
+      minimumSequence + 1,
+      parseRequestNumberSequence(requestNo, requestNoPrefix) + 1,
+      buildCollisionSafeRequestSequence(requestDate, attempt + 1)
+    );
+    requestNo = await generateNextRequestNumber(client, requestDate, minimumSequence);
+  }
+
+  if (!insertedRequest) {
+    throw new Error('Unable to submit the request at this time.');
   }
 
   if (passengerNames.length) {

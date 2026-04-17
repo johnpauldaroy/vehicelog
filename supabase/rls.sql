@@ -70,6 +70,7 @@ alter table public.registration_records enable row level security;
 alter table public.incident_reports enable row level security;
 alter table public.maintenance_automation_settings enable row level security;
 alter table public.notifications enable row level security;
+alter table public.web_push_subscriptions enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.vehicle_types enable row level security;
 alter table public.roles enable row level security;
