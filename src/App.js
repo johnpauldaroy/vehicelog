@@ -2597,7 +2597,7 @@ function App() {
 
   function handleRequestApprovalFieldChange(field, value) {
     setRequestApprovalForm((current) => {
-      if (field === 'fuelRequested' || field === 'estimatedKms' || field === 'fuelRemarks') {
+      if (field === 'fuelRequested' || field === 'estimatedKms') {
         return current;
       }
 
@@ -2617,6 +2617,20 @@ function App() {
           ...current,
           fuelLiters: liters,
           estimatedKms: String((Number(liters) || 0) * efficiency),
+        };
+      }
+
+      if (field === 'fuelProduct') {
+        return {
+          ...current,
+          fuelProduct: String(value || '').trim() || 'diesel',
+        };
+      }
+
+      if (field === 'fuelRemarks') {
+        return {
+          ...current,
+          fuelRemarks: value,
         };
       }
 
@@ -2676,6 +2690,7 @@ function App() {
 
     const liters = Number(fuelFormValues?.fuelLiters);
     const amount = Number(fuelFormValues?.fuelAmount);
+    const fuelProduct = String(fuelFormValues?.fuelProduct || request.fuelProduct || 'diesel').trim() || 'diesel';
 
     if (!Number.isFinite(liters) || liters < 0) {
       showToast('Enter a valid fuel liters value (0 or higher).', 'warning', 'Invalid liters');
@@ -2695,11 +2710,12 @@ function App() {
     const nextFuelDetails = {
       fuelLiters: liters,
       fuelAmount: Number(amount.toFixed(2)),
+      fuelProduct,
       estimatedKms,
       fuelRemarks: fuelFormValues?.fuelRemarks || request.fuelRemarks || '',
     };
-    const beforeFuelSnapshot = `PHP ${Number(request.fuelAmount || 0).toFixed(2)} / ${Number(request.fuelLiters || 0).toFixed(2)} L`;
-    const afterFuelSnapshot = `PHP ${nextFuelDetails.fuelAmount.toFixed(2)} / ${nextFuelDetails.fuelLiters.toFixed(2)} L`;
+    const beforeFuelSnapshot = `${String(request.fuelProduct || 'diesel').replace(/_/g, ' ')} | PHP ${Number(request.fuelAmount || 0).toFixed(2)} / ${Number(request.fuelLiters || 0).toFixed(2)} L`;
+    const afterFuelSnapshot = `${String(nextFuelDetails.fuelProduct || 'diesel').replace(/_/g, ' ')} | PHP ${nextFuelDetails.fuelAmount.toFixed(2)} / ${nextFuelDetails.fuelLiters.toFixed(2)} L`;
     const isReady = request.status === 'Ready for Release';
     const requiresReapproval = isReady && userMode !== 'approver' && userMode !== 'admin';
 
@@ -2707,6 +2723,7 @@ function App() {
       ...request,
       fuelLiters: nextFuelDetails.fuelLiters,
       fuelAmount: nextFuelDetails.fuelAmount,
+      fuelProduct: nextFuelDetails.fuelProduct,
       estimatedKms: nextFuelDetails.estimatedKms,
       fuelRemarks: nextFuelDetails.fuelRemarks,
       status: requiresReapproval ? 'Pending Approval' : request.status,

@@ -23,6 +23,16 @@ function toLocalDateFilterKey(value) {
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
 }
 
+function formatFuelLiters(value) {
+  const liters = Number(value || 0);
+
+  if (!Number.isFinite(liters)) {
+    return '0';
+  }
+
+  return liters.toFixed(2).replace(/\.?0+$/, '');
+}
+
 export default function RequestsPage({
   mode,
   currentUser,
@@ -547,7 +557,7 @@ export default function RequestsPage({
                             title="View and update fuel details"
                           >
                             <AppIcon name="release" style={{ width: '12px', height: '12px' }} />
-                            <span>{`Fuel requested (\u20B1${request.fuelAmount})`}</span>
+                            <span>{`Fuel requested (${formatFuelLiters(request.fuelLiters)} L)`}</span>
                           </button>
                         )}
                         {request.rejectionReason && (
@@ -968,16 +978,6 @@ export default function RequestsPage({
                         </select>
                       </label>
                       <label>
-                        <span className="field-label">Fuel Amount (PHP)</span>
-                        <input
-                          className="input"
-                          type="number"
-                          value={requestForm.fuelAmount}
-                          onChange={(event) => onRequestFormChange('fuelAmount', event.target.value)}
-                          placeholder="0.00"
-                        />
-                      </label>
-                      <label>
                         <span className="field-label">Number of Liters</span>
                         <input
                           className="input"
@@ -987,6 +987,7 @@ export default function RequestsPage({
                           placeholder="0"
                         />
                       </label>
+                      <span className="cell-subtle full-span">Fuel amount will be finalized during approval.</span>
                       <label>
                         <span className="field-label">Estimated Range (KM)</span>
                         <input
@@ -1271,12 +1272,24 @@ export default function RequestsPage({
                                 <span className="cell-subtle full-span">Fuel authorization requested.</span>
                                 <label>
                                   <span className="field-label">Fuel product</span>
-                                  <input
-                                    className="input"
-                                    value={String(requestApprovalForm.fuelProduct || 'diesel').replace(/_/g, ' ')}
-                                    readOnly
-                                    style={{ background: 'rgba(0,0,0,0.05)' }}
-                                  />
+                                  {canReviewRequests ? (
+                                    <select
+                                      className="input"
+                                      value={requestApprovalForm.fuelProduct}
+                                      onChange={(event) => onRequestApprovalFieldChange('fuelProduct', event.target.value)}
+                                    >
+                                      <option value="diesel">Diesel</option>
+                                      <option value="gasoline_regular">Gasoline (Regular)</option>
+                                      <option value="gasoline_premium">Gasoline (Premium)</option>
+                                    </select>
+                                  ) : (
+                                    <input
+                                      className="input"
+                                      value={String(requestApprovalForm.fuelProduct || 'diesel').replace(/_/g, ' ')}
+                                      readOnly
+                                      style={{ background: 'rgba(0,0,0,0.05)' }}
+                                    />
+                                  )}
                                 </label>
                                 <label>
                                   <span className="field-label">{isApprover ? 'Fuel amount (PHP)' : 'Actual fuel amount (PHP)'}</span>
@@ -1310,12 +1323,21 @@ export default function RequestsPage({
                                 </label>
                                 <label className="full-span">
                                   <span className="field-label">Fuel remarks</span>
-                                  <input
-                                    className="input"
-                                    value={requestApprovalForm.fuelRemarks}
-                                    readOnly
-                                    style={{ background: 'rgba(0,0,0,0.05)' }}
-                                  />
+                                  {canReviewRequests ? (
+                                    <input
+                                      className="input"
+                                      value={requestApprovalForm.fuelRemarks}
+                                      onChange={(event) => onRequestApprovalFieldChange('fuelRemarks', event.target.value)}
+                                      placeholder="e.g. Approved based on route distance and current pump rate"
+                                    />
+                                  ) : (
+                                    <input
+                                      className="input"
+                                      value={requestApprovalForm.fuelRemarks}
+                                      readOnly
+                                      style={{ background: 'rgba(0,0,0,0.05)' }}
+                                    />
+                                  )}
                                 </label>
                                 {(requestApprovalForm.fuelQuotePricePerLiter || requestApprovalForm.fuelQuoteLocation) && (
                                   <div className="full-span" style={{ fontSize: '0.85rem', color: '#475569' }}>
@@ -1336,7 +1358,7 @@ export default function RequestsPage({
                         ) : selectedRequestDetails.fuelRequested ? (
                           <>
                             <span>{`Fuel product: ${String(selectedRequestDetails.fuelProduct || 'diesel').replace(/_/g, ' ')}`}</span>
-                            <span>{`Requested (${selectedRequestDetails.fuelLiters || 0}L / PHP ${selectedRequestDetails.fuelAmount || 0})`}</span>
+                            <span>{`Requested (${formatFuelLiters(selectedRequestDetails.fuelLiters)} L)`}</span>
                             {selectedRequestDetails.estimatedKms ? (
                               <span className="cell-subtle">{`${selectedRequestDetails.estimatedKms} KM estimated range`}</span>
                             ) : null}

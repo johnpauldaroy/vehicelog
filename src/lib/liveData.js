@@ -2349,6 +2349,7 @@ export async function updateLiveRequestFuelValues(client, request, fuelDetails) 
   const requestId = request.dbId || request.requestId || request.id;
   const liters = Number(fuelDetails?.fuelLiters || 0);
   const amount = Number(fuelDetails?.fuelAmount || 0);
+  const fuelProduct = String(fuelDetails?.fuelProduct || '').trim() || null;
   const estimatedKms = Number(fuelDetails?.estimatedKms || 0);
   const fuelRemarks = String(fuelDetails?.fuelRemarks || '').trim();
 
@@ -2357,6 +2358,7 @@ export async function updateLiveRequestFuelValues(client, request, fuelDetails) 
     .update({
       fuel_liters: liters,
       fuel_amount: amount,
+      fuel_product: fuelProduct,
       estimated_kms: estimatedKms,
       fuel_remarks: fuelRemarks,
       updated_at: new Date().toISOString(),
