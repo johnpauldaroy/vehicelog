@@ -79,6 +79,7 @@ serve(async (request) => {
     branchId?: string | null;
     email?: string;
     fullName?: string;
+    password?: string;
     role?: string;
     userId?: string;
   };
@@ -92,6 +93,7 @@ serve(async (request) => {
   const userId = String(payload.userId ?? '').trim();
   const email = String(payload.email ?? '').trim().toLowerCase();
   const fullName = String(payload.fullName ?? '').trim();
+  const password = String(payload.password ?? '');
   const roleName = String(payload.role ?? '').trim().toLowerCase();
   const branchId = String(payload.branchId ?? '').trim();
 
@@ -105,6 +107,10 @@ serve(async (request) => {
 
   if (!fullName) {
     return jsonResponse({ error: 'Full name is required.' }, 400);
+  }
+
+  if (password && password.length < 8) {
+    return jsonResponse({ error: 'Password must be at least 8 characters long.' }, 400);
   }
 
   if (!allowedRoles.has(roleName)) {
@@ -139,6 +145,48 @@ serve(async (request) => {
 
   if (existingUserError || !existingUser.user) {
     return jsonResponse({ error: 'The selected auth user was not found.' }, 404);
+  }
+
+  const existingUserMetadata = (
+    existingUser.user.user_metadata
+    && typeof existingUser.user.user_metadata === 'object'
+  )
+    ? existingUser.user.user_metadata as Record<string, unknown>
+    : {};
+  const existingAuthEmail = String(existingUser.user.email ?? '').trim().toLowerCase();
+  const existingAuthFullName = String(existingUserMetadata.full_name ?? '').trim();
+  const shouldUpdateAuthEmail = existingAuthEmail !== email;
+  const shouldUpdateAuthPassword = Boolean(password);
+  const shouldUpdateAuthFullName = existingAuthFullName !== fullName;
+  const authUpdatePayload: {
+    email?: string;
+    email_confirm?: boolean;
+    password?: string;
+    user_metadata?: Record<string, unknown>;
+  } = {};
+
+  if (shouldUpdateAuthEmail) {
+    authUpdatePayload.email = email;
+    authUpdatePayload.email_confirm = true;
+  }
+
+  if (shouldUpdateAuthPassword) {
+    authUpdatePayload.password = password;
+  }
+
+  if (shouldUpdateAuthFullName) {
+    authUpdatePayload.user_metadata = {
+      ...existingUserMetadata,
+      full_name: fullName,
+    };
+  }
+
+  if (Object.keys(authUpdatePayload).length) {
+    const { error: authUpdateError } = await serviceClient.auth.admin.updateUserById(userId, authUpdatePayload);
+
+    if (authUpdateError) {
+      return jsonResponse({ error: authUpdateError.message || 'Unable to update the auth account.' }, 400);
+    }
   }
 
   const { error: profileError } = await serviceClient

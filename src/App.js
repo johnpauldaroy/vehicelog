@@ -347,6 +347,7 @@ function createUserSettingsForm(defaultBranchId = '') {
     id: '',
     name: '',
     email: '',
+    initialEmail: '',
     role: 'Requester',
     branchId: defaultBranchId,
     branchName: '',
@@ -3399,6 +3400,7 @@ function App() {
             id: user.id,
             name: user.name,
             email: user.email,
+            initialEmail: user.email,
             role: user.role,
             branchId: user.branchId || findBranchId(branchRecords, user.branch),
             branchName: user.branch,
@@ -3551,7 +3553,10 @@ function App() {
       return;
     }
 
-    if (!userSettingsForm.id) {
+    const isEditingUser = Boolean(userSettingsForm.id);
+    const hasPasswordInput = Boolean(userSettingsForm.password || userSettingsForm.confirmPassword);
+
+    if (!isEditingUser) {
       if (!userSettingsForm.password) {
         showToast('Enter a temporary password for the new user.', 'warning', 'Password required');
         return;
@@ -3564,6 +3569,21 @@ function App() {
 
       if (userSettingsForm.password !== userSettingsForm.confirmPassword) {
         showToast('Password and confirmation do not match.', 'warning', 'Password mismatch');
+        return;
+      }
+    } else if (hasPasswordInput) {
+      if (!userSettingsForm.password || !userSettingsForm.confirmPassword) {
+        showToast('Enter and confirm the new password.', 'warning', 'Missing password');
+        return;
+      }
+
+      if (userSettingsForm.password.length < 8) {
+        showToast('Use at least 8 characters for the new password.', 'warning', 'Weak password');
+        return;
+      }
+
+      if (userSettingsForm.password !== userSettingsForm.confirmPassword) {
+        showToast('New password and confirmation do not match.', 'warning', 'Password mismatch');
         return;
       }
     }
@@ -5812,7 +5832,7 @@ function App() {
                     <h3>{userSettingsForm.id ? 'Edit user' : 'Add user'}</h3>
                     <p className="modal-copy">
                       {userSettingsForm.id
-                        ? 'Live mode edits the selected profile, role assignment, and branch.'
+                        ? 'Live mode edits the selected profile, login email, optional password reset, role assignment, and branch.'
                         : 'Create a Supabase Auth account, linked profile, and initial role assignment for this workspace.'}
                     </p>
                   </div>
@@ -5833,7 +5853,6 @@ function App() {
                       type="email"
                       value={userSettingsForm.email}
                       onChange={(event) => handleUserSettingsFieldChange('email', event.target.value)}
-                      disabled={Boolean(userSettingsForm.id)}
                     />
                   </label>
                   <label>
@@ -5856,27 +5875,27 @@ function App() {
                       ))}
                     </select>
                   </label>
-                  {!userSettingsForm.id && (
-                    <>
-                      <label>
-                        <span className="field-label">Temporary password</span>
-                        <input
-                          className="input"
-                          type="password"
-                          value={userSettingsForm.password}
-                          onChange={(event) => handleUserSettingsFieldChange('password', event.target.value)}
-                        />
-                      </label>
-                      <label>
-                        <span className="field-label">Confirm password</span>
-                        <input
-                          className="input"
-                          type="password"
-                          value={userSettingsForm.confirmPassword}
-                          onChange={(event) => handleUserSettingsFieldChange('confirmPassword', event.target.value)}
-                        />
-                      </label>
-                    </>
+                  <label>
+                    <span className="field-label">{userSettingsForm.id ? 'New password (optional)' : 'Temporary password'}</span>
+                    <input
+                      className="input"
+                      type="password"
+                      value={userSettingsForm.password}
+                      onChange={(event) => handleUserSettingsFieldChange('password', event.target.value)}
+                      placeholder={userSettingsForm.id ? 'Leave blank to keep current password' : ''}
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">{userSettingsForm.id ? 'Confirm new password' : 'Confirm password'}</span>
+                    <input
+                      className="input"
+                      type="password"
+                      value={userSettingsForm.confirmPassword}
+                      onChange={(event) => handleUserSettingsFieldChange('confirmPassword', event.target.value)}
+                    />
+                  </label>
+                  {userSettingsForm.id && (
+                    <span className="full-span muted">Leave both password fields blank to keep the current password.</span>
                   )}
                   <div className="full-span form-actions">
                     <button type="submit" className="button button-primary button-solid">

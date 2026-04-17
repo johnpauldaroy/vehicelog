@@ -9,6 +9,20 @@ import {
   REQUEST_HIRED_DRIVER_OPTION_VALUE,
 } from '../utils/appHelpers';
 
+function toLocalDateFilterKey(value) {
+  if (!value) {
+    return '';
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value).slice(0, 10);
+  }
+
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+}
+
 export default function RequestsPage({
   mode,
   currentUser,
@@ -224,7 +238,7 @@ export default function RequestsPage({
       const requestDateSource = isPumpStation
         ? (request.approvedAt || request.createdAt || '')
         : (request.departureDatetime || '');
-      const requestDate = String(requestDateSource).slice(0, 10);
+      const requestDate = toLocalDateFilterKey(requestDateSource);
 
       if (requestDateFrom && requestDate < requestDateFrom) {
         return false;

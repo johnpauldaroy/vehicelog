@@ -4,6 +4,31 @@ function normalizeRoleName(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
 }
 
+function toTimestamptzInput(value) {
+  const rawValue = String(value || '').trim();
+
+  if (!rawValue) {
+    return null;
+  }
+
+  // Keep explicit timezone values unchanged.
+  if (
+    /[zZ]$/.test(rawValue)
+    || /[+-]\d{2}:\d{2}$/.test(rawValue)
+  ) {
+    return rawValue;
+  }
+
+  // datetime-local values are local wall-clock time and need explicit UTC offset serialization.
+  const parsed = new Date(rawValue);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return rawValue;
+  }
+
+  return parsed.toISOString();
+}
+
 function titleCaseRole(value) {
   if (!value) {
     return 'Requester';
@@ -1992,6 +2017,8 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
   const passengerNames = Array.isArray(requestForm.passengerNames)
     ? requestForm.passengerNames.map((name) => String(name || '').trim()).filter(Boolean)
     : [];
+  const departureDatetime = toTimestamptzInput(requestForm.departureDatetime);
+  const expectedReturnDatetime = toTimestamptzInput(requestForm.expectedReturnDatetime);
 
   if (isApproverRequest && !resolvedApproverId) {
     resolvedApproverId = await resolveAdminApproverId(client, currentSessionUser.branchId);
@@ -2003,6 +2030,10 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
 
   if (!selectedVehicleId) {
     throw new Error('Select a vehicle before submitting the trip request.');
+  }
+
+  if (!departureDatetime || !expectedReturnDatetime) {
+    throw new Error('Select both departure and expected return date/time before submitting.');
   }
 
   await Promise.all([
@@ -2017,8 +2048,8 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     branch_id: currentSessionUser.branchId,
     purpose: requestForm.purpose.trim(),
     destination: requestForm.destination.trim(),
-    departure_datetime: requestForm.departureDatetime,
-    expected_return_datetime: requestForm.expectedReturnDatetime,
+    departure_datetime: departureDatetime,
+    expected_return_datetime: expectedReturnDatetime,
     passenger_count: Number(requestForm.passengerCount || 1),
     notes: requestForm.notes.trim(),
     fuel_requested: Boolean(requestForm.fuelRequested),
@@ -2507,13 +2538,21 @@ export async function updateLiveRequestVehicleAssignment(client, request, nextVe
 }
 
 export async function updateLiveProfile(client, profileForm) {
+  const nextEmail = profileForm.email.trim().toLowerCase();
+  const previousEmail = String(profileForm.initialEmail || '').trim().toLowerCase();
+  const nextPassword = String(profileForm.password || '');
+  const emailChanged = Boolean(previousEmail) && previousEmail !== nextEmail;
+  const requiresAuthUpdate = emailChanged || Boolean(nextPassword);
   const payload = {
     userId: profileForm.id,
-    email: profileForm.email.trim().toLowerCase(),
+    email: nextEmail,
     fullName: profileForm.name.trim(),
     role: normalizeRoleName(profileForm.role),
     branchId: profileForm.branchId || null,
   };
+  if (nextPassword) {
+    payload.password = nextPassword;
+  }
 
   const { data, error } = await client.functions.invoke('update-user', {
     body: payload,
@@ -2521,6 +2560,10 @@ export async function updateLiveProfile(client, profileForm) {
 
   if (error) {
     if (isEdgeFunctionUnavailable(error)) {
+      if (requiresAuthUpdate) {
+        throw new Error('Updating login email or password requires the update-user Edge Function to be available.');
+      }
+
       return updateLiveProfileFallback(client, payload);
     }
 
@@ -2536,6 +2579,10 @@ export async function updateLiveProfile(client, profileForm) {
 
   if (data?.error) {
     if (isRecoverableUserRoleWriteError(data.error)) {
+      if (requiresAuthUpdate) {
+        throw new Error('Updating login email or password requires the update-user Edge Function.');
+      }
+
       return updateLiveProfileFallback(client, payload);
     }
 
