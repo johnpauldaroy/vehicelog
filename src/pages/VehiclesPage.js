@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import AppIcon from '../components/AppIcon';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
@@ -23,8 +23,17 @@ export default function VehiclesPage({
 }) {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [pendingVehicleId, setPendingVehicleId] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const vehiclesPerPage = 10;
   const latestTrip = selectedVehicleTrips[0] || null;
   const latestMaintenance = selectedVehicleMaintenance[0] || null;
+  const totalPages = Math.max(1, Math.ceil(filteredVehicles.length / vehiclesPerPage));
+  const paginatedVehicles = useMemo(() => {
+    const startIndex = (currentPage - 1) * vehiclesPerPage;
+    return filteredVehicles.slice(startIndex, startIndex + vehiclesPerPage);
+  }, [currentPage, filteredVehicles]);
+  const pageStart = filteredVehicles.length === 0 ? 0 : (currentPage - 1) * vehiclesPerPage + 1;
+  const pageEnd = Math.min(currentPage * vehiclesPerPage, filteredVehicles.length);
 
   useEffect(() => {
     if (!selectedVehicle) {
@@ -38,6 +47,16 @@ export default function VehiclesPage({
       setPendingVehicleId('');
     }
   }, [pendingVehicleId, selectedVehicle]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [vehicleBranchFilter, vehicleFilter]);
 
   function handleOpenVehicleDetails(vehicleId) {
     onSelectVehicle(vehicleId);
@@ -225,7 +244,7 @@ export default function VehiclesPage({
                     </td>
                   </tr>
                 )}
-                {filteredVehicles.map((vehicle) => (
+                {paginatedVehicles.map((vehicle) => (
                   <tr key={vehicle.id}>
                     <td>{vehicle.plateNumber}</td>
                     <td>
@@ -259,6 +278,37 @@ export default function VehiclesPage({
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="request-pagination">
+            <p className="request-pagination-copy">
+              {filteredVehicles.length === 0
+                ? 'No vehicles to show'
+                : `Showing ${pageStart}-${pageEnd} of ${filteredVehicles.length} vehicles`}
+            </p>
+            <div className="request-pagination-actions">
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+              >
+                <span className="pagination-label-full">Previous</span>
+                <span className="pagination-label-short">Prev</span>
+              </button>
+              <span className="request-page-indicator">
+                <span className="request-page-indicator-full">Page {currentPage} of {totalPages}</span>
+                <span className="request-page-indicator-short">{currentPage}/{totalPages}</span>
+              </span>
+              <button
+                type="button"
+                className="button button-secondary request-page-button pagination-nav-button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                <span className="pagination-label-full">Next</span>
+                <span className="pagination-label-short">Next</span>
+              </button>
+            </div>
           </div>
         </SectionCard>
       </div>
