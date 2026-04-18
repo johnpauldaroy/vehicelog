@@ -2285,9 +2285,13 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
 }
 
 export async function checkoutLiveTrip(client, trip, checkoutForm, odometerOut) {
+  if (!trip?.dbId || !trip?.vehicleId || !trip?.driverId) {
+    throw new Error('Trip record is missing database identifiers required for checkout.');
+  }
+
   const normalizedOdometerOut = Number(odometerOut);
   const hasOdometerOut = Number.isFinite(normalizedOdometerOut);
-  const tripUpdate = client
+  const { data: tripRows, error: tripError } = await client
     .from('trip_logs')
     .update({
       trip_status: 'Checked Out',
@@ -2296,51 +2300,57 @@ export async function checkoutLiveTrip(client, trip, checkoutForm, odometerOut) 
       fuel_out: checkoutForm.fuelOut,
       condition_out: checkoutForm.conditionOut || '',
     })
-    .eq('id', trip.dbId);
-
-  const vehicleUpdate = client
-    .from('vehicles')
-    .update({
-      status: 'in_use',
-    })
-    .eq('id', trip.vehicleId);
-
-  const driverUpdate = client
-    .from('drivers')
-    .update({
-      status: 'on_trip',
-    })
-    .eq('id', trip.driverId);
-
-  const [{ error: tripError }, { error: vehicleError }, { error: driverError }] = await Promise.all([tripUpdate, vehicleUpdate, driverUpdate]);
+    .eq('id', trip.dbId)
+    .select('id');
 
   if (tripError) {
     throw tripError;
   }
 
+  if (!Array.isArray(tripRows) || tripRows.length === 0) {
+    throw new Error('Trip checkout was not applied. You may not have permission to update this trip.');
+  }
+
+  const { data: vehicleRows, error: vehicleError } = await client
+    .from('vehicles')
+    .update({
+      status: 'in_use',
+    })
+    .eq('id', trip.vehicleId)
+    .select('id');
+
   if (vehicleError) {
     throw vehicleError;
   }
 
+  if (!Array.isArray(vehicleRows) || vehicleRows.length === 0) {
+    throw new Error('Unable to update vehicle status during checkout. Check vehicle permissions (RLS).');
+  }
+
+  const { data: driverRows, error: driverError } = await client
+    .from('drivers')
+    .update({
+      status: 'on_trip',
+    })
+    .eq('id', trip.driverId)
+    .select('id');
+
   if (driverError) {
     throw driverError;
+  }
+
+  if (!Array.isArray(driverRows) || driverRows.length === 0) {
+    throw new Error('Unable to update driver status during checkout. Check driver permissions (RLS).');
   }
 }
 
 export async function checkinLiveTrip(client, trip, checkinForm, odometerIn) {
+  if (!trip?.dbId || !trip?.vehicleId || !trip?.driverId) {
+    throw new Error('Trip record is missing database identifiers required for return.');
+  }
+
   const normalizedOdometerIn = Number(odometerIn);
   const hasOdometerIn = Number.isFinite(normalizedOdometerIn);
-  const tripUpdate = client
-    .from('trip_logs')
-    .update({
-      trip_status: 'Returned',
-      actual_return_datetime: checkinForm.dateIn,
-      date_in: checkinForm.dateIn,
-      odometer_in: hasOdometerIn ? normalizedOdometerIn : null,
-      fuel_in: checkinForm.fuelIn,
-      remarks: checkinForm.remarks,
-    })
-    .eq('id', trip.dbId);
 
   const vehiclePayload = {
     status: 'available',
@@ -2350,30 +2360,55 @@ export async function checkinLiveTrip(client, trip, checkinForm, odometerIn) {
     vehiclePayload.odometer_current = normalizedOdometerIn;
   }
 
-  const vehicleUpdate = client
+  const { data: vehicleRows, error: vehicleError } = await client
     .from('vehicles')
     .update(vehiclePayload)
-    .eq('id', trip.vehicleId);
-
-  const driverUpdate = client
-    .from('drivers')
-    .update({
-      status: 'available',
-    })
-    .eq('id', trip.driverId);
-
-  const [{ error: tripError }, { error: vehicleError }, { error: driverError }] = await Promise.all([tripUpdate, vehicleUpdate, driverUpdate]);
-
-  if (tripError) {
-    throw tripError;
-  }
+    .eq('id', trip.vehicleId)
+    .select('id');
 
   if (vehicleError) {
     throw vehicleError;
   }
 
+  if (!Array.isArray(vehicleRows) || vehicleRows.length === 0) {
+    throw new Error('Unable to update vehicle status during return. Check vehicle permissions (RLS).');
+  }
+
+  const { data: driverRows, error: driverError } = await client
+    .from('drivers')
+    .update({
+      status: 'available',
+    })
+    .eq('id', trip.driverId)
+    .select('id');
+
   if (driverError) {
     throw driverError;
+  }
+
+  if (!Array.isArray(driverRows) || driverRows.length === 0) {
+    throw new Error('Unable to update driver status during return. Check driver permissions (RLS).');
+  }
+
+  const { data: tripRows, error: tripError } = await client
+    .from('trip_logs')
+    .update({
+      trip_status: 'Returned',
+      actual_return_datetime: checkinForm.dateIn,
+      date_in: checkinForm.dateIn,
+      odometer_in: hasOdometerIn ? normalizedOdometerIn : null,
+      fuel_in: checkinForm.fuelIn,
+      remarks: checkinForm.remarks,
+    })
+    .eq('id', trip.dbId)
+    .select('id');
+
+  if (tripError) {
+    throw tripError;
+  }
+
+  if (!Array.isArray(tripRows) || tripRows.length === 0) {
+    throw new Error('Trip return was not applied. You may not have permission to update this trip.');
   }
 }
 

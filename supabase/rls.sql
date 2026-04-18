@@ -70,7 +70,13 @@ alter table public.registration_records enable row level security;
 alter table public.incident_reports enable row level security;
 alter table public.maintenance_automation_settings enable row level security;
 alter table public.notifications enable row level security;
-alter table public.web_push_subscriptions enable row level security;
+do $$
+begin
+  if to_regclass('public.web_push_subscriptions') is not null then
+    execute 'alter table public.web_push_subscriptions enable row level security';
+  end if;
+end
+$$;
 alter table public.audit_logs enable row level security;
 alter table public.vehicle_types enable row level security;
 alter table public.roles enable row level security;
@@ -143,6 +149,41 @@ with check (
   or public.has_role('approver', assigned_branch_id)
 );
 
+drop policy if exists "vehicles update by assigned driver active trip" on public.vehicles;
+create policy "vehicles update by assigned driver active trip"
+on public.vehicles
+for update
+using (
+  exists (
+    select 1
+    from public.trip_logs tl
+    join public.drivers d on d.id = tl.driver_id
+    join public.profiles p on p.id = auth.uid()
+    where tl.vehicle_id = vehicles.id
+      and (
+        d.profile_id = auth.uid()
+        or lower(regexp_replace(coalesce(d.full_name, ''), '[^a-z0-9]+', '', 'g'))
+          = lower(regexp_replace(coalesce(p.full_name, ''), '[^a-z0-9]+', '', 'g'))
+      )
+      and tl.trip_status in ('Ready for Release', 'Checked Out', 'In Transit', 'Overdue')
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.trip_logs tl
+    join public.drivers d on d.id = tl.driver_id
+    join public.profiles p on p.id = auth.uid()
+    where tl.vehicle_id = vehicles.id
+      and (
+        d.profile_id = auth.uid()
+        or lower(regexp_replace(coalesce(d.full_name, ''), '[^a-z0-9]+', '', 'g'))
+          = lower(regexp_replace(coalesce(p.full_name, ''), '[^a-z0-9]+', '', 'g'))
+      )
+      and tl.trip_status in ('Ready for Release', 'Checked Out', 'In Transit', 'Overdue')
+  )
+);
+
 drop policy if exists "documents scoped select" on public.vehicle_documents;
 create policy "documents scoped select"
 on public.vehicle_documents
@@ -201,6 +242,41 @@ using (
 with check (
   public.has_role('admin')
   or public.has_role('approver', branch_id)
+);
+
+drop policy if exists "drivers self update during active trip" on public.drivers;
+create policy "drivers self update during active trip"
+on public.drivers
+for update
+using (
+  exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and (
+        drivers.profile_id = auth.uid()
+        or lower(regexp_replace(coalesce(drivers.full_name, ''), '[^a-z0-9]+', '', 'g'))
+          = lower(regexp_replace(coalesce(p.full_name, ''), '[^a-z0-9]+', '', 'g'))
+      )
+  )
+  and exists (
+    select 1
+    from public.trip_logs tl
+    where tl.driver_id = drivers.id
+      and tl.trip_status in ('Ready for Release', 'Checked Out', 'In Transit', 'Overdue')
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and (
+        drivers.profile_id = auth.uid()
+        or lower(regexp_replace(coalesce(drivers.full_name, ''), '[^a-z0-9]+', '', 'g'))
+          = lower(regexp_replace(coalesce(p.full_name, ''), '[^a-z0-9]+', '', 'g'))
+      )
+  )
 );
 
 drop policy if exists "driver licenses scoped select" on public.driver_licenses;
@@ -394,8 +470,13 @@ using (
   or exists (
     select 1
     from public.drivers d
+    join public.profiles p on p.id = auth.uid()
     where d.id = trip_logs.driver_id
-      and d.profile_id = auth.uid()
+      and (
+        d.profile_id = auth.uid()
+        or lower(regexp_replace(coalesce(d.full_name, ''), '[^a-z0-9]+', '', 'g'))
+          = lower(regexp_replace(coalesce(p.full_name, ''), '[^a-z0-9]+', '', 'g'))
+      )
   )
 )
 with check (
@@ -404,8 +485,13 @@ with check (
   or exists (
     select 1
     from public.drivers d
+    join public.profiles p on p.id = auth.uid()
     where d.id = trip_logs.driver_id
-      and d.profile_id = auth.uid()
+      and (
+        d.profile_id = auth.uid()
+        or lower(regexp_replace(coalesce(d.full_name, ''), '[^a-z0-9]+', '', 'g'))
+          = lower(regexp_replace(coalesce(p.full_name, ''), '[^a-z0-9]+', '', 'g'))
+      )
   )
 );
 

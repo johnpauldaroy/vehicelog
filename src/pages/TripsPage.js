@@ -122,7 +122,7 @@ export default function TripsPage({
           || (tripDriver && candidateNames.some((name) => name === tripDriver))
         );
 
-        if (isDriver || isTripAssignedToCurrentUser) {
+        if (!isDriver || isTripAssignedToCurrentUser) {
           onCheckinTripChange(targetTrip.id);
         }
       }
@@ -196,8 +196,15 @@ export default function TripsPage({
   }
 
   function canCurrentUserReturnTrip(trip) {
-    return ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)
-      && (isDriver || isTripAssignedToCurrentUser(trip));
+    if (!trip || !ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)) {
+      return false;
+    }
+
+    if (!isDriver) {
+      return true;
+    }
+
+    return isTripAssignedToCurrentUser(trip);
   }
 
   function getTripButtonConfig(trip) {
@@ -483,10 +490,6 @@ export default function TripsPage({
 
                 {!isGuard && detailMode === 'return' && actionTrip && (
                   <form className="form-grid" onSubmit={onCheckinSubmit}>
-                    <div className="trip-action-info">
-                      <span className="field-label">Date and time in</span>
-                      <p>Captured automatically using real-time date and time when you click Return vehicle.</p>
-                    </div>
                     {selectedCheckinVehicle?.isOdoDefective ? (
                       <div className="trip-action-info">
                         <span className="field-label">Odometer in</span>
