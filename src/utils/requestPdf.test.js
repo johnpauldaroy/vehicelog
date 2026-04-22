@@ -61,3 +61,31 @@ test('keeps approved ticket without fuel on a single page when notes are empty',
   expect(pdfText).not.toContain('No notes provided.');
   expect(pdfText).toContain('SIGNATORIES');
 });
+
+test('keeps approved ticket without fuel on a single page when notes are provided', async () => {
+  const request = {
+    requestNo: 'VR-2026-0422-13262663801',
+    status: 'Checked Out',
+    requestedBy: 'RHIAN JANAYSAY',
+    approver: 'JASMIN PEREZ',
+    branch: 'Molo Branch',
+    purpose: 'Check deposits to eastwest bank, collection, ci bid of new members, validation of fire victim',
+    destination: 'Iloilo city',
+    departureDatetime: '2026-04-22T13:23:00',
+    expectedReturnDatetime: '2026-04-22T21:23:00',
+    passengerCount: 1,
+    passengerNames: [],
+    assignedVehicle: 'ISUZU SPORTIVO',
+    assignedDriver: 'RHIAN JANAYSAY',
+    fuelRequested: false,
+    notes: 'with daizy huelar, departure 1:50pm',
+    approvedAt: '2026-04-22T13:26:00',
+  };
+
+  const pdfBlob = createApprovedRequestPdfBlob(request);
+  const pdfText = await new Response(pdfBlob).text();
+
+  expect(pdfText).toContain('/Count 1');
+  expect(pdfText).toContain('SIGNATORIES');
+  expect(pdfText).toContain('Request Notes');
+});

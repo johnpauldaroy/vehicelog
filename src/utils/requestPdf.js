@@ -1,9 +1,9 @@
 import { COOP_LOGO_PDF_ASSET } from './coopLogoPdfAsset';
 
-const PAGE_WIDTH = 420;
-const PAGE_HEIGHT = 420;
-const PAGE_MARGIN_X = 20;
-const PAGE_MARGIN_TOP = 20;
+const PAGE_WIDTH = 595;
+const PAGE_HEIGHT = 842;
+const PAGE_MARGIN_X = 28;
+const PAGE_MARGIN_TOP = 24;
 const PAGE_MARGIN_BOTTOM = 24;
 const CONTENT_WIDTH = PAGE_WIDTH - (PAGE_MARGIN_X * 2);
 const HEADER_HEIGHT = 52;
