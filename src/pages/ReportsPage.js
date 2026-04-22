@@ -251,7 +251,7 @@ export default function ReportsPage({
         const ringItems = [
           { label: 'Ready', value: filteredTrips.filter((trip) => trip.tripStatus === 'Ready for Release').length, helper: 'Ready for release', tone: 'amber' },
           { label: 'Active', value: filteredTrips.filter((trip) => ['Checked Out', 'In Transit'].includes(trip.tripStatus)).length, helper: 'Checked out or in transit', tone: 'blue' },
-          { label: 'Returned', value: filteredTrips.filter((trip) => trip.tripStatus === 'Returned').length, helper: 'Awaiting closure or completed', tone: 'green' },
+          { label: 'Returned', value: filteredTrips.filter((trip) => ['Returned', 'Closed'].includes(trip.tripStatus)).length, helper: 'Completed trips', tone: 'green' },
           { label: 'Overdue', value: filteredTrips.filter((trip) => trip.tripStatus === 'Overdue').length, helper: 'Need follow-up', tone: 'red' },
         ].filter((item) => item.value > 0);
 

@@ -3,6 +3,7 @@ const statusClassMap = {
   approved: 'status-green',
   assigned: 'status-green',
   returned: 'status-returned',
+  closed: 'status-returned',
   completed: 'status-green',
   resolved: 'status-green',
   'checked out': 'status-checkout',

@@ -2393,7 +2393,7 @@ export async function checkinLiveTrip(client, trip, checkinForm, odometerIn) {
   const { data: tripRows, error: tripError } = await client
     .from('trip_logs')
     .update({
-      trip_status: 'Returned',
+      trip_status: 'Closed',
       actual_return_datetime: checkinForm.dateIn,
       date_in: checkinForm.dateIn,
       odometer_in: hasOdometerIn ? normalizedOdometerIn : null,

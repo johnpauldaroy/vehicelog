@@ -5,7 +5,6 @@ import BrandLogo from './components/BrandLogo';
 import PageHero from './components/PageHero';
 import { ACTIVE_TRIP_STATUSES, READY_FOR_CHECKOUT, navItems } from './constants/appConfig';
 import {
-  approveLiveTripTicket,
   checkinLiveTrip,
   checkoutLiveTrip,
   createLiveUser,
@@ -69,6 +68,8 @@ const LIVE_BOOTSTRAP_TIMEOUT_MS = 12000;
 const SESSION_PROFILE_TIMEOUT_MS = 20000;
 const SESSION_CACHE_KEY = 'vehiclelog.sessionUser';
 const WEB_PUSH_PUBLIC_KEY = String(process.env.REACT_APP_WEB_PUSH_VAPID_PUBLIC_KEY || '').trim();
+const COMPLETED_REQUEST_STATUSES = ['Returned', 'Closed'];
+const COMPLETED_TRIP_STATUSES = ['Returned', 'Closed'];
 const EMPTY_SESSION_USER = {
   id: '',
   name: '',
@@ -1288,7 +1289,7 @@ function App() {
       approved: branchScopedRequestRecords.filter((request) => request.status === 'Approved').length,
       readyForRelease: branchScopedRequestRecords.filter((request) => request.status === 'Ready for Release').length,
       checkedOut: branchScopedRequestRecords.filter((request) => request.status === 'Checked Out').length,
-      returned: branchScopedRequestRecords.filter((request) => request.status === 'Returned').length,
+      returned: branchScopedRequestRecords.filter((request) => COMPLETED_REQUEST_STATUSES.includes(request.status)).length,
     }),
     [branchScopedRequestRecords]
   );
@@ -1649,7 +1650,7 @@ function App() {
       pendingApproval: requestRecords.filter((request) => request.status === 'Pending Approval').length,
       approved: requestRecords.filter((request) => request.status === 'Approved').length,
       checkedOut: requestRecords.filter((request) => request.status === 'Checked Out').length,
-      returned: requestRecords.filter((request) => request.status === 'Returned').length,
+      returned: requestRecords.filter((request) => COMPLETED_REQUEST_STATUSES.includes(request.status)).length,
     }),
     [requestRecords]
   );
@@ -1661,7 +1662,7 @@ function App() {
       approved: visibleRequestRecords.filter((request) => request.status === 'Approved').length,
       readyForRelease: visibleRequestRecords.filter((request) => request.status === 'Ready for Release').length,
       checkedOut: visibleRequestRecords.filter((request) => request.status === 'Checked Out').length,
-      returned: visibleRequestRecords.filter((request) => request.status === 'Returned').length,
+      returned: visibleRequestRecords.filter((request) => COMPLETED_REQUEST_STATUSES.includes(request.status)).length,
     }),
     [visibleRequestRecords]
   );
@@ -1672,7 +1673,7 @@ function App() {
       readyForRelease: visibleTripRecords.filter((trip) => READY_FOR_CHECKOUT.includes(trip.tripStatus)).length,
       active: visibleTripRecords.filter((trip) => ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)).length,
       overdue: visibleTripRecords.filter((trip) => trip.tripStatus === 'Overdue').length,
-      returned: visibleTripRecords.filter((trip) => trip.tripStatus === 'Returned').length,
+      returned: visibleTripRecords.filter((trip) => COMPLETED_TRIP_STATUSES.includes(trip.tripStatus)).length,
       scheduledToday: visibleTripRecords.filter((trip) =>
         isSameCalendarDay(trip.dateOut || trip.expectedReturn, operationsDay)
       ).length,
@@ -1685,7 +1686,7 @@ function App() {
       readyForRelease: calendarTripRecords.filter((trip) => READY_FOR_CHECKOUT.includes(trip.tripStatus)).length,
       active: calendarTripRecords.filter((trip) => ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)).length,
       overdue: calendarTripRecords.filter((trip) => trip.tripStatus === 'Overdue').length,
-      returned: calendarTripRecords.filter((trip) => trip.tripStatus === 'Returned').length,
+      returned: calendarTripRecords.filter((trip) => COMPLETED_TRIP_STATUSES.includes(trip.tripStatus)).length,
       scheduledToday: calendarTripRecords.filter((trip) =>
         isSameCalendarDay(trip.dateOut || trip.expectedReturn, operationsDay)
       ).length,
@@ -1698,7 +1699,7 @@ function App() {
       readyForRelease: tripsPageTripRecords.filter((trip) => READY_FOR_CHECKOUT.includes(trip.tripStatus)).length,
       active: tripsPageTripRecords.filter((trip) => ACTIVE_TRIP_STATUSES.includes(trip.tripStatus)).length,
       overdue: tripsPageTripRecords.filter((trip) => trip.tripStatus === 'Overdue').length,
-      returned: tripsPageTripRecords.filter((trip) => trip.tripStatus === 'Returned').length,
+      returned: tripsPageTripRecords.filter((trip) => COMPLETED_TRIP_STATUSES.includes(trip.tripStatus)).length,
       scheduledToday: tripsPageTripRecords.filter((trip) =>
         isSameCalendarDay(trip.dateOut || trip.expectedReturn, operationsDay)
       ).length,
@@ -2016,22 +2017,6 @@ function App() {
           return;
         }
 
-        if (userMode === 'admin' && tripStatus === 'Returned') {
-          const returnedTime = toSortableTime(trip.actualReturnDatetime || trip.updatedAt || trip.createdAt);
-
-          items.push({
-            id: `trip-returned-${trip.id}`,
-            tripId: trip.id,
-            title: `${requestNo} is waiting for ticket approval`,
-            detail: `Returned by ${trip.driver || 'assigned driver'}.`,
-            view: 'trips',
-            tone: 'warning',
-            priority: 78,
-            timestamp: returnedTime,
-            timestampLabel: returnedTime ? `Returned ${formatDate(trip.actualReturnDatetime || trip.updatedAt || trip.createdAt, true)}` : 'Open trip details',
-            actionLabel: 'Approve trip ticket',
-          });
-        }
       });
     }
 
@@ -2514,7 +2499,7 @@ function App() {
               },
               {
                 label: 'Returned',
-                value: myRequestRecords.filter((request) => request.status === 'Returned').length,
+                value: myRequestRecords.filter((request) => COMPLETED_REQUEST_STATUSES.includes(request.status)).length,
                 helper: 'Completed trips',
                 icon: 'return',
               },
@@ -5497,7 +5482,7 @@ function App() {
           branch: tripToClose.origin,
           details: mileageSummary,
         });
-        showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
+        showToast(`${tripToClose.vehicle} checked in and trip closed.`, 'success', 'Vehicle returned');
         setActiveView('trips');
       } catch (error) {
         showToast(error.message || 'Unable to check the trip back in to Supabase.', 'danger', 'Check-in failed');
@@ -5511,7 +5496,7 @@ function App() {
         trip.id === tripToClose.id
           ? {
               ...trip,
-              tripStatus: 'Returned',
+              tripStatus: 'Closed',
               actualReturnDatetime: returnTimestamp,
               dateIn: returnTimestamp,
               odometerIn: resolvedOdometerIn,
@@ -5528,7 +5513,7 @@ function App() {
         request.requestNo === tripToClose.requestNo
           ? {
               ...request,
-              status: 'Returned',
+              status: 'Closed',
             }
           : request
       )
@@ -5572,9 +5557,9 @@ function App() {
       `${tripToClose.vehicle} logged ${mileageComputed} km on return.`,
       'info'
     );
-    showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
+    showToast(`${tripToClose.vehicle} checked in and trip closed.`, 'success', 'Vehicle returned');
     const nextTripRecords = tripRecords.map((trip) =>
-      trip.id === tripToClose.id ? { ...trip, tripStatus: 'Returned' } : trip
+      trip.id === tripToClose.id ? { ...trip, tripStatus: 'Closed' } : trip
     );
     setCheckinForm(
       pickCheckinDefaults(
@@ -5584,52 +5569,6 @@ function App() {
     );
     setActiveView('trips');
   }
-
-  async function handleApproveTripTicket(trip) {
-    if (userMode !== 'admin') {
-      showToast('Only admins can perform final trip ticket approval.', 'warning', 'Permission denied');
-      return;
-    }
-
-    if (supabase) {
-      try {
-        await approveLiveTripTicket(supabase, trip.dbId || trip.id, currentSessionUser.id);
-        await refreshLiveData(currentSessionUser);
-        appendAuditEntry({
-          category: 'trip',
-          action: 'Approved trip ticket',
-          target: trip.requestNo,
-          branch: trip.origin,
-          details: `${currentSessionUser.name} performed final audit and closed ${trip.requestNo}.`,
-        });
-        showToast(`Trip ticket for ${trip.requestNo} approved and closed.`, 'success', 'Trip completed');
-      } catch (error) {
-        showToast(error.message || 'Unable to approve the trip ticket.', 'danger', 'Approval failed');
-      }
-
-      return;
-    }
-
-    setTripRecords((current) =>
-      current.map((entry) =>
-        entry.id === trip.id
-          ? {
-              ...entry,
-              tripStatus: 'Closed',
-            }
-          : entry
-      )
-    );
-    appendAuditEntry({
-      category: 'trip',
-      action: 'Approved trip ticket',
-      target: trip.requestNo,
-      branch: trip.origin,
-      details: `${currentSessionUser.name} performed final audit and closed ${trip.requestNo}.`,
-    });
-    showToast(`Trip ticket for ${trip.requestNo} approved and closed.`, 'success', 'Trip completed');
-  }
-
 
   async function handleLogout() {
     const emailToRemember = currentSessionUser.email;
@@ -6176,7 +6115,6 @@ function App() {
             onCheckinSubmit={handleCheckinSubmit}
             onCheckoutChecklistChange={handleCheckoutChecklistChange}
             onCheckinChecklistChange={handleCheckinChecklistChange}
-            onApproveTripTicket={handleApproveTripTicket}
             tripDetailFocus={tripDetailFocus}
             onTripDetailFocusHandled={(token) => {
               setTripDetailFocus((current) => (current?.token === token ? null : current));

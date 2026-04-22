@@ -47,7 +47,6 @@ export default function TripsPage({
   onCheckinFieldChange,
   onCheckinTripChange,
   onCheckinSubmit,
-  onApproveTripTicket,
   tripDetailFocus,
   onTripDetailFocusHandled,
 }) {
@@ -229,14 +228,6 @@ export default function TripsPage({
         icon: 'return',
         label: 'Return vehicle',
         className: 'button button-return row-action-button trip-action-button',
-      };
-    }
-
-    if (trip.tripStatus === 'Returned') {
-      return {
-        icon: 'check',
-        label: 'Approve ticket',
-        className: 'button button-primary row-action-button trip-action-button',
       };
     }
 
@@ -564,20 +555,6 @@ export default function TripsPage({
                         {detailTrip.mileageComputed ? `${detailTrip.mileageComputed} km` : 'Pending'}
                       </p>
                     )}
-                    {!isGuard && detailTrip.tripStatus === 'Returned' && (
-                      <div className="form-actions" style={{ marginTop: '16px' }}>
-                        <button
-                          type="button"
-                          className="button button-primary button-solid"
-                          onClick={() => {
-                            onApproveTripTicket(detailTrip);
-                            setDetailModalOpen(false);
-                          }}
-                        >
-                          Approve and Close Trip
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -589,7 +566,7 @@ export default function TripsPage({
       <div className="content-grid-tight">
         <SectionCard
           title={isGuard ? 'Trip monitor' : 'Trip operations'}
-          subtitle={isGuard ? 'Read-only branch trip status and passenger visibility' : 'One table for release, active, and returned trips'}
+          subtitle={isGuard ? 'Read-only branch trip status and passenger visibility' : 'One table for release, active, and completed trips'}
         >
           <div className="toolbar request-toolbar">
             <input
