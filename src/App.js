@@ -66,10 +66,26 @@ import {
 const TOAST_DISMISS_MS = 4200;
 const LIVE_BOOTSTRAP_TIMEOUT_MS = 12000;
 const SESSION_PROFILE_TIMEOUT_MS = 20000;
+const LIVE_BACKGROUND_REFRESH_DEBOUNCE_MS = 280;
+const LIVE_BACKGROUND_REFRESH_MAX_WAIT_MS = 1000;
 const SESSION_CACHE_KEY = 'vehiclelog.sessionUser';
 const WEB_PUSH_PUBLIC_KEY = String(process.env.REACT_APP_WEB_PUSH_VAPID_PUBLIC_KEY || '').trim();
 const COMPLETED_REQUEST_STATUSES = ['Returned'];
 const COMPLETED_TRIP_STATUSES = ['Returned'];
+const LIVE_REALTIME_SYNC_TABLES = [
+  'vehicle_requests',
+  'trip_logs',
+  'vehicles',
+  'drivers',
+  'maintenance_logs',
+  'incident_reports',
+  'notifications',
+  'profiles',
+  'user_roles',
+  'branches',
+  'vehicle_types',
+  'audit_logs',
+];
 const EMPTY_SESSION_USER = {
   id: '',
   name: '',
@@ -655,6 +671,7 @@ function App() {
   const expectedSessionUserIdRef = useRef('');
   const sessionHydrationRef = useRef({ userId: '', promise: null });
   const liveDataRefreshRef = useRef({ userId: '', promise: null });
+  const liveDataRefreshQueueRef = useRef({ timer: null, requestedAt: 0, sessionUser: null });
   const normalizedRole = String(currentSessionUser.role || '').toLowerCase().replace(/\s+/g, '_');
   const operationsDay = useMemo(() => {
     const now = new Date();
@@ -867,6 +884,13 @@ function App() {
     };
   }, [topbarNotificationsOpen]);
 
+  useEffect(() => () => {
+    if (liveDataRefreshQueueRef.current.timer) {
+      window.clearTimeout(liveDataRefreshQueueRef.current.timer);
+      liveDataRefreshQueueRef.current.timer = null;
+    }
+  }, []);
+
   const applySessionUser = useCallback((liveUser) => {
     const normalizedSessionUser = {
       ...liveUser,
@@ -901,10 +925,12 @@ function App() {
     setPanayFuelPricing(EMPTY_PANAY_FUEL_PRICING);
   }, []);
 
-  const refreshLiveData = useCallback(async (sessionUser) => {
+  const refreshLiveData = useCallback(async (sessionUser, options = {}) => {
     if (!supabase || !sessionUser?.id) {
       return;
     }
+
+    const showLoading = options.showLoading !== false;
 
     if (
       liveDataRefreshRef.current.userId === sessionUser.id
@@ -913,7 +939,9 @@ function App() {
       return liveDataRefreshRef.current.promise;
     }
 
-    setIsLiveDataLoading(true);
+    if (showLoading) {
+      setIsLiveDataLoading(true);
+    }
 
     const refreshPromise = withTimeout(
       fetchLiveAppData(supabase),
@@ -973,7 +1001,9 @@ function App() {
           liveDataRefreshRef.current = { userId: '', promise: null };
         }
 
-        setIsLiveDataLoading(false);
+        if (showLoading) {
+          setIsLiveDataLoading(false);
+        }
       });
 
     liveDataRefreshRef.current = {
@@ -983,6 +1013,58 @@ function App() {
 
     return refreshPromise;
   }, [applySessionUser]);
+
+  const scheduleLiveDataRefresh = useCallback((sessionUser, options = {}) => {
+    if (!supabase || !sessionUser?.id) {
+      return;
+    }
+
+    const immediate = options.immediate === true;
+    const delayCandidate = Number(options.delayMs);
+    const delayMs = Number.isFinite(delayCandidate)
+      ? Math.max(0, delayCandidate)
+      : LIVE_BACKGROUND_REFRESH_DEBOUNCE_MS;
+    const runRefresh = () => {
+      const queuedSessionUser = liveDataRefreshQueueRef.current.sessionUser;
+      liveDataRefreshQueueRef.current.timer = null;
+      liveDataRefreshQueueRef.current.requestedAt = 0;
+
+      if (!queuedSessionUser?.id) {
+        return;
+      }
+
+      void refreshLiveData(queuedSessionUser, { showLoading: false }).catch(() => {
+        // Keep post-save and realtime refresh best-effort.
+      });
+    };
+
+    liveDataRefreshQueueRef.current.sessionUser = sessionUser;
+
+    if (typeof window === 'undefined') {
+      runRefresh();
+      return;
+    }
+
+    if (immediate) {
+      if (liveDataRefreshQueueRef.current.timer) {
+        window.clearTimeout(liveDataRefreshQueueRef.current.timer);
+      }
+      runRefresh();
+      return;
+    }
+
+    if (liveDataRefreshQueueRef.current.timer) {
+      const elapsedMs = Date.now() - (liveDataRefreshQueueRef.current.requestedAt || 0);
+      if (elapsedMs >= LIVE_BACKGROUND_REFRESH_MAX_WAIT_MS) {
+        window.clearTimeout(liveDataRefreshQueueRef.current.timer);
+        runRefresh();
+      }
+      return;
+    }
+
+    liveDataRefreshQueueRef.current.requestedAt = Date.now();
+    liveDataRefreshQueueRef.current.timer = window.setTimeout(runRefresh, delayMs);
+  }, [refreshLiveData]);
 
   const tryRestoreCachedSessionUser = useCallback((authUserId) => {
     if (isSigningOutRef.current) {
@@ -1186,6 +1268,38 @@ function App() {
       isCancelled = true;
     };
   }, [currentSessionUser.id, isAuthenticated]);
+
+  useEffect(() => {
+    if (!supabase || !isAuthenticated || !currentSessionUser.id) {
+      return undefined;
+    }
+
+    const channel = supabase.channel(`vehiclelog-live-sync-${currentSessionUser.id}`);
+
+    LIVE_REALTIME_SYNC_TABLES.forEach((table) => {
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table,
+        },
+        () => {
+          scheduleLiveDataRefresh(currentSessionUser);
+        }
+      );
+    });
+
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 0 });
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentSessionUser, isAuthenticated, scheduleLiveDataRefresh]);
 
   const visibleRequestRecords = useMemo(() => {
     if (userMode === 'admin') {
@@ -3380,8 +3494,7 @@ function App() {
     if (supabase) {
       try {
         await reviewLiveRequest(supabase, request, currentSessionUser, nextStatus, approvalDetails);
-        await refreshLiveData(currentSessionUser);
-
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'request',
           action: `Marked request as ${nextStatus}`,
@@ -3549,7 +3662,7 @@ function App() {
           'Rejected',
           trimmedRemarks
         );
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'request',
           action: 'Rejected request',
@@ -3654,7 +3767,7 @@ function App() {
           selectedAssignmentRequest,
           assignmentVehicleId
         );
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'request',
           action: 'Updated vehicle assignment',
@@ -3832,7 +3945,7 @@ function App() {
     if (supabase) {
       try {
         await saveLiveBranch(supabase, branchSettingsForm);
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'branch',
           action: branchSettingsForm.id ? 'Updated branch' : 'Created branch',
@@ -3893,7 +4006,7 @@ function App() {
     if (supabase) {
       try {
         await deleteLiveBranch(supabase, branch);
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'branch',
           action: 'Archived branch',
@@ -3979,7 +4092,7 @@ function App() {
         createResult = await createLiveUser(supabase, userSettingsForm);
       }
 
-      await refreshLiveData(currentSessionUser);
+      scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
       appendAuditEntry({
         category: 'user',
         action: userSettingsForm.id ? 'Updated user profile' : 'Created user account',
@@ -4029,7 +4142,7 @@ function App() {
 
     try {
       await deleteLiveProfile(supabase, user);
-      await refreshLiveData(currentSessionUser);
+      scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
       appendAuditEntry({
         category: 'user',
         action: 'Removed user profile',
@@ -4134,7 +4247,7 @@ function App() {
 
     try {
       await saveLiveDriver(supabase, scopedDriverSettingsForm);
-      await refreshLiveData(currentSessionUser);
+      scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
       appendAuditEntry({
         category: 'driver',
         action: scopedDriverSettingsForm.id ? 'Updated driver record' : 'Created driver record',
@@ -4176,7 +4289,7 @@ function App() {
 
     try {
       await deleteLiveDriver(supabase, driver);
-      await refreshLiveData(currentSessionUser);
+      scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
       appendAuditEntry({
         category: 'driver',
         action: 'Deleted driver record',
@@ -4263,7 +4376,7 @@ function App() {
     if (supabase) {
       try {
         await saveLiveMaintenance(supabase, maintenanceForm);
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'maintenance',
           action: maintenanceForm.id ? 'Updated maintenance log' : 'Created maintenance log',
@@ -4361,7 +4474,7 @@ function App() {
         }
 
         await saveLiveIncident(supabase, { ...incidentForm, photoUrl: finalPhotoUrl });
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'incident',
           action: incidentForm.id ? 'Updated safety incident' : 'Created safety incident',
@@ -4530,7 +4643,7 @@ function App() {
     if (supabase) {
       try {
         await saveLiveVehicle(supabase, scopedVehicleSettingsForm, availableVehicleTypeRecords);
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'vehicle',
           action: scopedVehicleSettingsForm.id ? 'Updated vehicle record' : 'Created vehicle record',
@@ -4606,7 +4719,7 @@ function App() {
     if (supabase) {
       try {
         await deleteLiveVehicle(supabase, vehicle);
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'vehicle',
           action: 'Deleted vehicle record',
@@ -4758,7 +4871,7 @@ function App() {
 
       let refreshErrorMessage = '';
       try {
-        await refreshLiveData(currentSessionUser);
+        await refreshLiveData(currentSessionUser, { showLoading: false });
       } catch (error) {
         refreshErrorMessage = error.message || 'Live data refresh failed after import.';
       }
@@ -4896,7 +5009,7 @@ function App() {
 
       let refreshErrorMessage = '';
       try {
-        await refreshLiveData(currentSessionUser);
+        await refreshLiveData(currentSessionUser, { showLoading: false });
       } catch (error) {
         refreshErrorMessage = error.message || 'Live data refresh failed after import.';
       }
@@ -5011,7 +5124,7 @@ function App() {
 
       let refreshErrorMessage = '';
       try {
-        await refreshLiveData(currentSessionUser);
+        await refreshLiveData(currentSessionUser, { showLoading: false });
       } catch (error) {
         refreshErrorMessage = error.message || 'Live data refresh failed after import.';
       }
@@ -5200,7 +5313,7 @@ function App() {
           }
         );
 
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           actor: currentSessionUser.name,
           actorRole: currentSessionUser.role,
@@ -5350,7 +5463,7 @@ function App() {
     if (supabase) {
       try {
         await checkoutLiveTrip(supabase, tripToRelease, checkoutPayload, resolvedOdometerOut);
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'trip',
           action: 'Released trip',
@@ -5474,7 +5587,7 @@ function App() {
     if (supabase) {
       try {
         await checkinLiveTrip(supabase, tripToClose, checkinPayload, resolvedOdometerIn);
-        await refreshLiveData(currentSessionUser);
+        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
           category: 'trip',
           action: 'Completed return',
@@ -5606,6 +5719,10 @@ function App() {
     clearCachedSessionUser();
     sessionHydrationRef.current = { userId: '', promise: null };
     liveDataRefreshRef.current = { userId: '', promise: null };
+    if (liveDataRefreshQueueRef.current.timer) {
+      window.clearTimeout(liveDataRefreshQueueRef.current.timer);
+    }
+    liveDataRefreshQueueRef.current = { timer: null, requestedAt: 0, sessionUser: null };
     setIsLiveDataLoading(false);
     clearAppData();
     setCurrentSessionUser(EMPTY_SESSION_USER);
@@ -6996,3 +7113,4 @@ function App() {
 }
 
 export default App;
+
