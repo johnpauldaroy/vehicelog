@@ -68,8 +68,8 @@ const LIVE_BOOTSTRAP_TIMEOUT_MS = 12000;
 const SESSION_PROFILE_TIMEOUT_MS = 20000;
 const SESSION_CACHE_KEY = 'vehiclelog.sessionUser';
 const WEB_PUSH_PUBLIC_KEY = String(process.env.REACT_APP_WEB_PUSH_VAPID_PUBLIC_KEY || '').trim();
-const COMPLETED_REQUEST_STATUSES = ['Returned', 'Closed'];
-const COMPLETED_TRIP_STATUSES = ['Returned', 'Closed'];
+const COMPLETED_REQUEST_STATUSES = ['Returned'];
+const COMPLETED_TRIP_STATUSES = ['Returned'];
 const EMPTY_SESSION_USER = {
   id: '',
   name: '',
@@ -5482,7 +5482,7 @@ function App() {
           branch: tripToClose.origin,
           details: mileageSummary,
         });
-        showToast(`${tripToClose.vehicle} checked in and trip closed.`, 'success', 'Vehicle returned');
+        showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
         setActiveView('trips');
       } catch (error) {
         showToast(error.message || 'Unable to check the trip back in to Supabase.', 'danger', 'Check-in failed');
@@ -5496,7 +5496,7 @@ function App() {
         trip.id === tripToClose.id
           ? {
               ...trip,
-              tripStatus: 'Closed',
+              tripStatus: 'Returned',
               actualReturnDatetime: returnTimestamp,
               dateIn: returnTimestamp,
               odometerIn: resolvedOdometerIn,
@@ -5513,7 +5513,7 @@ function App() {
         request.requestNo === tripToClose.requestNo
           ? {
               ...request,
-              status: 'Closed',
+              status: 'Returned',
             }
           : request
       )
@@ -5557,9 +5557,9 @@ function App() {
       `${tripToClose.vehicle} logged ${mileageComputed} km on return.`,
       'info'
     );
-    showToast(`${tripToClose.vehicle} checked in and trip closed.`, 'success', 'Vehicle returned');
+    showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
     const nextTripRecords = tripRecords.map((trip) =>
-      trip.id === tripToClose.id ? { ...trip, tripStatus: 'Closed' } : trip
+      trip.id === tripToClose.id ? { ...trip, tripStatus: 'Returned' } : trip
     );
     setCheckinForm(
       pickCheckinDefaults(

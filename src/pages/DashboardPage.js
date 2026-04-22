@@ -623,8 +623,8 @@ export default function DashboardPage({
     },
     {
       label: 'Returned',
-      value: filteredTrips.filter((trip) => ['Returned', 'Closed'].includes(trip.tripStatus)).length,
-      helper: 'Closed trips',
+      value: filteredTrips.filter((trip) => trip.tripStatus === 'Returned').length,
+      helper: 'Returned trips',
       tone: 'green',
       icon: 'return',
     },

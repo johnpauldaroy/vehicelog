@@ -19,6 +19,36 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
+async function callerIsAdmin(serviceClient: ReturnType<typeof createClient>, callerUserId: string) {
+  const { data: adminRole, error: adminRoleError } = await serviceClient
+    .from('roles')
+    .select('id')
+    .eq('name', 'admin')
+    .maybeSingle();
+
+  if (adminRoleError) {
+    throw adminRoleError;
+  }
+
+  if (!adminRole?.id) {
+    return false;
+  }
+
+  const { data: assignment, error: assignmentError } = await serviceClient
+    .from('user_roles')
+    .select('id')
+    .eq('user_id', callerUserId)
+    .eq('role_id', adminRole.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (assignmentError) {
+    throw assignmentError;
+  }
+
+  return Boolean(assignment?.id);
+}
+
 serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -28,212 +58,221 @@ serve(async (request) => {
     return jsonResponse({ error: 'Method not allowed.' }, 405);
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
-  const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-
-  if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
-    return jsonResponse({ error: 'Supabase edge function secrets are not configured.' }, 500);
-  }
-
-  const authHeader = request.headers.get('Authorization') ?? '';
-  const callerClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: {
-        Authorization: authHeader,
-      },
-    },
-  });
-  const serviceClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-
-  const {
-    data: { user: caller },
-    error: callerError,
-  } = await callerClient.auth.getUser();
-
-  if (callerError || !caller) {
-    return jsonResponse({ error: 'Unauthorized.' }, 401);
-  }
-
-  const { data: callerRoles, error: callerRolesError } = await serviceClient
-    .from('user_roles')
-    .select('roles(name)')
-    .eq('user_id', caller.id);
-
-  if (callerRolesError) {
-    return jsonResponse({ error: 'Unable to verify admin permissions.' }, 500);
-  }
-
-  const isAdmin = (callerRoles ?? []).some((entry) => entry.roles?.name === 'admin');
-
-  if (!isAdmin) {
-    return jsonResponse({ error: 'Admin access is required.' }, 403);
-  }
-
-  let payload: {
-    branchId?: string | null;
-    email?: string;
-    fullName?: string;
-    password?: string;
-    role?: string;
-    userId?: string;
-  };
-
   try {
-    payload = await request.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid JSON payload.' }, 400);
-  }
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-  const userId = String(payload.userId ?? '').trim();
-  const email = String(payload.email ?? '').trim().toLowerCase();
-  const fullName = String(payload.fullName ?? '').trim();
-  const password = String(payload.password ?? '');
-  const roleName = String(payload.role ?? '').trim().toLowerCase();
-  const branchId = String(payload.branchId ?? '').trim();
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
+      return jsonResponse({ error: 'Supabase edge function secrets are not configured.' }, 500);
+    }
 
-  if (!userId) {
-    return jsonResponse({ error: 'User id is required.' }, 400);
-  }
+    const authHeader = request.headers.get('Authorization') ?? '';
+    const callerClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: authHeader,
+        },
+      },
+    });
+    const serviceClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
 
-  if (!email || !email.includes('@')) {
-    return jsonResponse({ error: 'A valid email is required.' }, 400);
-  }
+    const {
+      data: { user: caller },
+      error: callerError,
+    } = await callerClient.auth.getUser();
 
-  if (!fullName) {
-    return jsonResponse({ error: 'Full name is required.' }, 400);
-  }
+    if (callerError || !caller) {
+      return jsonResponse({ error: 'Unauthorized.' }, 401);
+    }
 
-  if (password && password.length < 8) {
-    return jsonResponse({ error: 'Password must be at least 8 characters long.' }, 400);
-  }
+    let isAdmin = false;
+    try {
+      isAdmin = await callerIsAdmin(serviceClient, caller.id);
+    } catch {
+      return jsonResponse({ error: 'Unable to verify admin permissions.' }, 500);
+    }
 
-  if (!allowedRoles.has(roleName)) {
-    return jsonResponse({ error: 'Select a valid role.' }, 400);
-  }
+    if (!isAdmin) {
+      return jsonResponse({ error: 'Admin access is required.' }, 403);
+    }
 
-  if (!branchId) {
-    return jsonResponse({ error: 'Select a branch for the user.' }, 400);
-  }
-
-  const { data: branchRecord, error: branchError } = await serviceClient
-    .from('branches')
-    .select('id')
-    .eq('id', branchId)
-    .single();
-
-  if (branchError || !branchRecord) {
-    return jsonResponse({ error: 'Selected branch was not found.' }, 400);
-  }
-
-  const { data: roleRecord, error: roleError } = await serviceClient
-    .from('roles')
-    .select('id, name')
-    .eq('name', roleName)
-    .single();
-
-  if (roleError || !roleRecord) {
-    return jsonResponse({ error: 'Selected role was not found.' }, 400);
-  }
-
-  const { data: existingUser, error: existingUserError } = await serviceClient.auth.admin.getUserById(userId);
-
-  if (existingUserError || !existingUser.user) {
-    return jsonResponse({ error: 'The selected auth user was not found.' }, 404);
-  }
-
-  const existingUserMetadata = (
-    existingUser.user.user_metadata
-    && typeof existingUser.user.user_metadata === 'object'
-  )
-    ? existingUser.user.user_metadata as Record<string, unknown>
-    : {};
-  const existingAuthEmail = String(existingUser.user.email ?? '').trim().toLowerCase();
-  const existingAuthFullName = String(existingUserMetadata.full_name ?? '').trim();
-  const shouldUpdateAuthEmail = existingAuthEmail !== email;
-  const shouldUpdateAuthPassword = Boolean(password);
-  const shouldUpdateAuthFullName = existingAuthFullName !== fullName;
-  const authUpdatePayload: {
-    email?: string;
-    email_confirm?: boolean;
-    password?: string;
-    user_metadata?: Record<string, unknown>;
-  } = {};
-
-  if (shouldUpdateAuthEmail) {
-    authUpdatePayload.email = email;
-    authUpdatePayload.email_confirm = true;
-  }
-
-  if (shouldUpdateAuthPassword) {
-    authUpdatePayload.password = password;
-  }
-
-  if (shouldUpdateAuthFullName) {
-    authUpdatePayload.user_metadata = {
-      ...existingUserMetadata,
-      full_name: fullName,
+    let payload: {
+      branchId?: string | null;
+      email?: string;
+      fullName?: string;
+      password?: string;
+      role?: string;
+      userId?: string;
     };
-  }
 
-  if (Object.keys(authUpdatePayload).length) {
-    const { error: authUpdateError } = await serviceClient.auth.admin.updateUserById(userId, authUpdatePayload);
-
-    if (authUpdateError) {
-      return jsonResponse({ error: authUpdateError.message || 'Unable to update the auth account.' }, 400);
+    try {
+      payload = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON payload.' }, 400);
     }
-  }
 
-  const { error: profileError } = await serviceClient
-    .from('profiles')
-    .update({
-      branch_id: branchId,
-      email,
-      full_name: fullName,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', userId);
+    const userId = String(payload.userId ?? '').trim();
+    const email = String(payload.email ?? '').trim().toLowerCase();
+    const fullName = String(payload.fullName ?? '').trim();
+    const password = String(payload.password ?? '');
+    const roleName = String(payload.role ?? '').trim().toLowerCase();
+    const branchId = String(payload.branchId ?? '').trim();
 
-  if (profileError) {
-    return jsonResponse({ error: profileError.message || 'Unable to update the profile.' }, 500);
-  }
+    if (!userId) {
+      return jsonResponse({ error: 'User id is required.' }, 400);
+    }
 
-  const { error: deleteRolesError } = await serviceClient
-    .from('user_roles')
-    .delete()
-    .eq('user_id', userId);
+    if (!email || !email.includes('@')) {
+      return jsonResponse({ error: 'A valid email is required.' }, 400);
+    }
 
-  if (deleteRolesError) {
-    return jsonResponse({ error: deleteRolesError.message || 'Unable to replace the role assignment.' }, 500);
-  }
+    if (!fullName) {
+      return jsonResponse({ error: 'Full name is required.' }, 400);
+    }
 
-  if (roleName !== 'requester') {
-    const { error: insertRoleError } = await serviceClient
-      .from('user_roles')
-      .insert({
-        user_id: userId,
-        role_id: roleRecord.id,
+    if (password && password.length < 8) {
+      return jsonResponse({ error: 'Password must be at least 8 characters long.' }, 400);
+    }
+
+    if (!allowedRoles.has(roleName)) {
+      return jsonResponse({ error: 'Select a valid role.' }, 400);
+    }
+
+    if (!branchId) {
+      return jsonResponse({ error: 'Select a branch for the user.' }, 400);
+    }
+
+    const { data: branchRecord, error: branchError } = await serviceClient
+      .from('branches')
+      .select('id')
+      .eq('id', branchId)
+      .single();
+
+    if (branchError || !branchRecord) {
+      return jsonResponse({ error: 'Selected branch was not found.' }, 400);
+    }
+
+    const { data: roleRecord, error: roleError } = await serviceClient
+      .from('roles')
+      .select('id, name')
+      .eq('name', roleName)
+      .single();
+
+    if (roleError || !roleRecord) {
+      return jsonResponse({ error: 'Selected role was not found.' }, 400);
+    }
+
+    const { data: existingUserData, error: existingUserError } = await serviceClient.auth.admin.getUserById(userId);
+    const existingAuthUser = existingUserData?.user ?? null;
+
+    if (existingUserError && password) {
+      return jsonResponse({ error: existingUserError.message || 'Unable to load the selected auth account.' }, 400);
+    }
+
+    if (!existingAuthUser && password) {
+      return jsonResponse({
+        error: 'This profile is not linked to an auth account. Leave password blank or recreate the account.',
+      }, 400);
+    }
+
+    const existingUserMetadata = (
+      existingAuthUser?.user_metadata
+      && typeof existingAuthUser.user_metadata === 'object'
+    )
+      ? existingAuthUser.user_metadata as Record<string, unknown>
+      : {};
+    const existingAuthEmail = String(existingAuthUser?.email ?? '').trim().toLowerCase();
+    const existingAuthFullName = String(existingUserMetadata.full_name ?? '').trim();
+    const hasAuthAccount = Boolean(existingAuthUser);
+    const shouldUpdateAuthEmail = hasAuthAccount && existingAuthEmail !== email;
+    const shouldUpdateAuthPassword = hasAuthAccount && Boolean(password);
+    const shouldUpdateAuthFullName = hasAuthAccount && existingAuthFullName !== fullName;
+    const authUpdatePayload: {
+      email?: string;
+      email_confirm?: boolean;
+      password?: string;
+      user_metadata?: Record<string, unknown>;
+    } = {};
+
+    if (shouldUpdateAuthEmail) {
+      authUpdatePayload.email = email;
+      authUpdatePayload.email_confirm = true;
+    }
+
+    if (shouldUpdateAuthPassword) {
+      authUpdatePayload.password = password;
+    }
+
+    if (shouldUpdateAuthFullName) {
+      authUpdatePayload.user_metadata = {
+        ...existingUserMetadata,
+        full_name: fullName,
+      };
+    }
+
+    if (hasAuthAccount && Object.keys(authUpdatePayload).length) {
+      const { error: authUpdateError } = await serviceClient.auth.admin.updateUserById(userId, authUpdatePayload);
+
+      if (authUpdateError) {
+        return jsonResponse({ error: authUpdateError.message || 'Unable to update the auth account.' }, 400);
+      }
+    }
+
+    const { error: profileError } = await serviceClient
+      .from('profiles')
+      .update({
         branch_id: branchId,
-        created_by: caller.id,
-      });
+        email,
+        full_name: fullName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
 
-    if (insertRoleError) {
-      return jsonResponse({ error: insertRoleError.message || 'Unable to save the new role assignment.' }, 500);
+    if (profileError) {
+      return jsonResponse({ error: profileError.message || 'Unable to update the profile.' }, 500);
     }
-  }
 
-  return jsonResponse(
-    {
-      branchId,
-      email,
-      role: roleRecord.name,
-      userId,
-    },
-    200
-  );
+    const { error: deleteRolesError } = await serviceClient
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId);
+
+    if (deleteRolesError) {
+      return jsonResponse({ error: deleteRolesError.message || 'Unable to replace the role assignment.' }, 500);
+    }
+
+    if (roleName !== 'requester') {
+      const { error: insertRoleError } = await serviceClient
+        .from('user_roles')
+        .insert({
+          user_id: userId,
+          role_id: roleRecord.id,
+          branch_id: branchId,
+          created_by: caller.id,
+        });
+
+      if (insertRoleError) {
+        return jsonResponse({ error: insertRoleError.message || 'Unable to save the new role assignment.' }, 500);
+      }
+    }
+
+    return jsonResponse(
+      {
+        branchId,
+        email,
+        role: roleRecord.name,
+        userId,
+      },
+      200
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unexpected error in update-user edge function.';
+    return jsonResponse({ error: message }, 500);
+  }
 });

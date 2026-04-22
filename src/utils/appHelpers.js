@@ -3,7 +3,6 @@ const statusClassMap = {
   approved: 'status-green',
   assigned: 'status-green',
   returned: 'status-returned',
-  closed: 'status-returned',
   completed: 'status-green',
   resolved: 'status-green',
   'checked out': 'status-checkout',
@@ -305,7 +304,7 @@ export function pickCheckinDefaults(tripRecords, activeStatuses) {
     dateIn: toLocalDateTimeInputValue(now),
     odometerIn: '',
     fuelIn: selectedTrip?.fuelIn || '1/2',
-    remarks: 'Fuel receipt uploaded. Slight delay due to bank queue.',
+    remarks: '',
     checklist: {
       engine: true,
       fluids: true,

@@ -17,6 +17,36 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
+async function callerIsAdmin(serviceClient: ReturnType<typeof createClient>, callerUserId: string) {
+  const { data: adminRole, error: adminRoleError } = await serviceClient
+    .from('roles')
+    .select('id')
+    .eq('name', 'admin')
+    .maybeSingle();
+
+  if (adminRoleError) {
+    throw adminRoleError;
+  }
+
+  if (!adminRole?.id) {
+    return false;
+  }
+
+  const { data: assignment, error: assignmentError } = await serviceClient
+    .from('user_roles')
+    .select('id')
+    .eq('user_id', callerUserId)
+    .eq('role_id', adminRole.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (assignmentError) {
+    throw assignmentError;
+  }
+
+  return Boolean(assignment?.id);
+}
+
 serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -58,16 +88,12 @@ serve(async (request) => {
     return jsonResponse({ error: 'Unauthorized.' }, 401);
   }
 
-  const { data: callerRoles, error: callerRolesError } = await serviceClient
-    .from('user_roles')
-    .select('roles(name)')
-    .eq('user_id', caller.id);
-
-  if (callerRolesError) {
+  let isAdmin = false;
+  try {
+    isAdmin = await callerIsAdmin(serviceClient, caller.id);
+  } catch {
     return jsonResponse({ error: 'Unable to verify admin permissions.' }, 500);
   }
-
-  const isAdmin = (callerRoles ?? []).some((entry) => entry.roles?.name === 'admin');
 
   if (!isAdmin) {
     return jsonResponse({ error: 'Admin access is required.' }, 403);

@@ -450,19 +450,7 @@ export default function TripsPage({
                         />
                       </label>
                     )}
-                    <label>
-                      <span className="field-label">Fuel level out</span>
-                      <select
-                        className="input"
-                        value={checkoutForm.fuelOut}
-                        onChange={(event) => onCheckoutFieldChange('fuelOut', event.target.value)}
-                      >
-                        <option>Full</option>
-                        <option>7/8</option>
-                        <option>3/4</option>
-                        <option>1/2</option>
-                      </select>
-                    </label>
+
                     <div className="trip-action-info">
                       <span className="field-label">Assigned trip</span>
                       <p>{actionTrip.vehicle} is assigned to {actionTrip.driver}.</p>
@@ -498,19 +486,7 @@ export default function TripsPage({
                         />
                       </label>
                     )}
-                    <label>
-                      <span className="field-label">Fuel level in</span>
-                      <select
-                        className="input"
-                        value={checkinForm.fuelIn}
-                        onChange={(event) => onCheckinFieldChange('fuelIn', event.target.value)}
-                      >
-                        <option>Full</option>
-                        <option>7/8</option>
-                        <option>3/4</option>
-                        <option>1/2</option>
-                      </select>
-                    </label>
+
                     <label>
                       <span className="field-label">Mileage</span>
                       <input
@@ -566,7 +542,7 @@ export default function TripsPage({
       <div className="content-grid-tight">
         <SectionCard
           title={isGuard ? 'Trip monitor' : 'Trip operations'}
-          subtitle={isGuard ? 'Read-only branch trip status and passenger visibility' : 'One table for release, active, and completed trips'}
+          subtitle={isGuard ? 'Read-only branch trip status and passenger visibility' : 'One table for release, active, and returned trips'}
         >
           <div className="toolbar request-toolbar">
             <input

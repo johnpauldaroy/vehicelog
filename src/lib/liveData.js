@@ -1319,6 +1319,66 @@ function isRecoverableUserRoleWriteError(message) {
   return normalized.includes('user_roles') && normalized.includes('row-level security');
 }
 
+function isUnsupportedEdgeJwtAlgorithmError(message) {
+  const normalized = String(message || '').toLowerCase();
+  return (
+    normalized.includes('unauthorized_unsupported_token_algorithm')
+    || (
+      normalized.includes('unsupported')
+      && normalized.includes('jwt')
+      && normalized.includes('algorithm')
+    )
+  );
+}
+
+async function extractEdgeFunctionErrorMessage(error, fallbackMessage) {
+  let message = String(error?.message || '').trim() || fallbackMessage;
+
+  try {
+    const context = error?.context;
+    let response = null;
+
+    if (context instanceof Response) {
+      response = context.clone();
+    } else if (context && typeof context.clone === 'function') {
+      response = context.clone();
+    } else if (context && typeof context.text === 'function') {
+      response = context;
+    }
+
+    if (!response) {
+      return message;
+    }
+
+    const body = await response.json().catch(() => null);
+    if (body?.error) {
+      return String(body.error);
+    }
+    if (body?.message) {
+      return String(body.message);
+    }
+    if (body?.msg) {
+      return String(body.msg);
+    }
+
+    const rawText = await response.text().catch(() => '');
+    const normalizedText = String(rawText || '').trim();
+    if (normalizedText) {
+      return normalizedText;
+    }
+  } catch (_) {
+    // keep original message
+  }
+
+  const contextStatus = Number(error?.context?.status || error?.status || 0);
+  const contextStatusText = String(error?.context?.statusText || '').trim();
+  if (contextStatus || contextStatusText) {
+    return `${message}${contextStatus ? ` (HTTP ${contextStatus}${contextStatusText ? ` ${contextStatusText}` : ''})` : ''}`;
+  }
+
+  return message;
+}
+
 async function archiveLiveProfile(client, userId) {
   const timestamp = new Date().toISOString();
 
@@ -2393,7 +2453,7 @@ export async function checkinLiveTrip(client, trip, checkinForm, odometerIn) {
   const { data: tripRows, error: tripError } = await client
     .from('trip_logs')
     .update({
-      trip_status: 'Closed',
+      trip_status: 'Returned',
       actual_return_datetime: checkinForm.dateIn,
       date_in: checkinForm.dateIn,
       odometer_in: hasOdometerIn ? normalizedOdometerIn : null,
@@ -2584,20 +2644,6 @@ export async function updateLiveRequestFuelValues(client, request, fuelDetails) 
   }
 }
 
-export async function approveLiveTripTicket(client, tripId, approverId) {
-  const { error } = await client
-    .from('trip_logs')
-    .update({
-      trip_status: 'Closed',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', tripId);
-
-  if (error) {
-    throw error;
-  }
-}
-
 export async function updateLiveRequestDriverAssignment(client, request, nextDriverId) {
   const requestId = request.dbId || request.requestId || request.id;
   const previousDriverId = request.assignedDriverId || null;
@@ -2760,11 +2806,14 @@ export async function updateLiveProfile(client, profileForm) {
       return updateLiveProfileFallback(client, payload);
     }
 
-    let message = error.message || 'Unable to update the user account.';
+    const message = await extractEdgeFunctionErrorMessage(error, 'Unable to update the user account.');
 
-    if (error.context && typeof error.context.json === 'function') {
-      const response = await error.context.json().catch(() => null);
-      message = response?.error || message;
+    if (isUnsupportedEdgeJwtAlgorithmError(message)) {
+      if (requiresAuthUpdate) {
+        throw new Error('Unable to update login email/password right now. Please deploy the update-user function with --no-verify-jwt.');
+      }
+
+      return updateLiveProfileFallback(client, payload);
     }
 
     throw new Error(message);
@@ -2801,11 +2850,10 @@ export async function createLiveUser(client, profileForm) {
       return createLiveUserFallback(client, profileForm);
     }
 
-    let message = error.message || 'Unable to create the user account.';
+    const message = await extractEdgeFunctionErrorMessage(error, 'Unable to create the user account.');
 
-    if (error.context && typeof error.context.json === 'function') {
-      const response = await error.context.json().catch(() => null);
-      message = response?.error || message;
+    if (isUnsupportedEdgeJwtAlgorithmError(message)) {
+      return createLiveUserFallback(client, profileForm);
     }
 
     throw new Error(message);
@@ -2835,11 +2883,10 @@ export async function deleteLiveProfile(client, user) {
       return archiveLiveProfile(client, userId);
     }
 
-    let message = error.message || 'Unable to delete the user account.';
+    const message = await extractEdgeFunctionErrorMessage(error, 'Unable to delete the user account.');
 
-    if (error.context && typeof error.context.json === 'function') {
-      const response = await error.context.json().catch(() => null);
-      message = response?.error || message;
+    if (isUnsupportedEdgeJwtAlgorithmError(message)) {
+      return archiveLiveProfile(client, userId);
     }
 
     throw new Error(message);
