@@ -41,6 +41,7 @@ export default function TripsPage({
   selectedCheckoutTrip,
   selectedCheckinTrip,
   computedCheckinMileage,
+  activeAsyncAction = '',
   onCheckoutFieldChange,
   onCheckoutTripChange,
   onCheckoutSubmit,
@@ -59,6 +60,9 @@ export default function TripsPage({
   const [tripDateFrom, setTripDateFrom] = useState('');
   const [tripDateTo, setTripDateTo] = useState('');
   const tripsPerPage = 8;
+  const isCheckoutSubmitting = activeAsyncAction === 'trip-release';
+  const isCheckinSubmitting = activeAsyncAction === 'trip-return';
+  const isAnyAsyncActionBusy = Boolean(activeAsyncAction);
 
   const detailTrip = useMemo(
     () => tripRecords.find((trip) => trip.id === detailTripId) || null,
@@ -459,9 +463,9 @@ export default function TripsPage({
                       <button
                         type="submit"
                         className="button button-checkout button-solid"
-                        disabled={!checkoutForm.tripId}
+                        disabled={!checkoutForm.tripId || isCheckoutSubmitting || isAnyAsyncActionBusy}
                       >
-                        Release vehicle
+                        {isCheckoutSubmitting ? 'Releasing...' : 'Release vehicle'}
                       </button>
                     </div>
                   </form>
@@ -508,9 +512,9 @@ export default function TripsPage({
                       <button
                         type="submit"
                         className="button button-return button-solid"
-                        disabled={!checkinForm.tripId}
+                        disabled={!checkinForm.tripId || isCheckinSubmitting || isAnyAsyncActionBusy}
                       >
-                        Return vehicle
+                        {isCheckinSubmitting ? 'Returning...' : 'Return vehicle'}
                       </button>
                     </div>
                   </form>
@@ -679,6 +683,7 @@ export default function TripsPage({
                           <button
                             type="button"
                             className={buttonConfig.className}
+                            disabled={isAnyAsyncActionBusy}
                             onClick={() => openTripDetails(trip)}
                           >
                             <AppIcon name={buttonConfig.icon} className="button-icon" />

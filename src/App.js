@@ -638,7 +638,6 @@ function App() {
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [loginForm, setLoginForm] = useState(createLoginForm);
   const [passwordForm, setPasswordForm] = useState(createPasswordForm);
-  const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [userSettingsModalOpen, setUserSettingsModalOpen] = useState(false);
   const [branchSettingsModalOpen, setBranchSettingsModalOpen] = useState(false);
   const [driverSettingsModalOpen, setDriverSettingsModalOpen] = useState(false);
@@ -664,7 +663,9 @@ function App() {
     isActive: false,
   });
   const [toast, setToast] = useState(null);
+  const [activeAsyncAction, setActiveAsyncAction] = useState('');
   const cachedSessionUserRef = useRef(initialCachedSessionUser);
+  const asyncActionLockRef = useRef('');
   const pushSubscriptionSyncRef = useRef({ userId: '', promise: null });
   const topbarNotificationsRef = useRef(null);
   const isSigningOutRef = useRef(false);
@@ -760,6 +761,33 @@ function App() {
       currentDriverRecord?.fullName,
     ].some((candidate) => normalizeComparableText(candidate) === normalizedValue);
   }, [currentDriverRecord?.fullName, currentSessionUser.name]);
+
+  const isSavingPassword = activeAsyncAction === 'password-submit';
+  const isLoginSubmitting = activeAsyncAction === 'login-submit';
+  const isBranchSettingsSubmitting = activeAsyncAction === 'branch-settings-submit';
+  const isUserSettingsSubmitting = activeAsyncAction === 'user-settings-submit';
+  const isDriverSettingsSubmitting = activeAsyncAction === 'driver-settings-submit';
+  const isVehicleSettingsSubmitting = activeAsyncAction === 'vehicle-settings-submit';
+  const isMaintenanceSubmitting = activeAsyncAction === 'maintenance-submit';
+  const isIncidentSubmitting = activeAsyncAction === 'incident-submit';
+
+  function startAsyncAction(actionKey) {
+    if (asyncActionLockRef.current) {
+      return false;
+    }
+
+    asyncActionLockRef.current = actionKey;
+    setActiveAsyncAction(actionKey);
+    return true;
+  }
+
+  function finishAsyncAction(actionKey) {
+    if (asyncActionLockRef.current === actionKey) {
+      asyncActionLockRef.current = '';
+    }
+
+    setActiveAsyncAction((current) => (current === actionKey ? '' : current));
+  }
 
   const isRequestAssignedToCurrentDriver = useCallback((request) => {
     if (currentDriverRecord?.id && request.assignedDriverId === currentDriverRecord.id) {
@@ -3208,7 +3236,14 @@ function App() {
       status: requiresReapproval ? 'Pending Approval' : request.status,
     };
 
-    if (supabase) {
+    const actionKey = 'request-fuel-save';
+
+    if (!startAsyncAction(actionKey)) {
+      return false;
+    }
+
+    try {
+      if (supabase) {
       try {
         await updateLiveRequestFuelValues(supabase, request, nextFuelDetails);
         
@@ -3256,7 +3291,7 @@ function App() {
         showToast(error.message || 'Unable to save fuel edits.', 'danger', 'Update failed');
         return false;
       }
-    }
+      }
 
     setRequestRecords((current) =>
       current.map((entry) => (entry.id === request.id ? updatedRequest : entry))
@@ -3278,6 +3313,9 @@ function App() {
       'Fuel updated'
     );
     return true;
+    } finally {
+      finishAsyncAction(actionKey);
+    }
   }
 
   async function handleSaveRequestDriverEdits(request, approvalDetails) {
@@ -3325,8 +3363,14 @@ function App() {
 
     const previousDriverName = request.assignedDriver || 'Unassigned';
     const nextDriverName = selectedDriver?.fullName || 'Unassigned';
+    const actionKey = 'request-driver-save';
 
-    if (supabase) {
+    if (!startAsyncAction(actionKey)) {
+      return false;
+    }
+
+    try {
+      if (supabase) {
       try {
         await updateLiveRequestDriverAssignment(
           supabase,
@@ -3370,7 +3414,7 @@ function App() {
         showToast(error.message || 'Unable to update the assigned driver.', 'danger', 'Assignment failed');
         return false;
       }
-    }
+      }
 
     const requestIdSet = new Set([request.id, request.dbId, request.requestId].filter(Boolean));
     const updatedRequest = {
@@ -3428,6 +3472,9 @@ function App() {
     });
     showToast(`${request.requestNo} driver assignment updated.`, 'success', 'Assignment updated');
     return true;
+    } finally {
+      finishAsyncAction(actionKey);
+    }
   }
 
   function getDriverAssignmentValidationMessage(validation) {
@@ -3480,9 +3527,7 @@ function App() {
     }
 
     if (nextStatus === 'Approved' && approvalDetails) {
-      const selectedDriver = driverRecords.find(
-        (driver) => driver.id === nextAssignedDriverId
-      );
+      const selectedDriver = driverRecords.find((driver) => driver.id === nextAssignedDriverId);
       const validation = getDriverAssignmentValidation(selectedDriver, selectedRequestApprovalVehicle);
 
       if (!validation.isValid) {
@@ -3491,131 +3536,143 @@ function App() {
       }
     }
 
-    if (supabase) {
-      try {
-        await reviewLiveRequest(supabase, request, currentSessionUser, nextStatus, approvalDetails);
-        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
-        appendAuditEntry({
-          category: 'request',
-          action: `Marked request as ${nextStatus}`,
-          target: request.requestNo,
-          branch: request.branch,
-          details: `${currentSessionUser.name} changed ${request.requestNo} to ${nextStatus}.`,
-        });
-        showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
-        return true;
-      } catch (error) {
-        try {
-          const liveData = await refreshLiveData(currentSessionUser);
-          const refreshedRequest = liveData?.requestRecords?.find((entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id);
+    const actionKey = nextStatus === 'Approved' ? 'request-approve' : 'request-reject';
 
-          if (refreshedRequest) {
-            setSelectedRequestDetails(refreshedRequest);
-            setRequestApprovalForm(createRequestApprovalForm(refreshedRequest));
+    if (!startAsyncAction(actionKey)) {
+      return false;
+    }
+
+    try {
+      if (supabase) {
+        try {
+          await reviewLiveRequest(supabase, request, currentSessionUser, nextStatus, approvalDetails);
+          scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
+          appendAuditEntry({
+            category: 'request',
+            action: `Marked request as ${nextStatus}`,
+            target: request.requestNo,
+            branch: request.branch,
+            details: `${currentSessionUser.name} changed ${request.requestNo} to ${nextStatus}.`,
+          });
+          showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
+          return true;
+        } catch (error) {
+          try {
+            const liveData = await refreshLiveData(currentSessionUser);
+            const refreshedRequest = liveData?.requestRecords?.find(
+              (entry) => entry.id === request.id || entry.dbId === request.id || entry.requestId === request.id
+            );
+
+            if (refreshedRequest) {
+              setSelectedRequestDetails(refreshedRequest);
+              setRequestApprovalForm(createRequestApprovalForm(refreshedRequest));
+            }
+          } catch (_refreshError) {
+            // Keep the original approval error as the primary feedback.
           }
-        } catch (_refreshError) {
-          // Keep the original approval error as the primary feedback.
+
+          showToast(error.message || `Unable to mark the request as ${nextStatus.toLowerCase()}.`, 'danger', 'Update failed');
+          return false;
+        }
+      }
+
+      const nextAssignedDriver = driverRecords.find((driver) => driver.id === nextAssignedDriverId);
+      const previousAssignedDriverId = request.assignedDriverId;
+      const approvedAt = nextStatus === 'Approved'
+        ? new Date().toISOString()
+        : request.approvedAt || '';
+      const updatedRequest = {
+        ...request,
+        status: nextStatus,
+        rejectionReason: nextStatus === 'Rejected' ? request.rejectionReason || '' : '',
+        approver: currentSessionUser.name,
+        approverId: currentSessionUser.id,
+        assignedDriverId: nextAssignedDriverId || '',
+        assignedDriver: nextAssignedDriver?.fullName || request.assignedDriver,
+        fuelRequested: approvalDetails?.fuelRequested ?? request.fuelRequested,
+        fuelAmount: Number(approvalDetails?.fuelAmount ?? request.fuelAmount ?? 0),
+        fuelLiters: Number(approvalDetails?.fuelLiters ?? request.fuelLiters ?? 0),
+        estimatedKms: Number(approvalDetails?.estimatedKms ?? request.estimatedKms ?? 0),
+        fuelRemarks: approvalDetails?.fuelRemarks ?? request.fuelRemarks ?? '',
+        fuelProduct: approvalDetails?.fuelProduct ?? request.fuelProduct ?? 'diesel',
+        fuelQuotePricePerLiter: approvalDetails?.fuelQuotePricePerLiter ?? request.fuelQuotePricePerLiter ?? null,
+        fuelQuoteSource: approvalDetails?.fuelQuoteSource ?? request.fuelQuoteSource ?? '',
+        fuelQuoteObservedAt: approvalDetails?.fuelQuoteObservedAt ?? request.fuelQuoteObservedAt ?? '',
+        fuelQuoteLocation: approvalDetails?.fuelQuoteLocation ?? request.fuelQuoteLocation ?? '',
+        fuelQuoteProvince: approvalDetails?.fuelQuoteProvince ?? request.fuelQuoteProvince ?? '',
+        fuelQuoteMunicipality: approvalDetails?.fuelQuoteMunicipality ?? request.fuelQuoteMunicipality ?? '',
+        approvedAt,
+      };
+
+      setRequestRecords((current) =>
+        current.map((entry) =>
+          entry.id === request.id
+            ? updatedRequest
+            : entry
+        )
+      );
+      if (nextStatus === 'Approved' && previousAssignedDriverId !== nextAssignedDriverId) {
+        setDriverRecords((current) =>
+          current.map((driver) => {
+            if (previousAssignedDriverId && driver.id === previousAssignedDriverId) {
+              return {
+                ...driver,
+                status: 'available',
+              };
+            }
+
+            if (nextAssignedDriverId && driver.id === nextAssignedDriverId) {
+              return {
+                ...driver,
+                status: 'assigned',
+              };
+            }
+
+            return driver;
+          })
+        );
+      }
+
+      if (nextStatus === 'Rejected') {
+        if (request.assignedVehicleId) {
+          setVehicleRecords((current) =>
+            current.map((vehicle) =>
+              vehicle.id === request.assignedVehicleId
+                ? {
+                    ...vehicle,
+                    status: 'available',
+                  }
+                : vehicle
+            )
+          );
         }
 
-        showToast(error.message || `Unable to mark the request as ${nextStatus.toLowerCase()}.`, 'danger', 'Update failed');
-        return false;
-      }
-    }
-
-    const nextAssignedDriver = driverRecords.find((driver) => driver.id === nextAssignedDriverId);
-    const previousAssignedDriverId = request.assignedDriverId;
-    const approvedAt = nextStatus === 'Approved'
-      ? new Date().toISOString()
-      : request.approvedAt || '';
-    const updatedRequest = {
-      ...request,
-      status: nextStatus,
-      rejectionReason: nextStatus === 'Rejected' ? request.rejectionReason || '' : '',
-      approver: currentSessionUser.name,
-      approverId: currentSessionUser.id,
-      assignedDriverId: nextAssignedDriverId || '',
-      assignedDriver: nextAssignedDriver?.fullName || request.assignedDriver,
-      fuelRequested: approvalDetails?.fuelRequested ?? request.fuelRequested,
-      fuelAmount: Number(approvalDetails?.fuelAmount ?? request.fuelAmount ?? 0),
-      fuelLiters: Number(approvalDetails?.fuelLiters ?? request.fuelLiters ?? 0),
-      estimatedKms: Number(approvalDetails?.estimatedKms ?? request.estimatedKms ?? 0),
-      fuelRemarks: approvalDetails?.fuelRemarks ?? request.fuelRemarks ?? '',
-      fuelProduct: approvalDetails?.fuelProduct ?? request.fuelProduct ?? 'diesel',
-      fuelQuotePricePerLiter: approvalDetails?.fuelQuotePricePerLiter ?? request.fuelQuotePricePerLiter ?? null,
-      fuelQuoteSource: approvalDetails?.fuelQuoteSource ?? request.fuelQuoteSource ?? '',
-      fuelQuoteObservedAt: approvalDetails?.fuelQuoteObservedAt ?? request.fuelQuoteObservedAt ?? '',
-      fuelQuoteLocation: approvalDetails?.fuelQuoteLocation ?? request.fuelQuoteLocation ?? '',
-      fuelQuoteProvince: approvalDetails?.fuelQuoteProvince ?? request.fuelQuoteProvince ?? '',
-      fuelQuoteMunicipality: approvalDetails?.fuelQuoteMunicipality ?? request.fuelQuoteMunicipality ?? '',
-      approvedAt,
-    };
-
-    setRequestRecords((current) =>
-      current.map((entry) =>
-        entry.id === request.id
-          ? updatedRequest
-          : entry
-      )
-    );
-    if (nextStatus === 'Approved' && previousAssignedDriverId !== nextAssignedDriverId) {
-      setDriverRecords((current) =>
-        current.map((driver) => {
-          if (previousAssignedDriverId && driver.id === previousAssignedDriverId) {
-            return {
-              ...driver,
-              status: 'available',
-            };
-          }
-
-          if (nextAssignedDriverId && driver.id === nextAssignedDriverId) {
-            return {
-              ...driver,
-              status: 'assigned',
-            };
-          }
-
-          return driver;
-        })
-      );
-    }
-
-    if (nextStatus === 'Rejected') {
-      if (request.assignedVehicleId) {
-        setVehicleRecords((current) =>
-          current.map((vehicle) =>
-            vehicle.id === request.assignedVehicleId
-              ? {
-                  ...vehicle,
-                  status: 'available',
-                }
-              : vehicle
-          )
-        );
+        if (request.assignedDriverId) {
+          setDriverRecords((current) =>
+            current.map((driver) =>
+              driver.id === request.assignedDriverId
+                ? {
+                    ...driver,
+                    status: 'available',
+                  }
+                : driver
+            )
+          );
+        }
       }
 
-      if (request.assignedDriverId) {
-        setDriverRecords((current) =>
-          current.map((driver) =>
-            driver.id === request.assignedDriverId
-              ? {
-                  ...driver,
-                  status: 'available',
-                }
-              : driver
-          )
-        );
-      }
+      appendAuditEntry({
+        category: 'request',
+        action: `Marked request as ${nextStatus}`,
+        target: request.requestNo,
+        branch: request.branch,
+        details: `${currentSessionUser.name} changed ${request.requestNo} to ${nextStatus}.`,
+      });
+      showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
+      return true;
+    } finally {
+      finishAsyncAction(actionKey);
     }
-
-    appendAuditEntry({
-      category: 'request',
-      action: `Marked request as ${nextStatus}`,
-      target: request.requestNo,
-      branch: request.branch,
-      details: `${currentSessionUser.name} changed ${request.requestNo} to ${nextStatus}.`,
-    });
-    showToast(`${request.requestNo} marked as ${nextStatus.toLowerCase()}.`, 'success', 'Request updated');
-    return true;
   }
 
   function handleRejectRequest(request) {
@@ -3653,78 +3710,88 @@ function App() {
       return;
     }
 
-    if (supabase) {
-      try {
-        await reviewLiveRequest(
-          supabase,
-          selectedReviewRequest,
-          currentSessionUser,
-          'Rejected',
-          trimmedRemarks
-        );
-        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
-        appendAuditEntry({
-          category: 'request',
-          action: 'Rejected request',
-          target: selectedReviewRequest.requestNo,
-          branch: selectedReviewRequest.branch,
-          details: `Rejected ${selectedReviewRequest.requestNo} with remarks: ${trimmedRemarks}`,
-        });
-        showToast(`${selectedReviewRequest.requestNo} marked as rejected.`, 'warning', 'Request rejected');
-        handleCloseRejectionModal();
-      } catch (error) {
-        showToast(error.message || 'Unable to reject the request.', 'danger', 'Update failed');
-      }
+    const actionKey = 'request-reject';
 
+    if (!startAsyncAction(actionKey)) {
       return;
     }
 
-    setRequestRecords((current) =>
-      current.map((entry) =>
-        entry.id === selectedReviewRequest.id
-          ? {
-              ...entry,
-              status: 'Rejected',
-              rejectionReason: trimmedRemarks,
-              approver: currentSessionUser.name,
-              approverId: currentSessionUser.id,
-            }
-          : entry
-      )
-    );
-    if (selectedReviewRequest.assignedVehicleId) {
-      setVehicleRecords((current) =>
-        current.map((vehicle) =>
-          vehicle.id === selectedReviewRequest.assignedVehicleId
+    try {
+      if (supabase) {
+        try {
+          await reviewLiveRequest(
+            supabase,
+            selectedReviewRequest,
+            currentSessionUser,
+            'Rejected',
+            trimmedRemarks
+          );
+          scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
+          appendAuditEntry({
+            category: 'request',
+            action: 'Rejected request',
+            target: selectedReviewRequest.requestNo,
+            branch: selectedReviewRequest.branch,
+            details: `Rejected ${selectedReviewRequest.requestNo} with remarks: ${trimmedRemarks}`,
+          });
+          showToast(`${selectedReviewRequest.requestNo} marked as rejected.`, 'warning', 'Request rejected');
+          handleCloseRejectionModal();
+          return;
+        } catch (error) {
+          showToast(error.message || 'Unable to reject the request.', 'danger', 'Update failed');
+          return;
+        }
+      }
+
+      setRequestRecords((current) =>
+        current.map((entry) =>
+          entry.id === selectedReviewRequest.id
             ? {
-                ...vehicle,
-                status: 'available',
+                ...entry,
+                status: 'Rejected',
+                rejectionReason: trimmedRemarks,
+                approver: currentSessionUser.name,
+                approverId: currentSessionUser.id,
               }
-            : vehicle
+            : entry
         )
       );
+      if (selectedReviewRequest.assignedVehicleId) {
+        setVehicleRecords((current) =>
+          current.map((vehicle) =>
+            vehicle.id === selectedReviewRequest.assignedVehicleId
+              ? {
+                  ...vehicle,
+                  status: 'available',
+                }
+              : vehicle
+          )
+        );
+      }
+      if (selectedReviewRequest.assignedDriverId) {
+        setDriverRecords((current) =>
+          current.map((driver) =>
+            driver.id === selectedReviewRequest.assignedDriverId
+              ? {
+                  ...driver,
+                  status: 'available',
+                }
+              : driver
+          )
+        );
+      }
+      appendAuditEntry({
+        category: 'request',
+        action: 'Rejected request',
+        target: selectedReviewRequest.requestNo,
+        branch: selectedReviewRequest.branch,
+        details: `Rejected ${selectedReviewRequest.requestNo} with remarks: ${trimmedRemarks}`,
+      });
+      showToast(`${selectedReviewRequest.requestNo} marked as rejected.`, 'warning', 'Request rejected');
+      handleCloseRejectionModal();
+    } finally {
+      finishAsyncAction(actionKey);
     }
-    if (selectedReviewRequest.assignedDriverId) {
-      setDriverRecords((current) =>
-        current.map((driver) =>
-          driver.id === selectedReviewRequest.assignedDriverId
-            ? {
-                ...driver,
-                status: 'available',
-              }
-            : driver
-        )
-      );
-    }
-    appendAuditEntry({
-      category: 'request',
-      action: 'Rejected request',
-      target: selectedReviewRequest.requestNo,
-      branch: selectedReviewRequest.branch,
-      details: `Rejected ${selectedReviewRequest.requestNo} with remarks: ${trimmedRemarks}`,
-    });
-    showToast(`${selectedReviewRequest.requestNo} marked as rejected.`, 'warning', 'Request rejected');
-    handleCloseRejectionModal();
   }
 
   function handlePrintRequest(request, previewWindow = null) {
@@ -3760,75 +3827,85 @@ function App() {
       }
     }
 
-    if (supabase) {
-      try {
-        await updateLiveRequestVehicleAssignment(
-          supabase,
-          selectedAssignmentRequest,
-          assignmentVehicleId
-        );
-        scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
-        appendAuditEntry({
-          category: 'request',
-          action: 'Updated vehicle assignment',
-          target: selectedAssignmentRequest.requestNo,
-          branch: selectedAssignmentRequest.branch,
-          details: `Assigned ${nextVehicle?.vehicleName || 'Unassigned'} to ${selectedAssignmentRequest.requestNo}.`,
-        });
-        showToast(`${selectedAssignmentRequest.requestNo} vehicle assignment updated.`, 'success', 'Assignment updated');
-        handleCloseAssignmentModal();
-      } catch (error) {
-        showToast(error.message || 'Unable to update the assigned vehicle.', 'danger', 'Assignment failed');
-      }
+    const actionKey = 'request-assignment';
 
+    if (!startAsyncAction(actionKey)) {
       return;
     }
 
-    setRequestRecords((current) =>
-      current.map((entry) =>
-        entry.id === selectedAssignmentRequest.id
-          ? {
-              ...entry,
-              assignedVehicle: nextVehicle?.vehicleName || 'Unassigned',
-              assignedVehicleId: assignmentVehicleId,
-            }
-          : entry
-      )
-    );
-
-    setVehicleRecords((current) =>
-      current.map((vehicle) => {
-        if (
-          selectedAssignmentRequest.assignedVehicleId
-          && vehicle.id === selectedAssignmentRequest.assignedVehicleId
-          && vehicle.status === 'reserved'
-        ) {
-          return {
-            ...vehicle,
-            status: 'available',
-          };
+    try {
+      if (supabase) {
+        try {
+          await updateLiveRequestVehicleAssignment(
+            supabase,
+            selectedAssignmentRequest,
+            assignmentVehicleId
+          );
+          scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
+          appendAuditEntry({
+            category: 'request',
+            action: 'Updated vehicle assignment',
+            target: selectedAssignmentRequest.requestNo,
+            branch: selectedAssignmentRequest.branch,
+            details: `Assigned ${nextVehicle?.vehicleName || 'Unassigned'} to ${selectedAssignmentRequest.requestNo}.`,
+          });
+          showToast(`${selectedAssignmentRequest.requestNo} vehicle assignment updated.`, 'success', 'Assignment updated');
+          handleCloseAssignmentModal();
+          return;
+        } catch (error) {
+          showToast(error.message || 'Unable to update the assigned vehicle.', 'danger', 'Assignment failed');
+          return;
         }
+      }
 
-        if (assignmentVehicleId && vehicle.id === assignmentVehicleId) {
-          return {
-            ...vehicle,
-            status: 'reserved',
-          };
-        }
+      setRequestRecords((current) =>
+        current.map((entry) =>
+          entry.id === selectedAssignmentRequest.id
+            ? {
+                ...entry,
+                assignedVehicle: nextVehicle?.vehicleName || 'Unassigned',
+                assignedVehicleId: assignmentVehicleId,
+              }
+            : entry
+        )
+      );
 
-        return vehicle;
-      })
-    );
+      setVehicleRecords((current) =>
+        current.map((vehicle) => {
+          if (
+            selectedAssignmentRequest.assignedVehicleId
+            && vehicle.id === selectedAssignmentRequest.assignedVehicleId
+            && vehicle.status === 'reserved'
+          ) {
+            return {
+              ...vehicle,
+              status: 'available',
+            };
+          }
 
-    appendAuditEntry({
-      category: 'request',
-      action: 'Updated vehicle assignment',
-      target: selectedAssignmentRequest.requestNo,
-      branch: selectedAssignmentRequest.branch,
-      details: `Assigned ${nextVehicle?.vehicleName || 'Unassigned'} to ${selectedAssignmentRequest.requestNo}.`,
-    });
-    showToast(`${selectedAssignmentRequest.requestNo} vehicle assignment updated.`, 'success', 'Assignment updated');
-    handleCloseAssignmentModal();
+          if (assignmentVehicleId && vehicle.id === assignmentVehicleId) {
+            return {
+              ...vehicle,
+              status: 'reserved',
+            };
+          }
+
+          return vehicle;
+        })
+      );
+
+      appendAuditEntry({
+        category: 'request',
+        action: 'Updated vehicle assignment',
+        target: selectedAssignmentRequest.requestNo,
+        branch: selectedAssignmentRequest.branch,
+        details: `Assigned ${nextVehicle?.vehicleName || 'Unassigned'} to ${selectedAssignmentRequest.requestNo}.`,
+      });
+      showToast(`${selectedAssignmentRequest.requestNo} vehicle assignment updated.`, 'success', 'Assignment updated');
+      handleCloseAssignmentModal();
+    } finally {
+      finishAsyncAction(actionKey);
+    }
   }
 
   async function handlePasswordSubmit(event) {
@@ -3863,8 +3940,13 @@ function App() {
       return;
     }
 
+    const actionKey = 'password-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
     try {
-      setIsSavingPassword(true);
       const { error } = await supabase.auth.updateUser({
         password: newPassword,
       });
@@ -3884,7 +3966,7 @@ function App() {
     } catch (error) {
       showToast(error.message || 'Unable to update your password.', 'danger', 'Profile settings');
     } finally {
-      setIsSavingPassword(false);
+      finishAsyncAction(actionKey);
     }
   }
 
@@ -3942,8 +4024,14 @@ function App() {
       return;
     }
 
-    if (supabase) {
-      try {
+    const actionKey = 'branch-settings-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
+    try {
+      if (supabase) {
         await saveLiveBranch(supabase, branchSettingsForm);
         scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
@@ -3954,48 +4042,49 @@ function App() {
         });
         showToast(branchSettingsForm.id ? 'Branch updated.' : 'Branch created.', 'success', 'Settings saved');
         handleCloseBranchSettingsModal();
-      } catch (error) {
-        showToast(error.message || 'Unable to save the branch.', 'danger', 'Settings failed');
+        return;
       }
 
-      return;
+      const nextBranch = {
+        id: branchSettingsForm.id || createId('br'),
+        code: branchSettingsForm.code.trim().toUpperCase(),
+        name: branchSettingsForm.name.trim(),
+        address: branchSettingsForm.address.trim(),
+        serviceRegion: branchSettingsForm.serviceRegion === 'panay' ? 'panay' : 'other',
+        isActive: branchSettingsForm.isActive,
+        utilization: branchSettingsForm.id
+          ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.utilization || 0
+          : 0,
+        assignedUsers: branchSettingsForm.id
+          ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.assignedUsers || 0
+          : 0,
+        assignedDrivers: branchSettingsForm.id
+          ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.assignedDrivers || 0
+          : 0,
+        assignedVehicles: branchSettingsForm.id
+          ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.assignedVehicles || 0
+          : 0,
+      };
+
+      setBranchRecords((current) =>
+        branchSettingsForm.id
+          ? current.map((branch) => (branch.id === branchSettingsForm.id ? nextBranch : branch))
+          : [...current, nextBranch]
+      );
+
+      appendAuditEntry({
+        category: 'branch',
+        action: branchSettingsForm.id ? 'Updated branch' : 'Created branch',
+        target: nextBranch.name,
+        details: `${branchSettingsForm.id ? 'Updated' : 'Created'} branch ${nextBranch.code}.`,
+      });
+      showToast(branchSettingsForm.id ? 'Branch updated.' : 'Branch added.', 'success', 'Settings saved');
+      handleCloseBranchSettingsModal();
+    } catch (error) {
+      showToast(error.message || 'Unable to save the branch.', 'danger', 'Settings failed');
+    } finally {
+      finishAsyncAction(actionKey);
     }
-
-    const nextBranch = {
-      id: branchSettingsForm.id || createId('br'),
-      code: branchSettingsForm.code.trim().toUpperCase(),
-      name: branchSettingsForm.name.trim(),
-      address: branchSettingsForm.address.trim(),
-      serviceRegion: branchSettingsForm.serviceRegion === 'panay' ? 'panay' : 'other',
-      isActive: branchSettingsForm.isActive,
-      utilization: branchSettingsForm.id
-        ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.utilization || 0
-        : 0,
-      assignedUsers: branchSettingsForm.id
-        ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.assignedUsers || 0
-        : 0,
-      assignedDrivers: branchSettingsForm.id
-        ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.assignedDrivers || 0
-        : 0,
-      assignedVehicles: branchSettingsForm.id
-        ? branchRecords.find((branch) => branch.id === branchSettingsForm.id)?.assignedVehicles || 0
-        : 0,
-    };
-
-    setBranchRecords((current) =>
-      branchSettingsForm.id
-        ? current.map((branch) => (branch.id === branchSettingsForm.id ? nextBranch : branch))
-        : [...current, nextBranch]
-    );
-
-    appendAuditEntry({
-      category: 'branch',
-      action: branchSettingsForm.id ? 'Updated branch' : 'Created branch',
-      target: nextBranch.name,
-      details: `${branchSettingsForm.id ? 'Updated' : 'Created'} branch ${nextBranch.code}.`,
-    });
-    showToast(branchSettingsForm.id ? 'Branch updated.' : 'Branch added.', 'success', 'Settings saved');
-    handleCloseBranchSettingsModal();
   }
 
   async function handleDeleteBranch(branch) {
@@ -4083,6 +4172,12 @@ function App() {
       }
     }
 
+    const actionKey = 'user-settings-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
     try {
       let createResult = null;
 
@@ -4113,6 +4208,8 @@ function App() {
       handleCloseUserSettingsModal();
     } catch (error) {
       showToast(error.message || 'Unable to update the user profile.', 'danger', 'Settings failed');
+    } finally {
+      finishAsyncAction(actionKey);
     }
   }
 
@@ -4245,6 +4342,12 @@ function App() {
       return;
     }
 
+    const actionKey = 'driver-settings-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
     try {
       await saveLiveDriver(supabase, scopedDriverSettingsForm);
       scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
@@ -4259,6 +4362,8 @@ function App() {
       handleCloseDriverSettingsModal();
     } catch (error) {
       showToast(error.message || 'Unable to save the driver record.', 'danger', 'Settings failed');
+    } finally {
+      finishAsyncAction(actionKey);
     }
   }
 
@@ -4373,8 +4478,14 @@ function App() {
       return;
     }
 
-    if (supabase) {
-      try {
+    const actionKey = 'maintenance-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
+    try {
+      if (supabase) {
         await saveLiveMaintenance(supabase, maintenanceForm);
         scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
@@ -4386,46 +4497,47 @@ function App() {
         });
         showToast('Maintenance record saved.', 'success', 'Settings saved');
         handleCloseMaintenanceModal();
-      } catch (error) {
-        showToast(error.message || 'Unable to save the maintenance record.', 'danger', 'Settings failed');
+        return;
       }
 
-      return;
+      const vehicleRecord = vehicleRecords.find((v) => v.id === maintenanceForm.vehicleId);
+      const branchName = branchRecords.find((b) => b.id === maintenanceForm.branchId)?.name || 'Unknown';
+
+      const nextLog = {
+        id: maintenanceForm.id || createId('mnt'),
+        vehicle: vehicleRecord?.vehicleName || 'Unknown vehicle',
+        vehicleId: maintenanceForm.vehicleId,
+        branch: branchName,
+        branchId: maintenanceForm.branchId,
+        maintenanceType: maintenanceForm.maintenanceType.trim(),
+        scheduleDate: maintenanceForm.scheduleDate,
+        completedDate: maintenanceForm.completedDate,
+        provider: maintenanceForm.provider.trim(),
+        amount: Number(maintenanceForm.amount || 0),
+        status: maintenanceForm.status,
+        remarks: maintenanceForm.remarks.trim(),
+      };
+
+      setMaintenanceRecords((current) =>
+        maintenanceForm.id
+          ? current.map((log) => (log.id === maintenanceForm.id ? nextLog : log))
+          : [nextLog, ...current]
+      );
+
+      appendAuditEntry({
+        category: 'maintenance',
+        action: maintenanceForm.id ? 'Updated maintenance log' : 'Created maintenance log',
+        target: nextLog.vehicle,
+        branch: nextLog.branch,
+        details: `${maintenanceForm.id ? 'Updated' : 'Created'} ${nextLog.maintenanceType} log for ${nextLog.vehicle}.`,
+      });
+      showToast(`Maintenance log ${maintenanceForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
+      handleCloseMaintenanceModal();
+    } catch (error) {
+      showToast(error.message || 'Unable to save the maintenance record.', 'danger', 'Settings failed');
+    } finally {
+      finishAsyncAction(actionKey);
     }
-
-    const vehicleRecord = vehicleRecords.find((v) => v.id === maintenanceForm.vehicleId);
-    const branchName = branchRecords.find((b) => b.id === maintenanceForm.branchId)?.name || 'Unknown';
-    
-    const nextLog = {
-      id: maintenanceForm.id || createId('mnt'),
-      vehicle: vehicleRecord?.vehicleName || 'Unknown vehicle',
-      vehicleId: maintenanceForm.vehicleId,
-      branch: branchName,
-      branchId: maintenanceForm.branchId,
-      maintenanceType: maintenanceForm.maintenanceType.trim(),
-      scheduleDate: maintenanceForm.scheduleDate,
-      completedDate: maintenanceForm.completedDate,
-      provider: maintenanceForm.provider.trim(),
-      amount: Number(maintenanceForm.amount || 0),
-      status: maintenanceForm.status,
-      remarks: maintenanceForm.remarks.trim(),
-    };
-
-    setMaintenanceRecords((current) =>
-      maintenanceForm.id
-        ? current.map((log) => (log.id === maintenanceForm.id ? nextLog : log))
-        : [nextLog, ...current]
-    );
-
-    appendAuditEntry({
-      category: 'maintenance',
-      action: maintenanceForm.id ? 'Updated maintenance log' : 'Created maintenance log',
-      target: nextLog.vehicle,
-      branch: nextLog.branch,
-      details: `${maintenanceForm.id ? 'Updated' : 'Created'} ${nextLog.maintenanceType} log for ${nextLog.vehicle}.`,
-    });
-    showToast(`Maintenance log ${maintenanceForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
-    handleCloseMaintenanceModal();
   }
 
   function handleOpenIncidentModal(incident = null) {
@@ -4464,8 +4576,14 @@ function App() {
       return;
     }
 
-    if (supabase) {
-      try {
+    const actionKey = 'incident-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
+    try {
+      if (supabase) {
         let finalPhotoUrl = incidentForm.photoUrl;
 
         if (incidentForm.photoFile) {
@@ -4483,38 +4601,39 @@ function App() {
         });
         showToast('Safety incident report saved.', 'success', 'Settings saved');
         handleCloseIncidentModal();
-      } catch (error) {
-        showToast(error.message || 'Unable to save the incident report.', 'danger', 'Submission failed');
+        return;
       }
 
-      return;
+      const vehicleRecord = vehicleRecords.find((v) => v.id === incidentForm.vehicleId);
+
+      const nextIncident = {
+        id: incidentForm.id || createId('inc'),
+        vehicle: vehicleRecord?.vehicleName || 'Unknown vehicle',
+        vehicleId: incidentForm.vehicleId,
+        location: incidentForm.location.trim(),
+        description: incidentForm.description.trim(),
+        status: incidentForm.status,
+      };
+
+      setIncidentRecords((current) =>
+        incidentForm.id
+          ? current.map((inc) => (inc.id === incidentForm.id ? nextIncident : inc))
+          : [nextIncident, ...current]
+      );
+
+      appendAuditEntry({
+        category: 'incident',
+        action: incidentForm.id ? 'Updated safety incident' : 'Created safety incident',
+        target: nextIncident.vehicle,
+        details: `${incidentForm.id ? 'Updated' : 'Created'} incident at ${nextIncident.location}.`,
+      });
+      showToast(`Safety incident ${incidentForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
+      handleCloseIncidentModal();
+    } catch (error) {
+      showToast(error.message || 'Unable to save the incident report.', 'danger', 'Submission failed');
+    } finally {
+      finishAsyncAction(actionKey);
     }
-
-    const vehicleRecord = vehicleRecords.find((v) => v.id === incidentForm.vehicleId);
-    
-    const nextIncident = {
-      id: incidentForm.id || createId('inc'),
-      vehicle: vehicleRecord?.vehicleName || 'Unknown vehicle',
-      vehicleId: incidentForm.vehicleId,
-      location: incidentForm.location.trim(),
-      description: incidentForm.description.trim(),
-      status: incidentForm.status,
-    };
-
-    setIncidentRecords((current) =>
-      incidentForm.id
-        ? current.map((inc) => (inc.id === incidentForm.id ? nextIncident : inc))
-        : [nextIncident, ...current]
-    );
-
-    appendAuditEntry({
-      category: 'incident',
-      action: incidentForm.id ? 'Updated safety incident' : 'Created safety incident',
-      target: nextIncident.vehicle,
-      details: `${incidentForm.id ? 'Updated' : 'Created'} incident at ${nextIncident.location}.`,
-    });
-    showToast(`Safety incident ${incidentForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
-    handleCloseIncidentModal();
   }
 
   function handleOpenVehicleSettingsModal(vehicle = null) {
@@ -4640,8 +4759,14 @@ function App() {
       return;
     }
 
-    if (supabase) {
-      try {
+    const actionKey = 'vehicle-settings-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
+    try {
+      if (supabase) {
         await saveLiveVehicle(supabase, scopedVehicleSettingsForm, availableVehicleTypeRecords);
         scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
@@ -4653,57 +4778,58 @@ function App() {
         });
         showToast('Vehicle record updated.', 'success', 'Settings saved');
         handleCloseVehicleSettingsModal();
-      } catch (error) {
-        showToast(error.message || 'Unable to save the vehicle record.', 'danger', 'Settings failed');
+        return;
       }
 
-      return;
+      const branchName = branchOptions.find((branch) => branch.id === scopedVehicleSettingsForm.branchId)?.name || 'Unassigned';
+      const vehicleTypeName = availableVehicleTypeRecords.find((type) => type.id === scopedVehicleSettingsForm.typeId)?.name || scopedVehicleSettingsForm.typeId;
+      const nextVehicle = {
+        id: scopedVehicleSettingsForm.id || createId('veh'),
+        plateNumber: scopedVehicleSettingsForm.plateNumber.trim(),
+        vehicleName: scopedVehicleSettingsForm.vehicleName.trim(),
+        type: vehicleTypeName,
+        typeId: scopedVehicleSettingsForm.typeId,
+        branch: branchName,
+        branchId: scopedVehicleSettingsForm.branchId,
+        status: scopedVehicleSettingsForm.status,
+        fuelType: scopedVehicleSettingsForm.fuelType.trim(),
+        seatingCapacity: Number(scopedVehicleSettingsForm.seatingCapacity || 0),
+        odometerCurrent: Number(scopedVehicleSettingsForm.odometerCurrent || 0),
+        oilChangeReminderEnabled: Boolean(scopedVehicleSettingsForm.oilChangeReminderEnabled),
+        oilChangeIntervalKm: hasOilChangeIntervalKm ? oilChangeIntervalKmValue : null,
+        oilChangeIntervalMonths: hasOilChangeIntervalMonths ? oilChangeIntervalMonthsValue : null,
+        oilChangeLastOdometer: hasOilChangeLastOdometer && Number.isFinite(oilChangeLastOdometerValue)
+          ? oilChangeLastOdometerValue
+          : null,
+        oilChangeLastChangedOn: hasOilChangeLastChangedOn ? String(scopedVehicleSettingsForm.oilChangeLastChangedOn).trim() : '',
+        registrationExpiry: scopedVehicleSettingsForm.registrationExpiry,
+        insuranceExpiry: scopedVehicleSettingsForm.insuranceExpiry,
+        fuelEfficiency: Number(scopedVehicleSettingsForm.fuelEfficiency || 10),
+        requiredRestrictions: scopedVehicleSettingsForm.requiredRestrictions.trim(),
+        isOdoDefective: scopedVehicleSettingsForm.isOdoDefective || false,
+        assignedDriver: 'Unassigned',
+      };
+
+      setVehicleRecords((current) =>
+        scopedVehicleSettingsForm.id
+          ? current.map((vehicle) => (vehicle.id === scopedVehicleSettingsForm.id ? nextVehicle : vehicle))
+          : [nextVehicle, ...current]
+      );
+
+      appendAuditEntry({
+        category: 'vehicle',
+        action: scopedVehicleSettingsForm.id ? 'Updated vehicle record' : 'Created vehicle record',
+        target: nextVehicle.vehicleName,
+        branch: nextVehicle.branch,
+        details: `${scopedVehicleSettingsForm.id ? 'Updated' : 'Created'} ${nextVehicle.type} vehicle ${nextVehicle.vehicleName}.`,
+      });
+      showToast(`Vehicle ${scopedVehicleSettingsForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
+      handleCloseVehicleSettingsModal();
+    } catch (error) {
+      showToast(error.message || 'Unable to save the vehicle record.', 'danger', 'Settings failed');
+    } finally {
+      finishAsyncAction(actionKey);
     }
-
-    const branchName = branchOptions.find((branch) => branch.id === scopedVehicleSettingsForm.branchId)?.name || 'Unassigned';
-    const vehicleTypeName = availableVehicleTypeRecords.find((type) => type.id === scopedVehicleSettingsForm.typeId)?.name || scopedVehicleSettingsForm.typeId;
-    const nextVehicle = {
-      id: scopedVehicleSettingsForm.id || createId('veh'),
-      plateNumber: scopedVehicleSettingsForm.plateNumber.trim(),
-      vehicleName: scopedVehicleSettingsForm.vehicleName.trim(),
-      type: vehicleTypeName,
-      typeId: scopedVehicleSettingsForm.typeId,
-      branch: branchName,
-      branchId: scopedVehicleSettingsForm.branchId,
-      status: scopedVehicleSettingsForm.status,
-      fuelType: scopedVehicleSettingsForm.fuelType.trim(),
-      seatingCapacity: Number(scopedVehicleSettingsForm.seatingCapacity || 0),
-      odometerCurrent: Number(scopedVehicleSettingsForm.odometerCurrent || 0),
-      oilChangeReminderEnabled: Boolean(scopedVehicleSettingsForm.oilChangeReminderEnabled),
-      oilChangeIntervalKm: hasOilChangeIntervalKm ? oilChangeIntervalKmValue : null,
-      oilChangeIntervalMonths: hasOilChangeIntervalMonths ? oilChangeIntervalMonthsValue : null,
-      oilChangeLastOdometer: hasOilChangeLastOdometer && Number.isFinite(oilChangeLastOdometerValue)
-        ? oilChangeLastOdometerValue
-        : null,
-      oilChangeLastChangedOn: hasOilChangeLastChangedOn ? String(scopedVehicleSettingsForm.oilChangeLastChangedOn).trim() : '',
-      registrationExpiry: scopedVehicleSettingsForm.registrationExpiry,
-      insuranceExpiry: scopedVehicleSettingsForm.insuranceExpiry,
-      fuelEfficiency: Number(scopedVehicleSettingsForm.fuelEfficiency || 10),
-      requiredRestrictions: scopedVehicleSettingsForm.requiredRestrictions.trim(),
-      isOdoDefective: scopedVehicleSettingsForm.isOdoDefective || false,
-      assignedDriver: 'Unassigned',
-    };
-
-    setVehicleRecords((current) =>
-      scopedVehicleSettingsForm.id
-        ? current.map((vehicle) => (vehicle.id === scopedVehicleSettingsForm.id ? nextVehicle : vehicle))
-        : [nextVehicle, ...current]
-    );
-
-    appendAuditEntry({
-      category: 'vehicle',
-      action: scopedVehicleSettingsForm.id ? 'Updated vehicle record' : 'Created vehicle record',
-      target: nextVehicle.vehicleName,
-      branch: nextVehicle.branch,
-      details: `${scopedVehicleSettingsForm.id ? 'Updated' : 'Created'} ${nextVehicle.type} vehicle ${nextVehicle.vehicleName}.`,
-    });
-    showToast(`Vehicle ${scopedVehicleSettingsForm.id ? 'updated' : 'added'} successfully.`, 'success', 'Settings saved');
-    handleCloseVehicleSettingsModal();
   }
 
   async function handleDeleteVehicle(vehicle) {
@@ -5154,6 +5280,10 @@ function App() {
   async function handleRequestSubmit(event) {
     event.preventDefault();
 
+    if (asyncActionLockRef.current) {
+      return;
+    }
+
     const purpose = requestForm.purpose.trim();
     const destination = requestForm.destination.trim();
     const passengerCount = normalizePassengerCount(requestForm.passengerCount);
@@ -5282,8 +5412,14 @@ function App() {
       ? branchAdminApprover?.name || 'Pending'
       : 'Pending';
 
-    if (supabase) {
-      try {
+    const actionKey = 'request-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
+    try {
+      if (supabase) {
         if (hiredDriverPayload) {
           const createdDriver = await saveLiveDriver(supabase, hiredDriverPayload);
           resolvedAssignedDriverId = String(createdDriver?.id || '').trim();
@@ -5327,106 +5463,111 @@ function App() {
         showToast(`${requestNo} added to the request queue.`, 'success', 'Request submitted');
         setRequestModalOpen(false);
         setActiveView('requests');
-      } catch (error) {
-        showToast(error.message || 'Unable to submit the request to Supabase.', 'danger', 'Submission failed');
+        return;
       }
 
-      return;
-    }
+      if (hiredDriverPayload) {
+        resolvedAssignedDriverId = createId('drv');
+        selectedDriver = {
+          id: resolvedAssignedDriverId,
+          dbId: resolvedAssignedDriverId,
+          profileId: '',
+          fullName: hiredDriverPayload.fullName,
+          employeeId: hiredDriverPayload.employeeId,
+          branch: currentSessionUser.branch,
+          branchId: hiredDriverPayload.branchId,
+          status: 'available',
+          licenseNumber: hiredDriverPayload.licenseNumber,
+          licenseRestrictions: hiredDriverPayload.licenseRestrictions,
+          licenseExpiry: hiredDriverPayload.licenseExpiry,
+          contactNumber: hiredDriverPayload.contactNumber,
+          linkedAccountName: '',
+          linkedAccountEmail: '',
+        };
+        hiredLocalDriver = selectedDriver;
+      }
 
-    if (hiredDriverPayload) {
-      resolvedAssignedDriverId = createId('drv');
-      selectedDriver = {
-        id: resolvedAssignedDriverId,
-        dbId: resolvedAssignedDriverId,
-        profileId: '',
-        fullName: hiredDriverPayload.fullName,
-        employeeId: hiredDriverPayload.employeeId,
+      const requestNo = createRequestNumber(requestRecords);
+      const nextRequest = {
+        id: createId('req'),
+        createdAt: new Date().toISOString(),
+        requestNo,
         branch: currentSessionUser.branch,
-        branchId: hiredDriverPayload.branchId,
-        status: 'available',
-        licenseNumber: hiredDriverPayload.licenseNumber,
-        licenseRestrictions: hiredDriverPayload.licenseRestrictions,
-        licenseExpiry: hiredDriverPayload.licenseExpiry,
-        contactNumber: hiredDriverPayload.contactNumber,
-        linkedAccountName: '',
-        linkedAccountEmail: '',
+        requestedBy: currentSessionUser.name,
+        purpose,
+        destination,
+        departureDatetime: requestForm.departureDatetime,
+        expectedReturnDatetime: requestForm.expectedReturnDatetime,
+        passengerCount,
+        passengerNames,
+        status: 'Pending Approval',
+        assignedVehicle: selectedVehicle?.vehicleName || 'Unassigned',
+        assignedVehicleId: requestForm.assignedVehicleId || '',
+        assignedDriver: selectedDriver?.fullName || 'Unassigned',
+        assignedDriverId: resolvedAssignedDriverId || '',
+        fuelRequested: requestForm.fuelRequested,
+        fuelAmount: Number(requestForm.fuelAmount || 0),
+        fuelLiters: Number(requestForm.fuelLiters || 0),
+        estimatedKms: Number(requestForm.estimatedKms || 0),
+        fuelRemarks: requestForm.fuelRemarks.trim(),
+        fuelProduct: requestForm.fuelProduct || 'diesel',
+        fuelQuotePricePerLiter: requestForm.fuelQuotePricePerLiter,
+        fuelQuoteSource: requestForm.fuelQuoteSource || '',
+        fuelQuoteObservedAt: requestForm.fuelQuoteObservedAt || '',
+        fuelQuoteLocation: requestForm.fuelQuoteLocation || '',
+        fuelQuoteProvince: requestForm.fuelQuoteProvince || '',
+        fuelQuoteMunicipality: requestForm.fuelQuoteMunicipality || '',
+        approverId: forcedApproverId || '',
+        approver: forcedApproverName,
       };
-      hiredLocalDriver = selectedDriver;
-    }
 
-    const requestNo = createRequestNumber(requestRecords);
-    const nextRequest = {
-      id: createId('req'),
-      createdAt: new Date().toISOString(),
-      requestNo,
-      branch: currentSessionUser.branch,
-      requestedBy: currentSessionUser.name,
-      purpose,
-      destination,
-      departureDatetime: requestForm.departureDatetime,
-      expectedReturnDatetime: requestForm.expectedReturnDatetime,
-      passengerCount,
-      passengerNames,
-      status: 'Pending Approval',
-      assignedVehicle: selectedVehicle?.vehicleName || 'Unassigned',
-      assignedVehicleId: requestForm.assignedVehicleId || '',
-      assignedDriver: selectedDriver?.fullName || 'Unassigned',
-      assignedDriverId: resolvedAssignedDriverId || '',
-      fuelRequested: requestForm.fuelRequested,
-      fuelAmount: Number(requestForm.fuelAmount || 0),
-      fuelLiters: Number(requestForm.fuelLiters || 0),
-      estimatedKms: Number(requestForm.estimatedKms || 0),
-      fuelRemarks: requestForm.fuelRemarks.trim(),
-      fuelProduct: requestForm.fuelProduct || 'diesel',
-      fuelQuotePricePerLiter: requestForm.fuelQuotePricePerLiter,
-      fuelQuoteSource: requestForm.fuelQuoteSource || '',
-      fuelQuoteObservedAt: requestForm.fuelQuoteObservedAt || '',
-      fuelQuoteLocation: requestForm.fuelQuoteLocation || '',
-      fuelQuoteProvince: requestForm.fuelQuoteProvince || '',
-      fuelQuoteMunicipality: requestForm.fuelQuoteMunicipality || '',
-      approverId: forcedApproverId || '',
-      approver: forcedApproverName,
-    };
-
-    setRequestRecords((current) => [nextRequest, ...current]);
-    if (requestForm.assignedVehicleId) {
-      setVehicleRecords((current) =>
-        current.map((vehicle) =>
-          vehicle.id === requestForm.assignedVehicleId
-            ? {
-                ...vehicle,
-                status: 'reserved',
-              }
-            : vehicle
-        )
-      );
-    }
-    if (resolvedAssignedDriverId || hiredLocalDriver) {
-      setDriverRecords((current) => {
-        const nextDrivers = hiredLocalDriver ? [hiredLocalDriver, ...current] : [...current];
-        return nextDrivers.map((driver) =>
-          driver.id === resolvedAssignedDriverId
-            ? {
-                ...driver,
-                status: 'assigned',
-              }
-            : driver
+      setRequestRecords((current) => [nextRequest, ...current]);
+      if (requestForm.assignedVehicleId) {
+        setVehicleRecords((current) =>
+          current.map((vehicle) =>
+            vehicle.id === requestForm.assignedVehicleId
+              ? {
+                  ...vehicle,
+                  status: 'reserved',
+                }
+              : vehicle
+          )
         );
+      }
+      if (resolvedAssignedDriverId || hiredLocalDriver) {
+        setDriverRecords((current) => {
+          const nextDrivers = hiredLocalDriver ? [hiredLocalDriver, ...current] : [...current];
+          return nextDrivers.map((driver) =>
+            driver.id === resolvedAssignedDriverId
+              ? {
+                  ...driver,
+                  status: 'assigned',
+                }
+              : driver
+          );
+        });
+      }
+      appendAuditEntry({
+        category: 'request',
+        action: 'Submitted vehicle request',
+        target: requestNo,
+        details: `Submitted request for ${destination} with purpose "${purpose}".`,
       });
+      pushNotification('Request added', `${requestNo} is now waiting for approval.`, 'info');
+      setRequestSearch('');
+      setRequestForm(createRequestForm());
+      showToast(`${requestNo} added to the request queue.`, 'success', 'Request submitted');
+      setRequestModalOpen(false);
+      setActiveView('requests');
+    } catch (error) {
+      showToast(
+        error.message || (supabase ? 'Unable to submit the request to Supabase.' : 'Unable to submit the request.'),
+        'danger',
+        'Submission failed'
+      );
+    } finally {
+      finishAsyncAction(actionKey);
     }
-    appendAuditEntry({
-      category: 'request',
-      action: 'Submitted vehicle request',
-      target: requestNo,
-      details: `Submitted request for ${destination} with purpose "${purpose}".`,
-    });
-    pushNotification('Request added', `${requestNo} is now waiting for approval.`, 'info');
-    setRequestSearch('');
-    setRequestForm(createRequestForm());
-    showToast(`${requestNo} added to the request queue.`, 'success', 'Request submitted');
-    setRequestModalOpen(false);
-    setActiveView('requests');
   }
 
   function handleOpenRequestModal() {
@@ -5460,8 +5601,14 @@ function App() {
       return;
     }
 
-    if (supabase) {
-      try {
+    const actionKey = 'trip-release';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
+    try {
+      if (supabase) {
         await checkoutLiveTrip(supabase, tripToRelease, checkoutPayload, resolvedOdometerOut);
         scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
@@ -5473,86 +5620,91 @@ function App() {
         });
         showToast(`${tripToRelease.vehicle} checked out successfully.`, 'success', 'Vehicle released');
         setActiveView('trips');
-      } catch (error) {
-        showToast(error.message || 'Unable to release the trip in Supabase.', 'danger', 'Release failed');
+        return;
       }
 
-      return;
+      setTripRecords((current) =>
+        current.map((trip) =>
+          trip.id === tripToRelease.id
+            ? {
+                ...trip,
+                tripStatus: 'Checked Out',
+                dateOut: releaseTimestamp,
+                odometerOut: resolvedOdometerOut,
+                fuelOut: checkoutForm.fuelOut,
+                conditionOut: checkoutForm.conditionOut || '',
+              }
+            : trip
+        )
+      );
+
+      setRequestRecords((current) =>
+        current.map((request) =>
+          request.requestNo === tripToRelease.requestNo
+            ? {
+                ...request,
+                status: 'Checked Out',
+              }
+            : request
+        )
+      );
+
+      setVehicleRecords((current) =>
+        current.map((vehicle) =>
+          vehicle.vehicleName === tripToRelease.vehicle
+            ? {
+                ...vehicle,
+                status: 'in_use',
+                assignedDriver: tripToRelease.driver,
+              }
+            : vehicle
+        )
+      );
+
+      setDriverRecords((current) =>
+        current.map((driver) =>
+          driver.id === tripToRelease.driverId
+            ? {
+                ...driver,
+                status: 'on_trip',
+              }
+            : driver
+        )
+      );
+
+      appendAuditEntry({
+        category: 'trip',
+        action: 'Released trip',
+        target: tripToRelease.requestNo,
+        branch: tripToRelease.origin,
+        details: `Released ${tripToRelease.vehicle} with odometer out ${odometerOutLabel}.`,
+      });
+      pushNotification(
+        'Vehicle released',
+        `${tripToRelease.vehicle} left for ${tripToRelease.requestNo}.`,
+        'info'
+      );
+      showToast(`${tripToRelease.vehicle} checked out successfully.`, 'success', 'Vehicle released');
+      const nextTripRecords = tripRecords.map((trip) =>
+        trip.id === tripToRelease.id ? { ...trip, tripStatus: 'Checked Out' } : trip
+      );
+      setCheckoutForm(
+        pickCheckoutDefaults(
+          getVisibleTripRecords(nextTripRecords),
+          vehicleRecords,
+          READY_FOR_CHECKOUT
+        )
+      );
+      setActiveView('trips');
+    } catch (error) {
+      if (supabase) {
+        showToast(error.message || 'Unable to release the trip in Supabase.', 'danger', 'Release failed');
+      } else {
+        showToast(error.message || 'Unable to release the trip.', 'danger', 'Release failed');
+      }
+    } finally {
+      finishAsyncAction(actionKey);
     }
-
-    setTripRecords((current) =>
-      current.map((trip) =>
-        trip.id === tripToRelease.id
-          ? {
-              ...trip,
-              tripStatus: 'Checked Out',
-              dateOut: releaseTimestamp,
-              odometerOut: resolvedOdometerOut,
-              fuelOut: checkoutForm.fuelOut,
-              conditionOut: checkoutForm.conditionOut || '',
-            }
-          : trip
-      )
-    );
-
-    setRequestRecords((current) =>
-      current.map((request) =>
-        request.requestNo === tripToRelease.requestNo
-          ? {
-              ...request,
-              status: 'Checked Out',
-            }
-          : request
-      )
-    );
-
-    setVehicleRecords((current) =>
-      current.map((vehicle) =>
-        vehicle.vehicleName === tripToRelease.vehicle
-          ? {
-              ...vehicle,
-              status: 'in_use',
-              assignedDriver: tripToRelease.driver,
-            }
-          : vehicle
-      )
-    );
-
-    setDriverRecords((current) =>
-      current.map((driver) =>
-        driver.id === tripToRelease.driverId
-          ? {
-              ...driver,
-              status: 'on_trip',
-            }
-          : driver
-      )
-    );
-
-    appendAuditEntry({
-      category: 'trip',
-      action: 'Released trip',
-      target: tripToRelease.requestNo,
-      branch: tripToRelease.origin,
-      details: `Released ${tripToRelease.vehicle} with odometer out ${odometerOutLabel}.`,
-    });
-    pushNotification(
-      'Vehicle released',
-      `${tripToRelease.vehicle} left for ${tripToRelease.requestNo}.`,
-      'info'
-    );
-    showToast(`${tripToRelease.vehicle} checked out successfully.`, 'success', 'Vehicle released');
-    const nextTripRecords = tripRecords.map((trip) =>
-      trip.id === tripToRelease.id ? { ...trip, tripStatus: 'Checked Out' } : trip
-    );
-    setCheckoutForm(
-      pickCheckoutDefaults(
-        getVisibleTripRecords(nextTripRecords),
-        vehicleRecords,
-        READY_FOR_CHECKOUT
-      )
-    );
-    setActiveView('trips');
   }
 
   async function handleCheckinSubmit(event) {
@@ -5584,8 +5736,14 @@ function App() {
       ? 'Returned with odometer disabled (mileage skipped).'
       : `Returned ${tripToClose.vehicle} with ${mileageComputed} km traveled.`;
 
-    if (supabase) {
-      try {
+    const actionKey = 'trip-return';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
+    try {
+      if (supabase) {
         await checkinLiveTrip(supabase, tripToClose, checkinPayload, resolvedOdometerIn);
         scheduleLiveDataRefresh(currentSessionUser, { delayMs: 120 });
         appendAuditEntry({
@@ -5597,90 +5755,95 @@ function App() {
         });
         showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
         setActiveView('trips');
-      } catch (error) {
-        showToast(error.message || 'Unable to check the trip back in to Supabase.', 'danger', 'Check-in failed');
+        return;
       }
 
-      return;
+      setTripRecords((current) =>
+        current.map((trip) =>
+          trip.id === tripToClose.id
+            ? {
+                ...trip,
+                tripStatus: 'Returned',
+                actualReturnDatetime: returnTimestamp,
+                dateIn: returnTimestamp,
+                odometerIn: resolvedOdometerIn,
+                fuelIn: checkinForm.fuelIn,
+                remarks: checkinForm.remarks,
+                mileageComputed,
+              }
+            : trip
+        )
+      );
+
+      setRequestRecords((current) =>
+        current.map((request) =>
+          request.requestNo === tripToClose.requestNo
+            ? {
+                ...request,
+                status: 'Returned',
+              }
+            : request
+        )
+      );
+
+      setVehicleRecords((current) =>
+        current.map((vehicle) =>
+          vehicle.vehicleName === tripToClose.vehicle
+            ? {
+                ...vehicle,
+                status: 'available',
+                odometerCurrent: isOdoDefective
+                  ? vehicle.odometerCurrent
+                  : odometerIn,
+                assignedDriver: tripToClose.driver,
+              }
+            : vehicle
+        )
+      );
+
+      setDriverRecords((current) =>
+        current.map((driver) =>
+          driver.id === tripToClose.driverId
+            ? {
+                ...driver,
+                status: 'available',
+              }
+            : driver
+        )
+      );
+
+      appendAuditEntry({
+        category: 'trip',
+        action: 'Completed return',
+        target: tripToClose.requestNo,
+        branch: tripToClose.origin,
+        details: mileageSummary,
+      });
+      pushNotification(
+        'Vehicle returned',
+        `${tripToClose.vehicle} logged ${mileageComputed} km on return.`,
+        'info'
+      );
+      showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
+      const nextTripRecords = tripRecords.map((trip) =>
+        trip.id === tripToClose.id ? { ...trip, tripStatus: 'Returned' } : trip
+      );
+      setCheckinForm(
+        pickCheckinDefaults(
+          getVisibleTripRecords(nextTripRecords),
+          ACTIVE_TRIP_STATUSES
+        )
+      );
+      setActiveView('trips');
+    } catch (error) {
+      if (supabase) {
+        showToast(error.message || 'Unable to check the trip back in to Supabase.', 'danger', 'Check-in failed');
+      } else {
+        showToast(error.message || 'Unable to check the trip back in.', 'danger', 'Check-in failed');
+      }
+    } finally {
+      finishAsyncAction(actionKey);
     }
-
-    setTripRecords((current) =>
-      current.map((trip) =>
-        trip.id === tripToClose.id
-          ? {
-              ...trip,
-              tripStatus: 'Returned',
-              actualReturnDatetime: returnTimestamp,
-              dateIn: returnTimestamp,
-              odometerIn: resolvedOdometerIn,
-              fuelIn: checkinForm.fuelIn,
-              remarks: checkinForm.remarks,
-              mileageComputed,
-            }
-          : trip
-      )
-    );
-
-    setRequestRecords((current) =>
-      current.map((request) =>
-        request.requestNo === tripToClose.requestNo
-          ? {
-              ...request,
-              status: 'Returned',
-            }
-          : request
-      )
-    );
-
-    setVehicleRecords((current) =>
-      current.map((vehicle) =>
-        vehicle.vehicleName === tripToClose.vehicle
-          ? {
-              ...vehicle,
-              status: 'available',
-              odometerCurrent: isOdoDefective
-                ? vehicle.odometerCurrent
-                : odometerIn,
-              assignedDriver: tripToClose.driver,
-            }
-          : vehicle
-      )
-    );
-
-    setDriverRecords((current) =>
-      current.map((driver) =>
-        driver.id === tripToClose.driverId
-          ? {
-              ...driver,
-              status: 'available',
-            }
-          : driver
-      )
-    );
-
-    appendAuditEntry({
-      category: 'trip',
-      action: 'Completed return',
-      target: tripToClose.requestNo,
-      branch: tripToClose.origin,
-      details: mileageSummary,
-    });
-    pushNotification(
-      'Vehicle returned',
-      `${tripToClose.vehicle} logged ${mileageComputed} km on return.`,
-      'info'
-    );
-    showToast(`${tripToClose.vehicle} checked in and mileage updated.`, 'success', 'Vehicle returned');
-    const nextTripRecords = tripRecords.map((trip) =>
-      trip.id === tripToClose.id ? { ...trip, tripStatus: 'Returned' } : trip
-    );
-    setCheckinForm(
-      pickCheckinDefaults(
-        getVisibleTripRecords(nextTripRecords),
-        ACTIVE_TRIP_STATUSES
-      )
-    );
-    setActiveView('trips');
   }
 
   async function handleLogout() {
@@ -5772,6 +5935,12 @@ function App() {
       return;
     }
 
+    const actionKey = 'login-submit';
+
+    if (!startAsyncAction(actionKey)) {
+      return;
+    }
+
     try {
       setIsBootstrapping(true);
       setLoginError('');
@@ -5840,6 +6009,7 @@ function App() {
       });
     } finally {
       setIsBootstrapping(false);
+      finishAsyncAction(actionKey);
     }
   }
 
@@ -5956,9 +6126,9 @@ function App() {
               </span>
             </label>
             {authErrorMessage && <p className="auth-error">{authErrorMessage}</p>}
-            <button type="submit" className="button button-primary auth-submit" disabled={isBootstrapping}>
+            <button type="submit" className="button button-primary auth-submit" disabled={isBootstrapping || isLoginSubmitting}>
               <AppIcon name="dashboard" className="button-icon" />
-              {isBootstrapping ? 'Signing in...' : 'Log in'}
+              {isBootstrapping || isLoginSubmitting ? 'Signing in...' : 'Log in'}
             </button>
           </form>
 
@@ -6176,6 +6346,7 @@ function App() {
             requestModalOpen={requestModalOpen}
             requestForm={requestForm}
             requestApprovalForm={requestApprovalForm}
+            activeAsyncAction={activeAsyncAction}
             driverOptions={requestDriverOptions}
             vehicleOptions={requestVehicleOptions}
             allVehicleRecords={vehicleRecords}
@@ -6221,6 +6392,7 @@ function App() {
             vehicleRecords={vehicleRecords}
             checkoutForm={checkoutForm}
             checkinForm={checkinForm}
+            activeAsyncAction={activeAsyncAction}
             selectedCheckoutTrip={selectedCheckoutTrip}
             selectedCheckinTrip={selectedCheckinTrip}
             computedCheckinMileage={computedCheckinMileage}
@@ -6474,8 +6646,10 @@ function App() {
                     <span className="full-span muted">Leave both password fields blank to keep the current password.</span>
                   )}
                   <div className="full-span form-actions">
-                    <button type="submit" className="button button-primary button-solid">
-                      {userSettingsForm.id ? 'Save user' : 'Create user'}
+                    <button type="submit" className="button button-primary button-solid" disabled={isUserSettingsSubmitting}>
+                      {isUserSettingsSubmitting
+                        ? (userSettingsForm.id ? 'Saving user...' : 'Creating user...')
+                        : (userSettingsForm.id ? 'Save user' : 'Create user')}
                     </button>
                   </div>
                 </form>
@@ -6556,8 +6730,10 @@ function App() {
                     </select>
                   </label>
                   <div className="full-span form-actions">
-                    <button type="submit" className="button button-primary button-solid">
-                      {branchSettingsForm.id ? 'Save branch' : 'Create branch'}
+                    <button type="submit" className="button button-primary button-solid" disabled={isBranchSettingsSubmitting}>
+                      {isBranchSettingsSubmitting
+                        ? (branchSettingsForm.id ? 'Saving branch...' : 'Creating branch...')
+                        : (branchSettingsForm.id ? 'Save branch' : 'Create branch')}
                     </button>
                   </div>
                 </form>
@@ -6660,7 +6836,9 @@ function App() {
                     <input className="input" value={driverSettingsForm.contactNumber} onChange={(event) => handleDriverSettingsFieldChange('contactNumber', event.target.value)} />
                   </label>
                   <div className="full-span form-actions">
-                    <button type="submit" className="button button-primary button-solid">Save driver</button>
+                    <button type="submit" className="button button-primary button-solid" disabled={isDriverSettingsSubmitting}>
+                      {isDriverSettingsSubmitting ? 'Saving driver...' : 'Save driver'}
+                    </button>
                   </div>
                 </form>
               </section>
@@ -6853,7 +7031,9 @@ function App() {
                     )}
                   </label>
                   <div className="full-span form-actions">
-                    <button type="submit" className="button button-primary button-solid">Save vehicle</button>
+                    <button type="submit" className="button button-primary button-solid" disabled={isVehicleSettingsSubmitting}>
+                      {isVehicleSettingsSubmitting ? 'Saving vehicle...' : 'Save vehicle'}
+                    </button>
                   </div>
                 </form>
               </section>
@@ -6973,7 +7153,9 @@ function App() {
                     />
                   </label>
                   <div className="full-span form-actions">
-                    <button type="submit" className="button button-primary button-solid">Save record</button>
+                    <button type="submit" className="button button-primary button-solid" disabled={isMaintenanceSubmitting}>
+                      {isMaintenanceSubmitting ? 'Saving record...' : 'Save record'}
+                    </button>
                   </div>
                 </form>
               </section>
@@ -7059,7 +7241,9 @@ function App() {
                     />
                   </label>
                   <div className="full-span form-actions">
-                    <button type="submit" className="button button-primary button-solid">Submit report</button>
+                    <button type="submit" className="button button-primary button-solid" disabled={isIncidentSubmitting}>
+                      {isIncidentSubmitting ? 'Submitting...' : 'Submit report'}
+                    </button>
                   </div>
                 </form>
               </section>

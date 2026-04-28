@@ -42,6 +42,7 @@ export default function RequestsPage({
   requestModalOpen,
   requestForm,
   requestApprovalForm,
+  activeAsyncAction = '',
   driverOptions,
   vehicleOptions,
   allVehicleRecords = [],
@@ -93,6 +94,13 @@ export default function RequestsPage({
   const [currentPage, setCurrentPage] = useState(1);
   const actionMenuRef = useRef(null);
   const requestsPerPage = 6;
+  const isAnyAsyncActionBusy = Boolean(activeAsyncAction);
+  const isRequestSubmitting = activeAsyncAction === 'request-submit';
+  const isFuelSaveSubmitting = activeAsyncAction === 'request-fuel-save';
+  const isDriverSaveSubmitting = activeAsyncAction === 'request-driver-save';
+  const isApprovalSubmitting = activeAsyncAction === 'request-approve';
+  const isRejectSubmitting = activeAsyncAction === 'request-reject';
+  const isAssignmentSubmitting = activeAsyncAction === 'request-assignment';
   const isHiredDriverSelected = requestForm.assignedDriverId === REQUEST_HIRED_DRIVER_OPTION_VALUE;
   const selectedRequestDriver = isHiredDriverSelected
     ? {
@@ -123,6 +131,7 @@ export default function RequestsPage({
     || (requestForm.assignedDriverId && !requestDriverValidation.isValid)
     || hasMissingHiredDriverFields
   );
+  const isRequestSubmitDisabled = isRequestSubmissionBlocked || isRequestSubmitting;
   const showsUserFuelEditActions = !showsAssignmentActions && !isGuard && !isPumpStation;
   const showsActionColumn = showsAssignmentActions || showsUserFuelEditActions || showsReadOnlyDetailAction;
 
@@ -452,7 +461,7 @@ export default function RequestsPage({
               </div>
             )}
             {canCreateRequest && (
-              <button type="button" className="button button-primary request-create-button" onClick={onOpenRequestModal}>
+              <button type="button" className="button button-primary request-create-button" onClick={onOpenRequestModal} disabled={isAnyAsyncActionBusy}>
                 <AppIcon name="requests" className="button-icon" />
                 {isAdmin ? 'New request' : 'Create request'}
               </button>
@@ -496,6 +505,7 @@ export default function RequestsPage({
                         <button
                           type="button"
                           className="button button-secondary request-page-button"
+                          disabled={isAnyAsyncActionBusy}
                           onClick={() => onOpenRequestDetails(request)}
                         >
                           View details
@@ -593,6 +603,7 @@ export default function RequestsPage({
                                       aria-label={`Open actions for ${request.requestNo}`}
                                       aria-expanded={openActionMenuId === request.id}
                                       aria-haspopup="menu"
+                                      disabled={isAnyAsyncActionBusy}
                                       onClick={() => setOpenActionMenuId((current) => (current === request.id ? '' : request.id))}
                                     >
                                       <span className="action-menu-trigger-label">Actions</span>
@@ -669,6 +680,7 @@ export default function RequestsPage({
                                 <button
                                   type="button"
                                   className="button button-secondary request-page-button"
+                                  disabled={isAnyAsyncActionBusy}
                                   onClick={() => onOpenRequestDetails(request)}
                                 >
                                   View details
@@ -688,6 +700,7 @@ export default function RequestsPage({
                                       <button
                                         type="button"
                                         className="button button-secondary request-page-button"
+                                        disabled={isAnyAsyncActionBusy}
                                         onClick={() => onOpenRequestDetails(request)}
                                       >
                                         Edit fuel
@@ -695,6 +708,7 @@ export default function RequestsPage({
                                       <button
                                         type="button"
                                         className="button button-secondary request-page-button"
+                                        disabled={isAnyAsyncActionBusy}
                                         onClick={() => onPrintRequest(request)}
                                       >
                                         View approved ticket
@@ -708,6 +722,7 @@ export default function RequestsPage({
                                     <button
                                       type="button"
                                       className="button button-secondary request-page-button"
+                                      disabled={isAnyAsyncActionBusy}
                                       onClick={() => onOpenRequestDetails(request)}
                                     >
                                       Edit fuel
@@ -719,6 +734,7 @@ export default function RequestsPage({
                                   <button
                                     type="button"
                                     className="button button-secondary request-page-button"
+                                    disabled={isAnyAsyncActionBusy}
                                     onClick={() => onPrintRequest(request)}
                                   >
                                     View approved ticket
@@ -1020,11 +1036,18 @@ export default function RequestsPage({
                   />
                 </label>
                 <div className="full-span form-actions">
-                  <button type="submit" className="button button-primary button-solid" disabled={isRequestSubmissionBlocked}>
-                    Submit request
+                  <button
+                    type="submit"
+                    className="button button-primary button-solid"
+                    disabled={isRequestSubmitDisabled}
+                    aria-busy={isRequestSubmitting}
+                  >
+                    {isRequestSubmitting ? 'Sending request...' : 'Submit request'}
                   </button>
                   <span className="muted">
-                    {isRequestSubmissionBlocked
+                    {isRequestSubmitting
+                      ? 'Sending the request now. Please wait before submitting again.'
+                      : isRequestSubmissionBlocked
                       ? (isVehicleMissingInRequestForm
                         ? 'Select a vehicle before submitting this request.'
                         : hasMissingHiredDriverFields
@@ -1400,6 +1423,7 @@ export default function RequestsPage({
                   <button
                     type="button"
                     className="button button-secondary"
+                    disabled={isAnyAsyncActionBusy}
                     onClick={() => onPrintRequest(selectedRequestDetails)}
                   >
                     {selectedRequestDetails.fuelRequested ? 'Open fuel slip PDF' : 'Open approved ticket'}
@@ -1411,9 +1435,10 @@ export default function RequestsPage({
                   <button
                     type="button"
                     className="button button-primary button-solid"
+                    disabled={isFuelSaveSubmitting || isAnyAsyncActionBusy}
                     onClick={handleSaveFuelFromDetails}
                   >
-                    Save fuel changes
+                    {isFuelSaveSubmitting ? 'Saving fuel...' : 'Save fuel changes'}
                   </button>
                 </div>
               )}
@@ -1422,9 +1447,10 @@ export default function RequestsPage({
                   <button
                     type="button"
                     className="button button-primary button-solid"
+                    disabled={isDriverSaveSubmitting || isAnyAsyncActionBusy}
                     onClick={handleSaveDriverFromDetails}
                   >
-                    Save driver change
+                    {isDriverSaveSubmitting ? 'Saving driver...' : 'Save driver change'}
                   </button>
                 </div>
               )}
@@ -1433,17 +1459,18 @@ export default function RequestsPage({
                   <button
                     type="button"
                     className="button button-primary button-solid"
+                    disabled={isApprovalSubmitting || isAnyAsyncActionBusy || isApprovalBlockedByMissingVehicle}
                     onClick={handleApproveFromDetails}
-                    disabled={isApprovalBlockedByMissingVehicle}
                   >
-                    Approve request
+                    {isApprovalSubmitting ? 'Approving...' : 'Approve request'}
                   </button>
                   <button
                     type="button"
                     className="button button-danger"
+                    disabled={isRejectSubmitting || isAnyAsyncActionBusy}
                     onClick={handleRejectFromDetails}
                   >
-                    Reject request
+                    {isRejectSubmitting ? 'Rejecting...' : 'Reject request'}
                   </button>
                   {isApprovalBlockedByMissingVehicle && (
                     <span className="muted">Assign a vehicle first before approving this request.</span>
@@ -1500,8 +1527,12 @@ export default function RequestsPage({
                   </select>
                 </label>
                 <div className="full-span form-actions">
-                  <button type="submit" className="button button-primary button-solid">
-                    Save vehicle
+                  <button
+                    type="submit"
+                    className="button button-primary button-solid"
+                    disabled={isAssignmentSubmitting || isAnyAsyncActionBusy}
+                  >
+                    {isAssignmentSubmitting ? 'Saving vehicle...' : 'Save vehicle'}
                   </button>
                   <span className="muted">This updates the assigned vehicle without changing the rest of the request.</span>
                 </div>
@@ -1549,8 +1580,12 @@ export default function RequestsPage({
                   />
                 </label>
                 <div className="full-span form-actions">
-                  <button type="submit" className="button button-danger button-solid">
-                    Confirm rejection
+                  <button
+                    type="submit"
+                    className="button button-danger button-solid"
+                    disabled={isRejectSubmitting || isAnyAsyncActionBusy}
+                  >
+                    {isRejectSubmitting ? 'Rejecting...' : 'Confirm rejection'}
                   </button>
                   <span className="muted">This remark will be saved with the rejected request.</span>
                 </div>
