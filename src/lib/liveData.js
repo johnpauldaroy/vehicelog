@@ -42,8 +42,9 @@ function titleCaseRole(value) {
 }
 
 const ROLE_PRIORITY = {
-  admin: 6,
-  approver: 5,
+  admin: 7,
+  approver: 6,
+  backup_approver: 5,
   guard: 4,
   pump_station: 3,
   driver: 2,
@@ -53,6 +54,7 @@ const ROLE_PRIORITY = {
 const ROLE_ID_TO_NAME = {
   '00000000-0000-0000-0000-000000000001': 'admin',
   '00000000-0000-0000-0000-000000000002': 'approver',
+  '00000000-0000-0000-0000-000000000007': 'backup_approver',
   '00000000-0000-0000-0000-000000000003': 'driver',
   '00000000-0000-0000-0000-000000000004': 'requester',
   '00000000-0000-0000-0000-000000000005': 'guard',
@@ -807,6 +809,20 @@ async function resolveAdminApproverId(client, branchId) {
   return resolvedId || null;
 }
 
+async function resolveBranchMainApproverId(client, branchId, requesterId) {
+  const { data, error } = await client.rpc('resolve_branch_main_approver', {
+    branch_uuid: branchId || null,
+    requester_uuid: requesterId || null,
+  });
+
+  if (error) {
+    throw new Error(`Unable to resolve branch main approver: ${error.message}`);
+  }
+
+  const resolvedId = String(data || '').trim();
+  return resolvedId || null;
+}
+
 function mapGuardRequestRecord(entry) {
   const passengerNames = Array.isArray(entry?.passenger_names)
     ? entry.passenger_names
@@ -1317,6 +1333,11 @@ function isEdgeFunctionUnavailable(error) {
 function isRecoverableUserRoleWriteError(message) {
   const normalized = String(message || '').toLowerCase();
   return normalized.includes('user_roles') && normalized.includes('row-level security');
+}
+
+function isOutdatedBackupApproverEdgeFunctionError(message, roleName) {
+  const normalized = String(message || '').toLowerCase();
+  return roleName === 'backup_approver' && normalized.includes('select a valid role');
 }
 
 function isUnsupportedEdgeJwtAlgorithmError(message) {
@@ -2197,8 +2218,9 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
   const selectedVehicleId = requestForm.assignedVehicleId || null;
   const selectedDriverId = requestForm.assignedDriverId || null;
   const forcedApproverId = String(options?.forcedApproverId || '').trim() || null;
-  const normalizedRole = String(currentSessionUser?.role || '').trim().toLowerCase();
+  const normalizedRole = normalizeRoleName(currentSessionUser?.role);
   const isApproverRequest = normalizedRole === 'approver';
+  const isBackupApproverRequest = normalizedRole === 'backup_approver';
   let resolvedApproverId = forcedApproverId;
   const passengerNames = Array.isArray(requestForm.passengerNames)
     ? requestForm.passengerNames.map((name) => String(name || '').trim()).filter(Boolean)
@@ -2210,8 +2232,20 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
     resolvedApproverId = await resolveAdminApproverId(client, currentSessionUser.branchId);
   }
 
+  if (isBackupApproverRequest && !resolvedApproverId) {
+    resolvedApproverId = await resolveBranchMainApproverId(
+      client,
+      currentSessionUser.branchId,
+      currentSessionUser.id
+    );
+  }
+
   if (isApproverRequest && !resolvedApproverId) {
     throw new Error('No admin approver account is available for this branch.');
+  }
+
+  if (isBackupApproverRequest && !resolvedApproverId) {
+    throw new Error('No main branch approver account is available for this branch.');
   }
 
   if (!selectedVehicleId) {
@@ -2473,6 +2507,13 @@ export async function checkinLiveTrip(client, trip, checkinForm, odometerIn) {
 }
 
 export async function reviewLiveRequest(client, request, sessionUser, nextStatus, approvalDetailsOrRejectionReason = null) {
+  const isSelfReview = String(request?.requestedById || '') === String(sessionUser?.id || '');
+  const isReviewDecision = ['Approved', 'Rejected'].includes(nextStatus);
+
+  if (isSelfReview && isReviewDecision && normalizeRoleName(sessionUser?.role) !== 'admin') {
+    throw new Error('You cannot approve or reject your own request.');
+  }
+
   const approvalDetails = nextStatus === 'Approved' && approvalDetailsOrRejectionReason && typeof approvalDetailsOrRejectionReason === 'object'
     ? approvalDetailsOrRejectionReason
     : null;
@@ -2816,13 +2857,24 @@ export async function updateLiveProfile(client, profileForm) {
       return updateLiveProfileFallback(client, payload);
     }
 
+    if (isOutdatedBackupApproverEdgeFunctionError(message, payload.role)) {
+      if (requiresAuthUpdate) {
+        throw new Error('The deployed update-user Edge Function must be redeployed before changing login email/password for Backup Approver users.');
+      }
+
+      return updateLiveProfileFallback(client, payload);
+    }
+
     throw new Error(message);
   }
 
   if (data?.error) {
-    if (isRecoverableUserRoleWriteError(data.error)) {
+    if (
+      isRecoverableUserRoleWriteError(data.error)
+      || isOutdatedBackupApproverEdgeFunctionError(data.error, payload.role)
+    ) {
       if (requiresAuthUpdate) {
-        throw new Error('Updating login email or password requires the update-user Edge Function.');
+        throw new Error('Updating login email or password requires the updated update-user Edge Function.');
       }
 
       return updateLiveProfileFallback(client, payload);
@@ -2856,11 +2908,18 @@ export async function createLiveUser(client, profileForm) {
       return createLiveUserFallback(client, profileForm);
     }
 
+    if (isOutdatedBackupApproverEdgeFunctionError(message, payload.role)) {
+      return createLiveUserFallback(client, profileForm);
+    }
+
     throw new Error(message);
   }
 
   if (data?.error) {
-    if (isRecoverableUserRoleWriteError(data.error)) {
+    if (
+      isRecoverableUserRoleWriteError(data.error)
+      || isOutdatedBackupApproverEdgeFunctionError(data.error, payload.role)
+    ) {
       return createLiveUserFallback(client, profileForm);
     }
 

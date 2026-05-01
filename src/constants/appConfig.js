@@ -1,6 +1,6 @@
 export const navItems = [
-  { id: 'dashboard', label: 'Overview', icon: 'dashboard', roles: ['admin', 'approver', 'requester', 'driver'] },
-  { id: 'requests', label: 'Requests', icon: 'requests', roles: ['admin', 'approver', 'guard', 'pump_station', 'requester', 'driver'] },
+  { id: 'dashboard', label: 'Overview', icon: 'dashboard', roles: ['admin', 'approver', 'backup_approver', 'requester', 'driver'] },
+  { id: 'requests', label: 'Requests', icon: 'requests', roles: ['admin', 'approver', 'backup_approver', 'guard', 'pump_station', 'requester', 'driver'] },
   { id: 'trips', label: 'Trips', icon: 'trips', roles: ['admin', 'approver', 'guard', 'driver'] },
   { id: 'calendar', label: 'Calendar', icon: 'calendar', roles: ['admin', 'approver', 'requester', 'driver'] },
   { id: 'vehicles', label: 'Fleet', icon: 'vehicles', roles: ['admin'] },

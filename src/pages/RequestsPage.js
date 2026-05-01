@@ -79,12 +79,13 @@ export default function RequestsPage({
 }) {
   const isAdmin = mode === 'admin';
   const isApprover = mode === 'approver';
+  const isBackupApprover = mode === 'backup_approver';
   const isGuard = mode === 'guard';
   const isPumpStation = mode === 'pump_station';
   const isDriver = mode === 'driver';
-  const canReviewRequests = isAdmin || isApprover;
-  const showsQueue = isAdmin || isApprover || isGuard || isPumpStation;
-  const showsAssignmentActions = isAdmin || isApprover;
+  const canReviewRequests = isAdmin || isApprover || isBackupApprover;
+  const showsQueue = isAdmin || isApprover || isBackupApprover || isGuard || isPumpStation;
+  const showsAssignmentActions = isAdmin || isApprover || isBackupApprover;
   const showsReadOnlyDetailAction = isGuard || isPumpStation;
   const canCreateRequest = !isGuard && !isPumpStation;
   const canAddHiredDriver = isAdmin || isApprover;
@@ -180,7 +181,7 @@ export default function RequestsPage({
 
   const canEditFuelInDetails = canUserUpdateFuel(selectedRequestDetails);
   const canEditDriverInPendingDetails = canReviewRequests && selectedRequestDetails?.status === 'Pending Approval';
-  const canEditDriverInCheckedOutDetails = canReviewRequests && selectedRequestDetails?.status === 'Checked Out';
+  const canEditDriverInCheckedOutDetails = (isAdmin || isApprover) && selectedRequestDetails?.status === 'Checked Out';
   const canEditDriverInDetails = canEditDriverInPendingDetails || canEditDriverInCheckedOutDetails;
   const canShowStandaloneFuelSaveAction = canEditFuelInDetails
     && !(canReviewRequests && selectedRequestDetails?.status === 'Pending Approval');
@@ -409,7 +410,9 @@ export default function RequestsPage({
             : isPumpStation
               ? `View approved fuel authorizations for ${currentUser.branch}.`
             : showsQueue
-            ? 'Search and review requests waiting in your branch queue'
+            ? isBackupApprover
+              ? 'Search and review backup approval requests for your branch'
+              : 'Search and review requests waiting in your branch queue'
             : isDriver
               ? `Track requests submitted by or assigned to ${currentUser.name}`
               : `Track requests submitted by ${currentUser.name}`

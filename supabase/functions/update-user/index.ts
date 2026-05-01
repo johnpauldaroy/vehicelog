@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const allowedRoles = new Set(['admin', 'approver', 'guard', 'pump_station', 'driver', 'requester']);
+const allowedRoles = new Set(['admin', 'approver', 'backup_approver', 'guard', 'pump_station', 'driver', 'requester']);
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -121,7 +121,7 @@ serve(async (request) => {
     const email = String(payload.email ?? '').trim().toLowerCase();
     const fullName = String(payload.fullName ?? '').trim();
     const password = String(payload.password ?? '');
-    const roleName = String(payload.role ?? '').trim().toLowerCase();
+    const roleName = String(payload.role ?? '').trim().toLowerCase().replace(/\s+/g, '_');
     const branchId = String(payload.branchId ?? '').trim();
 
     if (!userId) {

@@ -39,6 +39,7 @@ $$;
 insert into public.roles (id, name, description) values
   ('00000000-0000-0000-0000-000000000001', 'admin', 'Full fleet administrator'),
   ('00000000-0000-0000-0000-000000000002', 'approver', 'Branch approver or manager'),
+  ('00000000-0000-0000-0000-000000000007', 'backup_approver', 'Backup branch request approver'),
   ('00000000-0000-0000-0000-000000000005', 'guard', 'Branch guard request monitor'),
   ('00000000-0000-0000-0000-000000000006', 'pump_station', 'Pump station fuel authorization portal'),
   ('00000000-0000-0000-0000-000000000003', 'driver', 'Authorized driver'),

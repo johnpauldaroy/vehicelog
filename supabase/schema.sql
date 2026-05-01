@@ -64,6 +64,32 @@ $$;
 
 grant execute on function public.resolve_admin_approver(uuid) to authenticated;
 
+drop function if exists public.resolve_branch_main_approver(uuid, uuid);
+
+create or replace function public.resolve_branch_main_approver(branch_uuid uuid, requester_uuid uuid default null)
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.id
+  from public.profiles p
+  join public.user_roles ur on ur.user_id = p.id
+  join public.roles r on r.id = ur.role_id
+  where r.name = 'approver'
+    and ur.branch_id = branch_uuid
+    and p.branch_id = branch_uuid
+    and (requester_uuid is null or p.id <> requester_uuid)
+    and p.is_active is distinct from false
+    and p.deleted_at is null
+  order by ur.created_at asc, p.created_at asc, p.id asc
+  limit 1;
+$$;
+
+grant execute on function public.resolve_branch_main_approver(uuid, uuid) to authenticated;
+
+
 create table if not exists public.roles (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
@@ -216,6 +242,7 @@ create table if not exists public.vehicle_requests (
   created_by uuid,
   deleted_at timestamptz
 );
+
 
 alter table public.vehicle_requests
   add column if not exists fuel_requested boolean not null default false,

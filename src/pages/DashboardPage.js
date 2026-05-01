@@ -91,7 +91,7 @@ export default function DashboardPage({
   notificationFeed,
 }) {
   const isAdmin = mode === 'admin';
-  const isApprover = mode === 'approver';
+  const isApprover = mode === 'approver' || mode === 'backup_approver';
   const isDriver = mode === 'driver';
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedDate, setSelectedDate] = useState('');

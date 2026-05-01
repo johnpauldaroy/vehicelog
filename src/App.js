@@ -338,6 +338,10 @@ function normalizeRoleLabel(value) {
       return 'Admin';
     case 'approver':
       return 'Approver';
+    case 'backup_approver':
+    case 'backupapprover':
+    case 'backup':
+      return 'Backup Approver';
     case 'guard':
       return 'Guard';
     case 'pump_station':
@@ -683,6 +687,8 @@ function App() {
     ? 'admin'
     : normalizedRole === 'approver'
       ? 'approver'
+      : normalizedRole === 'backup_approver'
+        ? 'backup_approver'
       : normalizedRole === 'guard'
         ? 'guard'
       : normalizedRole === 'pump_station'
@@ -690,6 +696,8 @@ function App() {
       : normalizedRole === 'driver'
         ? 'driver'
       : 'requester';
+  const isRequestReviewerMode = userMode === 'admin' || userMode === 'approver' || userMode === 'backup_approver';
+  const isBranchRequestReviewerMode = userMode === 'approver' || userMode === 'backup_approver';
   const canManageVehicleSettings = userMode === 'admin' || userMode === 'approver';
   const canManageDriverSettings = userMode === 'admin' || userMode === 'approver';
   const approverManagedBranchId = useMemo(() => {
@@ -1334,7 +1342,7 @@ function App() {
       return requestRecords;
     }
 
-    if (userMode === 'approver' || userMode === 'guard' || userMode === 'pump_station') {
+    if (userMode === 'approver' || userMode === 'backup_approver' || userMode === 'guard' || userMode === 'pump_station') {
       return requestRecords.filter((request) => request.branch === currentSessionUser.branch);
     }
 
@@ -1904,6 +1912,23 @@ function App() {
       && isAdminLikeUser(user)
     )) || null;
   }, [currentSessionUser.branch, currentSessionUser.branchId, currentSessionUser.id, userRecords]);
+  const branchMainApprover = useMemo(() => {
+    const normalizedCurrentBranchName = normalizeComparableText(currentSessionUser.branch);
+
+    return userRecords.find((user) => {
+      const normalizedUserRole = normalizeComparableText(user.role).replace(/\s+/g, '_');
+      const isSameBranch = (
+        (currentSessionUser.branchId && String(user.branchId || '') === String(currentSessionUser.branchId))
+        || normalizeComparableText(user.branch) === normalizedCurrentBranchName
+      );
+
+      return (
+        user.id !== currentSessionUser.id
+        && normalizedUserRole === 'approver'
+        && isSameBranch
+      );
+    }) || null;
+  }, [currentSessionUser.branch, currentSessionUser.branchId, currentSessionUser.id, userRecords]);
 
   const availableNavItems = useMemo(
     () => navItems.filter((item) => item.roles.includes(userMode)),
@@ -2015,7 +2040,7 @@ function App() {
 
   const topbarActionNotifications = useMemo(() => {
     const items = [];
-    const canReviewRequests = userMode === 'admin' || userMode === 'approver';
+    const canReviewRequests = isRequestReviewerMode;
     const canUpdateFuel = userMode === 'driver' || userMode === 'requester';
     const canManageTrips = ['admin', 'approver', 'driver'].includes(userMode);
     const nowTimestamp = Date.now();
@@ -2025,6 +2050,16 @@ function App() {
     if (canReviewRequests) {
       visibleRequestRecords.forEach((request) => {
         if (request.status !== 'Pending Approval') {
+          return;
+        }
+
+        if (
+          userMode !== 'admin'
+          && (
+            (request.requestedById && currentSessionUser.id && request.requestedById === currentSessionUser.id)
+            || String(request.requestedBy || '').trim() === String(currentSessionUser.name || '').trim()
+          )
+        ) {
           return;
         }
 
@@ -2224,6 +2259,7 @@ function App() {
     currentDriverRecord?.id,
     currentSessionUser.id,
     currentSessionUser.name,
+    isRequestReviewerMode,
     notificationFeed,
     userMode,
     visibleRequestRecords,
@@ -2238,10 +2274,10 @@ function App() {
 
     switch (selectedView) {
       case 'requests':
-        if (userMode === 'approver') {
+        if (isBranchRequestReviewerMode) {
           return {
-            kicker: 'Approvals',
-            title: 'Review and clear branch requests.',
+            kicker: userMode === 'backup_approver' ? 'Backup approvals' : 'Approvals',
+            title: userMode === 'backup_approver' ? 'Review branch requests as backup.' : 'Review and clear branch requests.',
             description:
               'Track requests waiting for approval in your branch and keep release status visible.',
             primaryAction: null,
@@ -2587,9 +2623,9 @@ function App() {
         };
       case 'dashboard':
       default:
-        if (userMode === 'approver') {
+        if (isBranchRequestReviewerMode) {
           return {
-            kicker: 'Approver desk',
+            kicker: userMode === 'backup_approver' ? 'Backup approver desk' : 'Approver desk',
             title: `Welcome back, ${currentSessionUser.name}.`,
             description:
               'This view is focused on requests waiting for approval in your branch.',
@@ -2706,6 +2742,7 @@ function App() {
     requestStatusSummary,
     branchScopedRequestStatusSummary,
     calendarTripStatusSummary,
+    isBranchRequestReviewerMode,
     tripsPageTripStatusSummary,
     settingsDriverRecords,
     settingsUserRecords,
@@ -3180,8 +3217,8 @@ function App() {
       return false;
     }
 
-    // Admin/Approver can edit both pending and ready
-    if (userMode === 'approver' || userMode === 'admin') {
+    // Request reviewers can edit pending approval fuel details.
+    if (isRequestReviewerMode) {
       return true;
     }
 
@@ -3224,7 +3261,7 @@ function App() {
     const beforeFuelSnapshot = `${String(request.fuelProduct || 'diesel').replace(/_/g, ' ')} | PHP ${Number(request.fuelAmount || 0).toFixed(2)} / ${Number(request.fuelLiters || 0).toFixed(2)} L`;
     const afterFuelSnapshot = `${String(nextFuelDetails.fuelProduct || 'diesel').replace(/_/g, ' ')} | PHP ${nextFuelDetails.fuelAmount.toFixed(2)} / ${nextFuelDetails.fuelLiters.toFixed(2)} L`;
     const isReady = request.status === 'Ready for Release';
-    const requiresReapproval = isReady && userMode !== 'approver' && userMode !== 'admin';
+    const requiresReapproval = isReady && !isRequestReviewerMode;
 
     const updatedRequest = {
       ...request,
@@ -3498,7 +3535,12 @@ function App() {
   }
 
   async function handleReviewRequest(request, nextStatus, approvalDetails = null) {
-    if (!['approver', 'admin'].includes(userMode)) {
+    if (!isRequestReviewerMode) {
+      return false;
+    }
+
+    if (['Approved', 'Rejected'].includes(nextStatus) && userMode !== 'admin' && isRequestOwner(request)) {
+      showToast('You cannot approve or reject your own request.', 'warning', 'Review blocked');
       return false;
     }
 
@@ -3690,7 +3732,12 @@ function App() {
   async function handleRejectSubmit(event) {
     event.preventDefault();
 
-    if (!['approver', 'admin'].includes(userMode) || !selectedReviewRequest) {
+    if (!isRequestReviewerMode || !selectedReviewRequest) {
+      return;
+    }
+
+    if (userMode !== 'admin' && isRequestOwner(selectedReviewRequest)) {
+      showToast('You cannot reject your own request.', 'warning', 'Rejection blocked');
       return;
     }
 
@@ -5407,10 +5454,14 @@ function App() {
 
     const forcedApproverId = userMode === 'approver'
       ? branchAdminApprover?.id || null
-      : null;
+      : userMode === 'backup_approver'
+        ? branchMainApprover?.id || null
+        : null;
     const forcedApproverName = userMode === 'approver'
       ? branchAdminApprover?.name || 'Pending'
-      : 'Pending';
+      : userMode === 'backup_approver'
+        ? branchMainApprover?.name || 'Pending'
+        : 'Pending';
 
     const actionKey = 'request-submit';
 
@@ -6610,7 +6661,7 @@ function App() {
                       value={userSettingsForm.role}
                       onChange={(event) => handleUserSettingsFieldChange('role', event.target.value)}
                     >
-                      {['Admin', 'Approver', 'Guard', 'Pump Station', 'Driver', 'Requester'].map((role) => (
+                      {['Admin', 'Approver', 'Backup Approver', 'Guard', 'Pump Station', 'Driver', 'Requester'].map((role) => (
                         <option key={role} value={role}>{role}</option>
                       ))}
                     </select>
