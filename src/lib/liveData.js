@@ -156,12 +156,15 @@ function isRequestNumberUniqueConstraintError(error) {
   const normalizedDetails = String(error?.details || '').trim().toLowerCase();
   const normalizedHint = String(error?.hint || '').trim().toLowerCase();
   const isUniqueViolation = normalizedCode === '23505'
-    || normalizedMessage.includes('duplicate key value violates unique constraint');
+    || normalizedMessage.includes('duplicate key value violates unique constraint')
+    || normalizedMessage.includes('unique constraint');
   const referencesRequestNo = normalizedMessage.includes('request_no')
     || normalizedDetails.includes('request_no')
     || normalizedHint.includes('request_no')
     || normalizedMessage.includes('request_no_key')
-    || normalizedDetails.includes('request_no_key');
+    || normalizedDetails.includes('request_no_key')
+    || normalizedMessage.includes('vehicle_requests_request_no_key')
+    || normalizedDetails.includes('vehicle_requests_request_no_key');
 
   return isUniqueViolation && referencesRequestNo;
 }
@@ -2309,7 +2312,12 @@ export async function createLiveRequest(client, currentSessionUser, requestForm,
       break;
     }
 
+    const isUniqueViolation = String(error?.code || '') === '23505'
+      || String(error?.message || '').toLowerCase().includes('unique constraint');
     if (!isRequestNumberUniqueConstraintError(error)) {
+      if (isUniqueViolation) {
+        throw new Error('A duplicate request number was generated. Please submit the request again.');
+      }
       throw error;
     }
 
