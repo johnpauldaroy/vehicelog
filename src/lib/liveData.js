@@ -1992,11 +1992,6 @@ export async function fetchLiveAppData(client) {
       .filter((trip) => ['Ready for Release', 'Checked Out', 'In Transit', 'Overdue'].includes(trip.tripStatus))
       .map((trip) => [trip.driverId, trip])
   );
-  const reservedVehicleIds = new Set(
-    requestRecords
-      .filter((request) => request.assignedVehicleId && ['Pending Approval', 'Approved'].includes(request.status))
-      .map((request) => request.assignedVehicleId)
-  );
   const assignedDriverIds = new Set(
     requestRecords
       .filter((request) => request.assignedDriverId && ['Pending Approval', 'Approved'].includes(request.status))
@@ -2005,13 +2000,6 @@ export async function fetchLiveAppData(client) {
 
   const vehicleRecords = vehicles.map((vehicle) => {
     const relatedTrip = activeTripByVehicle.get(vehicle.id);
-    const derivedStatus = relatedTrip
-      ? ['Checked Out', 'In Transit', 'Overdue'].includes(relatedTrip.tripStatus)
-        ? 'in_use'
-        : 'reserved'
-      : reservedVehicleIds.has(vehicle.id)
-        ? 'reserved'
-        : vehicle.status;
 
     return {
       id: vehicle.id,
@@ -2021,7 +2009,7 @@ export async function fetchLiveAppData(client) {
       type: vehicleTypeMap.get(vehicle.vehicle_type_id)?.name || 'Vehicle',
       branch: branchMap.get(vehicle.assigned_branch_id)?.name || 'Unknown',
       branchId: vehicle.assigned_branch_id,
-      status: derivedStatus,
+      status: vehicle.status,
       fuelType: vehicle.fuel_type || '-',
       seatingCapacity: vehicle.seating_capacity || 0,
       odometerCurrent: Number(vehicle.odometer_current || 0),
